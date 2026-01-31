@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-dotenv
+jinja2
+sqlalchemy
+pydantic
+requests
+selectolax
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
