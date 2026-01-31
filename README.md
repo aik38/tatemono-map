@@ -119,10 +119,20 @@ uvicorn tatemono_map.api.main:app --reload --host 127.0.0.1 --port 8000
 
 ## 一発 PowerShell コマンド集（README 末尾）
 
-### 1) 日常更新：pull → 変更確認 → add → commit → push
+### 1) 日常更新：基本は Codex → GitHub merge → ローカル pull で確認
+**⚠️ 注意：`On branch main` などの「出力」はコマンドではないので貼り付けない**
+
+#### (A) 基本フロー（Codex運用）：GitHubでmerge後にローカルで pull して動作確認
 ```powershell
-git pull
+cd C:\dev\tatemono-map
+; git pull
 ; git status
+; # 変更内容を確認してローカルで動作確認
+```
+
+#### (B) 例外（ローカルで変更した場合のみ）：add → commit → push
+```powershell
+cd C:\dev\tatemono-map
 ; git add -A
 ; git commit -m "chore: update"
 ; git push
@@ -130,7 +140,8 @@ git pull
 
 ### 2) PR運用：feature ブランチ作成 → push → PR → mainへマージ → pull
 ```powershell
-$branch = "feature/your-topic"
+cd C:\dev\tatemono-map
+; $branch = "feature/your-topic"
 ; git checkout -b $branch
 ; git push -u origin $branch
 ; # PR を作成（GitHub などのUIで）
@@ -141,5 +152,6 @@ $branch = "feature/your-topic"
 
 ### 3) 起動：uvicorn 実行（必要なら --reload / host / port）
 ```powershell
-uvicorn tatemono_map.api.main:app --reload --host 127.0.0.1 --port 8000
+cd C:\dev\tatemono-map
+; uvicorn tatemono_map.api.main:app --reload --host 127.0.0.1 --port 8000
 ```
