@@ -9,16 +9,29 @@
 
 0) **前提：PowerShell 7.x / Windows 11**
 
-1) **ローカル同期（GitHub→ローカル）**
-**`pwsh -NoProfile -ExecutionPolicy Bypass -Command "cd $env:USERPROFILE\tatemono-map; git pull --ff-only; git status"`**
+1) **同期（GitHub→ローカル）**
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+Set-Location $REPO
+git pull --ff-only
+git status
+```
 
-2) **起動（API起動）**
-**`pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1"`**
+2) **起動（scripts/dev.ps1）**
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev.ps1"
+```
 
-3) **変更の取り込み（コミット&push）**
-**`pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\push.ps1" -Message "ここにコミットメッセージ"`**
+3) **疎通（別ターミナルで）**
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8000/health"
+```
 
-4) **よくある停止理由（sync.ps1が止まる）**
+4) **変更の取り込み（コミット&push）**
+- `scripts/push.ps1` で一発 push（詳細は下記の「スクリプト一覧」）
+
+5) **よくある停止理由（sync.ps1が止まる）**
 - “Untracked files: db/ があると sync.ps1 が止まる”
   - **対処（1行）**：`db/` を `.gitignore` に入れる（推奨） or `sync.ps1 -Force`
 
