@@ -51,7 +51,7 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 期待されるレスポンス：
 ```json
-{"ok": true}
+{"status": "ok", "app": "Tatemono Map", "time": "2024-01-01T00:00:00+00:00"}
 ```
 
 ブラウザ確認：
