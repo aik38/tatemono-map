@@ -4,27 +4,23 @@
 
 ---
 
-## 最短ルート（迷ったらこれ）
+## 最短ルート（迷ったらここだけ）
 **1本の流れで迷わない運用手順です。GitHub で merge した後の同期もこれだけ。**
 
-1) **ローカル同期（GitHubの変更をローカルへ）**
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\sync.ps1"
-```
+0) **前提：PowerShell 7.x / Windows 11**
+
+1) **ローカル同期（GitHub→ローカル）**
+**`pwsh -NoProfile -ExecutionPolicy Bypass -Command "cd $env:USERPROFILE\tatemono-map; git pull --ff-only; git status"`**
 
 2) **起動（API起動）**
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1"
-```
+**`pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1"`**
 
-3) **コミット＆push（変更をGitHubへ）**
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\push.ps1" -Message "ここにコミットメッセージ"
-```
+3) **変更の取り込み（コミット&push）**
+**`pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\push.ps1" -Message "ここにコミットメッセージ"`**
 
-### よくあるミス（短く）
-- `git status` などの **出力を貼り付けて実行しない**（出力はコマンドではありません）
-- **repo外で `git` を直接叩かない**（同期・push は scripts に一本化）
+4) **よくある停止理由（sync.ps1が止まる）**
+- “Untracked files: db/ があると sync.ps1 が止まる”
+  - **対処（1行）**：`db/` を `.gitignore` に入れる（推奨） or `sync.ps1 -Force`
 
 ---
 
