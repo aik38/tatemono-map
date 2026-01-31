@@ -39,6 +39,14 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
+#### 依存関係を追加するとき（MVP拡張時）
+- **requirements.txt 管理の場合**：追加したいパッケージ名を `requirements.txt` に追記してから再インストール。
+- **pyproject.toml 管理の場合**：`[project] dependencies = [...]` に追記して `pip install -e .` を再実行。
+```powershell
+# 例：requirements.txt を更新した場合
+pip install -r requirements.txt
+```
+
 ### 4) 起動（API）
 ```powershell
 uvicorn tatemono_map.api.main:app --reload --host 127.0.0.1 --port 8000
@@ -58,12 +66,35 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 - http://127.0.0.1:8000/
 - http://127.0.0.1:8000/b/demo
 
+#### /buildings の作成・取得（PowerShell 例）
+```powershell
+# 作成（POST）
+$body = @{
+  name = "サンプルビル"
+  address = "東京都千代田区1-1-1"
+  lat = 35.681236
+  lng = 139.767125
+  building_type = "office"
+  floors = 10
+  year_built = 1999
+  source = "manual"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/buildings `
+  -ContentType "application/json" -Body $body
+
+# 取得（GET）
+Invoke-RestMethod http://127.0.0.1:8000/buildings
+```
+
 ---
 
 ## .env / secrets の扱い（重要）
 - **secrets/.env はコミットしない**でください。
 - 推奨：`.env.example` を作り、**安全な値だけ**をサンプルとして共有します。
 - 実運用の `.env` は **ローカルだけ**に保存してください。
+- **SQLITE_DB_PATH**：SQLite のファイルパスを指定（未指定なら `./data/tatemono_map.sqlite3`）。
+- **.env.example**：`DATABASE_URL` などの接続先や通知系のキーを記載した雛形です。実運用値は `.env` にのみ保存します。
 
 ---
 
