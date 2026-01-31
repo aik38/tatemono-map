@@ -1,17 +1,43 @@
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pathlib import Path
-from datetime import datetime
+from sqlalchemy import create_engine
 
 app = FastAPI(title="Tatemono Map")
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[2] / "render" / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+def _db_status() -> str | None:
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        return None
+
+    try:
+        engine = create_engine(database_url, pool_pre_ping=False)
+        with engine.connect():
+            return "ok"
+    except Exception:
+        return "error"
+
+
 @app.get("/health")
 def health():
-    return {"ok": True}
+    payload = {
+        "status": "ok",
+        "app": app.title,
+        "time": datetime.now(timezone.utc).isoformat(),
+    }
+
+    db_status = _db_status()
+    if db_status is not None:
+        payload["db"] = db_status
+
+    return payload
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
