@@ -4,18 +4,27 @@
 
 ---
 
-## 一発起動（repo外からOK）
-**最短ワンライナー：**
+## 最短ルート（迷ったらこれ）
+**1本の流れで迷わない運用手順です。GitHub で merge した後の同期もこれだけ。**
+
+1) **ローカル同期（GitHubの変更をローカルへ）**
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\sync.ps1"
+```
+
+2) **起動（API起動）**
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1"
 ```
 
-**repoパスを指定して実行（repo外からOK）：**
+3) **コミット＆push（変更をGitHubへ）**
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1" -RepoPath "C:\dev\tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\push.ps1" -Message "ここにコミットメッセージ"
 ```
 
-> **⚠️ 注意**：`git` の **出力（On branch main など）をコピペして実行しない**でください。出力はコマンドではありません。
+### よくあるミス（短く）
+- `git status` などの **出力を貼り付けて実行しない**（出力はコマンドではありません）
+- **repo外で `git` を直接叩かない**（同期・push は scripts に一本化）
 
 ---
 
@@ -40,7 +49,7 @@ git clone https://github.com/<your-org>/tatemono-map.git C:\dev\tatemono-map
 ### 2) 依存インストール & 起動
 初回以降は **`scripts/dev.ps1` だけでOK** です。
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\dev\tatemono-map\scripts\dev.ps1" -RepoPath "C:\dev\tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1"
 ```
 
 ---
@@ -51,17 +60,15 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\dev\tatemono-map\scripts\dev.p
 3. **開発/実行**：`scripts/dev.ps1` で起動・検証
 4. **コミット & push**：`scripts/push.ps1` で一発 push
 
-> **ローカルは必ず `sync.ps1` で追従**し、`git pull` を手で打ち散らかさない運用に揃えます。
-
 ---
 
 ## スクリプト一覧（PowerShell）
 ### 1) 開発・起動（`scripts/dev.ps1`）
-- **repo直下へ移動** → **venv 作成/有効化** → **依存インストール** → **DBパス設定** → **uvicorn起動**
+- **venv 作成/有効化** → **依存インストール** → **DBパス設定** → **uvicorn起動**
 - オプション：`-InstallPytest` / `-RunTests` / `-NoReload`
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\dev\tatemono-map\scripts\dev.ps1" -RepoPath "C:\dev\tatemono-map" -ListenHost 127.0.0.1 -Port 8000
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1" -ListenHost 127.0.0.1 -Port 8000
 ```
 
 ### 2) ローカル同期（`scripts/sync.ps1`）
@@ -70,7 +77,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\dev\tatemono-map\scripts\dev.p
 - オプション：`-RunTests`
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\dev\tatemono-map\scripts\sync.ps1" -RepoPath "C:\dev\tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\sync.ps1"
 ```
 
 ### 3) コミット & push（`scripts/push.ps1`）
@@ -78,7 +85,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\dev\tatemono-map\scripts\sync.
 - **commit message は必須**
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\dev\tatemono-map\scripts\push.ps1" -RepoPath "C:\dev\tatemono-map" -Message "feat: add building import"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\push.ps1" -Message "feat: add building import"
 ```
 
 ---
@@ -116,14 +123,14 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 ## FAQ
 ### Q1. `fatal: not a git repository`
-**原因**：リポジトリ直下にいない。
-**対処**：`scripts/dev.ps1` / `scripts/sync.ps1` / `scripts/push.ps1` に `-RepoPath` を指定して実行。
+**原因**：誤った場所で `git` を直接実行している。
+**対処**：`scripts/dev.ps1` / `scripts/sync.ps1` / `scripts/push.ps1` を使う。
 
 ### Q2. `Address already in use`（ポート競合）
 **原因**：8000番ポートが他プロセスで使用中。
 **対処**：`-Port` を変えて起動。
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\dev\tatemono-map\scripts\dev.ps1" -RepoPath "C:\dev\tatemono-map" -Port 8010
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1" -Port 8010
 ```
 
 ### Q3. `Activate.ps1` で venv が有効化できない
