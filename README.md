@@ -122,9 +122,15 @@ uvicorn tatemono_map.api.main:app --reload --host 127.0.0.1 --port 8000
 ### 1) 日常更新：基本は Codex → GitHub merge → ローカル pull で確認
 **⚠️ 注意：`On branch main` などの「出力」はコマンドではないので貼り付けない**
 
+```powershell
+$REPO = "$env:USERPROFILE\tatemono-map"
+; cd $REPO
+; if (-not (Test-Path .git)) { Write-Host "Not a git repository. Check $REPO." ; return }
+```
+
 #### (A) 基本フロー（Codex運用）：GitHubでmerge後にローカルで pull して動作確認
 ```powershell
-cd C:\dev\tatemono-map
+cd $REPO
 ; git pull
 ; git status
 ; # 変更内容を確認してローカルで動作確認
@@ -132,7 +138,7 @@ cd C:\dev\tatemono-map
 
 #### (B) 例外（ローカルで変更した場合のみ）：add → commit → push
 ```powershell
-cd C:\dev\tatemono-map
+cd $REPO
 ; git add -A
 ; git commit -m "chore: update"
 ; git push
@@ -140,7 +146,7 @@ cd C:\dev\tatemono-map
 
 ### 2) PR運用：feature ブランチ作成 → push → PR → mainへマージ → pull
 ```powershell
-cd C:\dev\tatemono-map
+cd $REPO
 ; $branch = "feature/your-topic"
 ; git checkout -b $branch
 ; git push -u origin $branch
@@ -152,6 +158,6 @@ cd C:\dev\tatemono-map
 
 ### 3) 起動：uvicorn 実行（必要なら --reload / host / port）
 ```powershell
-cd C:\dev\tatemono-map
+cd $REPO
 ; uvicorn tatemono_map.api.main:app --reload --host 127.0.0.1 --port 8000
 ```
