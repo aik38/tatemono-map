@@ -23,9 +23,9 @@ $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev.ps1"
 ```
 
-3) **疎通（別ターミナルで）**
+3) **ローカル疎通確認（scripts/smoke.ps1）**
 ```powershell
-Invoke-RestMethod "http://127.0.0.1:8000/health"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\smoke.ps1"
 ```
 
 4) **変更の取り込み（コミット&push）**
@@ -95,6 +95,16 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scr
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\push.ps1" -Message "feat: add building import"
+```
+
+### 4) ローカル疎通確認（`scripts/smoke.ps1`）
+- `git pull --ff-only` → サーバ起動確認 → `/health` を待機 → `/health`, `/buildings`, `/b/demo` を叩く
+- **DBファイルは環境依存で差分ノイズや容量増の原因になるため Git 管理しません。**
+- `DEV_SEED=true`：空DBならデモ1件を投入して `/buildings` が空にならないようにします
+- `DEBUG=true`：`/debug/db` を有効化して結果表示します
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\smoke.ps1" -DevSeed -Debug
 ```
 
 ---
