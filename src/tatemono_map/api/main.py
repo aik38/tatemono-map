@@ -5,10 +5,10 @@ from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from fastapi.responses import HTMLResponse
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, or_, text
 from sqlalchemy.orm import Session
 
-from tatemono_map.api.database import SessionLocal, get_engine, init_db
+from tatemono_map.api.database import SessionLocal, ensure_building_summaries_table, get_engine, init_db
 from tatemono_map.api.schemas import BuildingCreate, BuildingRead, BuildingUpdate
 from tatemono_map.models.building import Building
 
@@ -66,78 +66,6 @@ def get_db() -> Session:
 
 
 DbSession = Annotated[Session, Depends(get_db)]
-
-
-def _ensure_building_summaries_table() -> None:
-    engine = get_engine()
-    ddl = """
-    CREATE TABLE IF NOT EXISTS building_summaries (
-        building_key TEXT PRIMARY KEY,
-        name TEXT,
-        address TEXT,
-        vacancy_status TEXT,
-        listings_count INTEGER,
-        layout_types_json TEXT,
-        rent_min INTEGER,
-        rent_max INTEGER,
-        area_min REAL,
-        area_max REAL,
-        move_in_min TEXT,
-        move_in_max TEXT,
-        last_updated TEXT,
-        lat REAL,
-        lon REAL,
-        rent_yen_min INTEGER,
-        rent_yen_max INTEGER,
-        area_sqm_min REAL,
-        area_sqm_max REAL
-    )
-    """
-    required_columns = {
-        "name": "TEXT",
-        "address": "TEXT",
-        "vacancy_status": "TEXT",
-        "listings_count": "INTEGER",
-        "layout_types_json": "TEXT",
-        "rent_min": "INTEGER",
-        "rent_max": "INTEGER",
-        "area_min": "REAL",
-        "area_max": "REAL",
-        "move_in_min": "TEXT",
-        "move_in_max": "TEXT",
-        "last_updated": "TEXT",
-        "lat": "REAL",
-        "lon": "REAL",
-    }
-    legacy_columns = {
-        "rent_yen_min": "INTEGER",
-        "rent_yen_max": "INTEGER",
-        "area_sqm_min": "REAL",
-        "area_sqm_max": "REAL",
-    }
-    with engine.begin() as conn:
-        conn.execute(text(ddl))
-        existing_columns = {
-            row["name"] for row in conn.execute(text("PRAGMA table_info(building_summaries)")).mappings()
-        }
-        for column, column_type in (required_columns | legacy_columns).items():
-            if column not in existing_columns:
-                conn.execute(
-                    text(f"ALTER TABLE building_summaries ADD COLUMN {column} {column_type}")
-                )
-        if legacy_columns.keys() & existing_columns:
-            conn.execute(
-                text(
-                    """
-                    UPDATE building_summaries
-                    SET
-                        rent_min = COALESCE(rent_min, rent_yen_min),
-                        rent_max = COALESCE(rent_max, rent_yen_max),
-                        area_min = COALESCE(area_min, area_sqm_min),
-                        area_max = COALESCE(area_max, area_sqm_max)
-                    """
-                )
-            )
 
 
 def _maybe_seed_building_summaries() -> None:
@@ -213,7 +141,7 @@ def _maybe_seed_building_summaries() -> None:
 @app.on_event("startup")
 def _startup() -> None:
     init_db()
-    _ensure_building_summaries_table()
+    ensure_building_summaries_table()
     _maybe_seed_building_summaries()
 
 
@@ -309,34 +237,59 @@ def create_building(payload: BuildingCreate, db: DbSession):
 
 @app.get("/buildings")
 def list_buildings(
+    db: DbSession,
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
+    q: str | None = None,
+    min_lat: float | None = None,
+    max_lat: float | None = None,
+    min_lng: float | None = None,
+    max_lng: float | None = None,
 ):
     engine = get_engine()
-    sql = """
-        SELECT
-            building_key,
-            name,
-            address,
-            vacancy_status,
-            listings_count,
-            layout_types_json,
-            COALESCE(rent_min, rent_yen_min) AS rent_min,
-            COALESCE(rent_max, rent_yen_max) AS rent_max,
-            COALESCE(area_min, area_sqm_min) AS area_min,
-            COALESCE(area_max, area_sqm_max) AS area_max,
-            move_in_min,
-            move_in_max,
-            last_updated,
-            lat,
-            lon
-        FROM building_summaries
-        ORDER BY last_updated DESC
-        LIMIT :limit OFFSET :offset
-    """
     with engine.connect() as conn:
-        rows = conn.execute(text(sql), {"limit": limit, "offset": offset}).mappings().all()
-    return [_summary_from_row(row) for row in rows]
+        summary_count = conn.execute(
+            text("SELECT COUNT(*) AS count FROM building_summaries")
+        ).scalar_one()
+    if summary_count:
+        sql = """
+            SELECT
+                building_key,
+                name,
+                address,
+                vacancy_status,
+                listings_count,
+                layout_types_json,
+                COALESCE(rent_min, rent_yen_min) AS rent_min,
+                COALESCE(rent_max, rent_yen_max) AS rent_max,
+                COALESCE(area_min, area_sqm_min) AS area_min,
+                COALESCE(area_max, area_sqm_max) AS area_max,
+                move_in_min,
+                move_in_max,
+                last_updated,
+                lat,
+                lon
+            FROM building_summaries
+            ORDER BY last_updated DESC
+            LIMIT :limit OFFSET :offset
+        """
+        with engine.connect() as conn:
+            rows = conn.execute(text(sql), {"limit": limit, "offset": offset}).mappings().all()
+        return [_summary_from_row(row) for row in rows]
+
+    query = db.query(Building)
+    if q:
+        like_value = f"%{q}%"
+        query = query.filter(or_(Building.name.like(like_value), Building.address.like(like_value)))
+    if min_lat is not None:
+        query = query.filter(Building.lat >= min_lat)
+    if max_lat is not None:
+        query = query.filter(Building.lat <= max_lat)
+    if min_lng is not None:
+        query = query.filter(Building.lng >= min_lng)
+    if max_lng is not None:
+        query = query.filter(Building.lng <= max_lng)
+    return query.order_by(Building.id).offset(offset).limit(limit).all()
 
 
 @app.get("/buildings/by-id/{building_id}", response_model=BuildingRead)
@@ -348,7 +301,11 @@ def get_building_by_id(building_id: int, db: DbSession):
 
 
 @app.get("/buildings/{building_key}")
-def get_building_by_key(building_key: str):
+def get_building_by_key(building_key: str, db: DbSession):
+    if building_key.isdigit():
+        building = db.get(Building, int(building_key))
+        if building:
+            return building
     engine = get_engine()
     sql = """
         SELECT
