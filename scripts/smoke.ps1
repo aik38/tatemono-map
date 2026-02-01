@@ -39,7 +39,7 @@ function Resolve-BooleanFlag {
         return $true
     }
 
-    $raw = $env:$Name
+    $raw = (Get-Item "Env:$Name" -ErrorAction SilentlyContinue).Value
     if (-not $raw) {
         return $false
     }
@@ -49,18 +49,18 @@ function Resolve-BooleanFlag {
 
 function Test-PortListening {
     param(
-        [string]$Host,
+        [string]$HostName,
         [int]$TargetPort
     )
 
     $testCommand = Get-Command -Name Test-NetConnection -ErrorAction SilentlyContinue
     if ($testCommand) {
-        return Test-NetConnection -ComputerName $Host -Port $TargetPort -InformationLevel Quiet
+        return Test-NetConnection -ComputerName $HostName -Port $TargetPort -InformationLevel Quiet
     }
 
     try {
         $client = New-Object System.Net.Sockets.TcpClient
-        $client.Connect($Host, $TargetPort)
+        $client.Connect($HostName, $TargetPort)
         $client.Close()
         return $true
     } catch {
@@ -116,7 +116,7 @@ $debugEnabled = Resolve-BooleanFlag -Name "DEBUG" -Enabled:$Debug
 
 $baseUrl = "http://$ListenHost`:$Port"
 
-$serverRunning = Test-PortListening -Host $ListenHost -TargetPort $Port
+$serverRunning = Test-PortListening -HostName $ListenHost -TargetPort $Port
 if (-not $serverRunning) {
     $devScript = Join-Path $resolvedRepoPath "scripts\dev.ps1"
     Write-Host "Starting server: $devScript"
