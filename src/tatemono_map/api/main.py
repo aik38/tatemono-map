@@ -14,6 +14,14 @@ from tatemono_map.models.building import Building
 
 app = FastAPI(title="Tatemono Map")
 
+def _is_debug_enabled() -> bool:
+    return os.getenv("DEBUG", "").lower() == "true"
+
+
+def _is_dev_seed_enabled() -> bool:
+    return os.getenv("DEV_SEED", "").lower() == "true"
+
+
 def _db_status() -> str | None:
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
@@ -131,9 +139,81 @@ def _ensure_building_summaries_table() -> None:
             )
 
 
+def _maybe_seed_building_summaries() -> None:
+    if not _is_dev_seed_enabled():
+        return
+
+    engine = get_engine()
+    with engine.begin() as conn:
+        count = conn.execute(text("SELECT COUNT(*) AS count FROM building_summaries")).scalar_one()
+        if count:
+            return
+
+        now = datetime.now(timezone.utc).isoformat()
+        seed_payload = {
+            "building_key": "dev-seed",
+            "name": "デモ建物（開発用）",
+            "address": "福岡県北九州市小倉北区",
+            "vacancy_status": "空室あり",
+            "listings_count": 1,
+            "layout_types_json": json.dumps(["1K"]),
+            "rent_min": 52000,
+            "rent_max": 69000,
+            "area_min": 22.5,
+            "area_max": 31.2,
+            "move_in_min": "要相談",
+            "move_in_max": "要相談",
+            "last_updated": now,
+            "lat": 33.8835,
+            "lon": 130.8756,
+        }
+        conn.execute(
+            text(
+                """
+                INSERT INTO building_summaries (
+                    building_key,
+                    name,
+                    address,
+                    vacancy_status,
+                    listings_count,
+                    layout_types_json,
+                    rent_min,
+                    rent_max,
+                    area_min,
+                    area_max,
+                    move_in_min,
+                    move_in_max,
+                    last_updated,
+                    lat,
+                    lon
+                ) VALUES (
+                    :building_key,
+                    :name,
+                    :address,
+                    :vacancy_status,
+                    :listings_count,
+                    :layout_types_json,
+                    :rent_min,
+                    :rent_max,
+                    :area_min,
+                    :area_max,
+                    :move_in_min,
+                    :move_in_max,
+                    :last_updated,
+                    :lat,
+                    :lon
+                )
+                """
+            ),
+            seed_payload,
+        )
+
+
 @app.on_event("startup")
 def _startup() -> None:
+    init_db()
     _ensure_building_summaries_table()
+    _maybe_seed_building_summaries()
 
 
 def _parse_layout_types(value: str | None) -> list[str]:
@@ -163,6 +243,46 @@ def _summary_from_row(row: Any) -> dict[str, Any]:
         "lat": row["lat"],
         "lon": row["lon"],
     }
+
+@app.get("/debug/db")
+def debug_db():
+    if not _is_debug_enabled():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+
+    engine = get_engine()
+    database_path = engine.url.database
+    debug_payload: dict[str, Any] = {
+        "database": {
+            "url": str(engine.url),
+            "path": database_path,
+        }
+    }
+    with engine.connect() as conn:
+        tables: dict[str, Any] = {}
+        for table_name in ("building_summaries", Building.__tablename__):
+            exists = (
+                conn.execute(
+                    text("SELECT name FROM sqlite_master WHERE type='table' AND name = :name"),
+                    {"name": table_name},
+                ).first()
+                is not None
+            )
+            row_count = 0
+            if exists:
+                row_count = conn.execute(
+                    text(f"SELECT COUNT(*) AS count FROM {table_name}")
+                ).scalar_one()
+            table_info = {"exists": exists, "rows": row_count}
+            if table_name == "building_summaries":
+                columns = [
+                    row["name"]
+                    for row in conn.execute(text("PRAGMA table_info(building_summaries)")).mappings()
+                ]
+                table_info["columns"] = columns
+            tables[table_name] = table_info
+        debug_payload["tables"] = tables
+
+    return debug_payload
 
 
 @app.post("/buildings", response_model=BuildingRead, status_code=status.HTTP_201_CREATED)

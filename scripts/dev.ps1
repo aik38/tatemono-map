@@ -60,6 +60,13 @@ $env:SQLITE_DB_PATH = $dbPath
 Write-Host "Repo: $resolvedRepoPath"
 Write-Host "Venv: $venvPath"
 Write-Host "DB: $dbPath"
+Write-Host ""
+Write-Host "Try these once the server is running:"
+Write-Host "Invoke-RestMethod http://$ListenHost`:$Port/health | ConvertTo-Json -Depth 5"
+Write-Host "Invoke-RestMethod http://$ListenHost`:$Port/buildings?limit=3&offset=0 | ConvertTo-Json -Depth 10"
+if ($env:DEBUG -eq "true") {
+    Write-Host "Invoke-RestMethod http://$ListenHost`:$Port/debug/db | ConvertTo-Json -Depth 10"
+}
 
 $uvArgs = @(
     "uvicorn",
