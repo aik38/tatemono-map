@@ -77,11 +77,58 @@ def _ensure_building_summaries_table() -> None:
         move_in_max TEXT,
         last_updated TEXT,
         lat REAL,
-        lon REAL
+        lon REAL,
+        rent_yen_min INTEGER,
+        rent_yen_max INTEGER,
+        area_sqm_min REAL,
+        area_sqm_max REAL
     )
     """
+    required_columns = {
+        "name": "TEXT",
+        "address": "TEXT",
+        "vacancy_status": "TEXT",
+        "listings_count": "INTEGER",
+        "layout_types_json": "TEXT",
+        "rent_min": "INTEGER",
+        "rent_max": "INTEGER",
+        "area_min": "REAL",
+        "area_max": "REAL",
+        "move_in_min": "TEXT",
+        "move_in_max": "TEXT",
+        "last_updated": "TEXT",
+        "lat": "REAL",
+        "lon": "REAL",
+    }
+    legacy_columns = {
+        "rent_yen_min": "INTEGER",
+        "rent_yen_max": "INTEGER",
+        "area_sqm_min": "REAL",
+        "area_sqm_max": "REAL",
+    }
     with engine.begin() as conn:
         conn.execute(text(ddl))
+        existing_columns = {
+            row["name"] for row in conn.execute(text("PRAGMA table_info(building_summaries)")).mappings()
+        }
+        for column, column_type in (required_columns | legacy_columns).items():
+            if column not in existing_columns:
+                conn.execute(
+                    text(f"ALTER TABLE building_summaries ADD COLUMN {column} {column_type}")
+                )
+        if legacy_columns.keys() & existing_columns:
+            conn.execute(
+                text(
+                    """
+                    UPDATE building_summaries
+                    SET
+                        rent_min = COALESCE(rent_min, rent_yen_min),
+                        rent_max = COALESCE(rent_max, rent_yen_max),
+                        area_min = COALESCE(area_min, area_sqm_min),
+                        area_max = COALESCE(area_max, area_sqm_max)
+                    """
+                )
+            )
 
 
 @app.on_event("startup")
@@ -153,10 +200,10 @@ def list_buildings(
             vacancy_status,
             listings_count,
             layout_types_json,
-            rent_min,
-            rent_max,
-            area_min,
-            area_max,
+            COALESCE(rent_min, rent_yen_min) AS rent_min,
+            COALESCE(rent_max, rent_yen_max) AS rent_max,
+            COALESCE(area_min, area_sqm_min) AS area_min,
+            COALESCE(area_max, area_sqm_max) AS area_max,
             move_in_min,
             move_in_max,
             last_updated,
@@ -190,10 +237,10 @@ def get_building_by_key(building_key: str):
             vacancy_status,
             listings_count,
             layout_types_json,
-            rent_min,
-            rent_max,
-            area_min,
-            area_max,
+            COALESCE(rent_min, rent_yen_min) AS rent_min,
+            COALESCE(rent_max, rent_yen_max) AS rent_max,
+            COALESCE(area_min, area_sqm_min) AS area_min,
+            COALESCE(area_max, area_sqm_max) AS area_max,
             move_in_min,
             move_in_max,
             last_updated,
