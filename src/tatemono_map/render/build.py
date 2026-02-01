@@ -118,7 +118,7 @@ def _render_building(building: dict[str, Any]) -> str:
   <div class="card">
     <div class="grid">
       <div><b>空室</b>：{html.escape(building["vacancy_status"])}</div>
-      <div><b>最終更新</b>：{html.escape(building["last_updated"])}</div>
+      <div><b>最終更新日時</b>：{html.escape(building["last_updated"])}</div>
       <div><b>家賃レンジ</b>：{html.escape(rent_text)}</div>
       <div><b>面積レンジ</b>：{html.escape(area_text)}</div>
       <div><b>間取りタイプ</b>：{html.escape(layout_text)}</div>

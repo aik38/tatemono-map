@@ -84,7 +84,7 @@ def test_static_build_outputs_summary_and_last_updated(tmp_path, monkeypatch):
     building_html = (output_dir / "b" / "sample-01.html").read_text(encoding="utf-8")
 
     assert "サンプルビル" in index_html
-    assert "最終更新" in building_html
+    assert "最終更新日時" in building_html
     assert "2024-01-01T10:00:00+00:00" in building_html
 
 
