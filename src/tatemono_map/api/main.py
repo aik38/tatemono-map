@@ -43,6 +43,7 @@ def _db_status() -> str | None:
 @app.get("/health")
 def health():
     payload = {
+        "ok": True,
         "status": "ok",
         "app": app.title,
         "time": datetime.now(timezone.utc).isoformat(),
