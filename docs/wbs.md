@@ -41,7 +41,8 @@
 - `/health` が正常応答する（{"ok": true}）
 - `/b/{building_key}` が DB を参照する
 - データが無くても API が落ちない（404固定ではなく「準備中」でも可）
-- ローカルで `scripts/dev_setup.ps1` → `scripts/run_api.ps1` で起動できる
+- ローカルで `scripts/dev.ps1` で起動できる（READMEの最短ルートに一致）
+- `scripts/dev_setup.ps1` / `scripts/run_api.ps1` は補助的な手順（非推奨）
 
 ### 制約（憲法）
 - 号室・参照元URL・元付/管理会社情報・見積内訳（PDF）は **Web出力禁止**（DB保持はOK）
