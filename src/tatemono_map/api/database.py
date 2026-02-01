@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 Base = declarative_base()
@@ -47,6 +47,80 @@ def init_db() -> None:
 
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
+    ensure_building_summaries_table(engine)
+
+
+def ensure_building_summaries_table(engine=None) -> None:
+    if engine is None:
+        engine = get_engine()
+    ddl = """
+    CREATE TABLE IF NOT EXISTS building_summaries (
+        building_key TEXT PRIMARY KEY,
+        name TEXT,
+        address TEXT,
+        vacancy_status TEXT,
+        listings_count INTEGER,
+        layout_types_json TEXT,
+        rent_min INTEGER,
+        rent_max INTEGER,
+        area_min REAL,
+        area_max REAL,
+        move_in_min TEXT,
+        move_in_max TEXT,
+        last_updated TEXT,
+        lat REAL,
+        lon REAL,
+        rent_yen_min INTEGER,
+        rent_yen_max INTEGER,
+        area_sqm_min REAL,
+        area_sqm_max REAL
+    )
+    """
+    required_columns = {
+        "name": "TEXT",
+        "address": "TEXT",
+        "vacancy_status": "TEXT",
+        "listings_count": "INTEGER",
+        "layout_types_json": "TEXT",
+        "rent_min": "INTEGER",
+        "rent_max": "INTEGER",
+        "area_min": "REAL",
+        "area_max": "REAL",
+        "move_in_min": "TEXT",
+        "move_in_max": "TEXT",
+        "last_updated": "TEXT",
+        "lat": "REAL",
+        "lon": "REAL",
+    }
+    legacy_columns = {
+        "rent_yen_min": "INTEGER",
+        "rent_yen_max": "INTEGER",
+        "area_sqm_min": "REAL",
+        "area_sqm_max": "REAL",
+    }
+    with engine.begin() as conn:
+        conn.execute(text(ddl))
+        existing_columns = {
+            row["name"] for row in conn.execute(text("PRAGMA table_info(building_summaries)")).mappings()
+        }
+        for column, column_type in (required_columns | legacy_columns).items():
+            if column not in existing_columns:
+                conn.execute(
+                    text(f"ALTER TABLE building_summaries ADD COLUMN {column} {column_type}")
+                )
+        if legacy_columns.keys() & existing_columns:
+            conn.execute(
+                text(
+                    """
+                    UPDATE building_summaries
+                    SET
+                        rent_min = COALESCE(rent_min, rent_yen_min),
+                        rent_max = COALESCE(rent_max, rent_yen_max),
+                        area_min = COALESCE(area_min, area_sqm_min),
+                        area_max = COALESCE(area_max, area_sqm_max)
+                    """
+                )
+            )
 
 
 def reset_engine() -> None:

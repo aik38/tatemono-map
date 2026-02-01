@@ -10,3 +10,4 @@ data/*.sqlite3
 secrets/
 .vscode/
 .idea/
+dist/
