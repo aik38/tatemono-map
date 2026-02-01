@@ -5,8 +5,11 @@
 - 実行：scripts\run_ingest.ps1
 
 ## 静的HTML生成
-- Phase 2 で実装する静的HTML生成CLIを実行し、`dist/index.html` と `dist/b/{building_key}.html` を生成する
-- 生成手順はCLI実装後にこのセクションへ追記する（入口は本ドキュメントに固定）
+- 静的HTML生成CLIを実行し、`dist/index.html` と `dist/b/{building_key}.html` を生成する
+- 実行例（PowerShell）
+  - `$env:SQLITE_DB_PATH="data\\tatemono_map.sqlite3"`
+  - `python -m tatemono_map.render.build --output-dir dist`
+- 禁止情報（号室/参照元URL/元付・管理会社/見積内訳PDFなど）が混入した場合は生成が失敗する
 
 ## 失敗時
 - 例外は握りつぶさず、管理者へLINE通知
