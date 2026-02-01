@@ -5,6 +5,7 @@ import html
 import json
 import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -138,12 +139,72 @@ def build_static_site(output_dir: str | Path = "dist") -> Path:
     buildings_path = output_path / "b"
     buildings_path.mkdir(parents=True, exist_ok=True)
 
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         table_exists = conn.execute(
             text("SELECT name FROM sqlite_master WHERE type='table' AND name='building_summaries'")
         ).first()
         if table_exists is None:
             raise RuntimeError("building_summaries table not found")
+
+        count = conn.execute(text("SELECT COUNT(*) AS count FROM building_summaries")).scalar_one()
+        if count == 0:
+            now = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO building_summaries (
+                        building_key,
+                        name,
+                        address,
+                        vacancy_status,
+                        listings_count,
+                        layout_types_json,
+                        rent_min,
+                        rent_max,
+                        area_min,
+                        area_max,
+                        move_in_min,
+                        move_in_max,
+                        last_updated,
+                        lat,
+                        lon
+                    ) VALUES (
+                        :building_key,
+                        :name,
+                        :address,
+                        :vacancy_status,
+                        :listings_count,
+                        :layout_types_json,
+                        :rent_min,
+                        :rent_max,
+                        :area_min,
+                        :area_max,
+                        :move_in_min,
+                        :move_in_max,
+                        :last_updated,
+                        :lat,
+                        :lon
+                    )
+                    """
+                ),
+                {
+                    "building_key": "sample-static",
+                    "name": "サンプル建物",
+                    "address": "東京都新宿区1-2-3",
+                    "vacancy_status": "空室あり",
+                    "listings_count": 1,
+                    "layout_types_json": json.dumps(["1K"]),
+                    "rent_min": 52000,
+                    "rent_max": 68000,
+                    "area_min": 20.5,
+                    "area_max": 28.3,
+                    "move_in_min": "即入居",
+                    "move_in_max": "要相談",
+                    "last_updated": now,
+                    "lat": 35.6900,
+                    "lon": 139.7000,
+                },
+            )
 
         rows = conn.execute(
             text(
