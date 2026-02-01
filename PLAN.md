@@ -11,6 +11,7 @@
 - APIがローカルで**一発起動**できる（Windows 11 + PowerShell）。
 - **SQLite + CRUD** が最低限動く（/health, /buildings など）。
 - 位置情報を含む **最小限の建物モデル** が保存できる。
+  - ※ Google Maps / Street View のUIは最終形の一部だが、MVPでは任意（後続フェーズ）。
 
 ### 最初に動かさない（Won't for MVP）
 - 高度なUI/UX（フロントの作り込み）。
