@@ -36,3 +36,5 @@
 - build が失敗した場合：
   - dist には反映しない（前回分維持）
   - 禁止情報混入チェックにより落ちる想定。データを修正して再実行する
+  - まずは DB の必須カラムが NULL になっていないか疑う（name/address/vacancy_status/last_updated など）
+  - stub ingest を再実行して上書きする（例：`python -m tatemono_map.ingest.stub --db data\\tatemono_map.sqlite3`）

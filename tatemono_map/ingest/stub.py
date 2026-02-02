@@ -31,8 +31,38 @@ def _normalize_vacancy_status(value: str | None) -> str:
     return value
 
 
+def _normalize_building_name(value: str | None) -> str:
+    if value is None:
+        return "（名称未設定）"
+    if not isinstance(value, str):
+        raise TypeError("name must be a string")
+    if value.strip() == "":
+        return "（名称未設定）"
+    return value
+
+
+def _normalize_building_address(value: str | None) -> str:
+    if value is None:
+        return ""
+    if not isinstance(value, str):
+        raise TypeError("address must be a string")
+    return value
+
+
+def _validate_stub_fields(name: str, vacancy_status: str) -> None:
+    if not isinstance(name, str):
+        raise TypeError("name must be a string")
+    if vacancy_status not in {"満室", "空室あり"}:
+        raise ValueError("vacancy_status must be '満室' or '空室あり'")
+
+
 def ingest_stub(
-    db_path: Path, building_key: str, fail: bool = False, vacancy_status: str | None = None
+    db_path: Path,
+    building_key: str,
+    fail: bool = False,
+    vacancy_status: str | None = None,
+    name: str | None = None,
+    address: str | None = None,
 ) -> None:
     if fail:
         raise RuntimeError("Intentional ingest failure (stub)")
@@ -57,12 +87,17 @@ def ingest_stub(
         exists = cur.fetchone() is not None
 
         # 更新候補（存在するカラムだけ更新）
+        normalized_name = _normalize_building_name(name)
+        normalized_address = _normalize_building_address(address)
         normalized_vacancy_status = _normalize_vacancy_status(vacancy_status)
+        _validate_stub_fields(normalized_name, normalized_vacancy_status)
         candidates: dict[str, Any] = {
             "last_updated": now,
             "updated_at": now,
             # “DB更新が起きた”ことを見分けやすくするための任意フィールド（存在するなら更新）
             "source": "stub",
+            "name": normalized_name,
+            "address": normalized_address,
             "vacancy_status": normalized_vacancy_status,
         }
         update_map = {k: v for k, v in candidates.items() if k in cols}
@@ -113,6 +148,16 @@ def main() -> None:
         default="満室",
         help="vacancy_status to upsert (default: 満室, allowed: 満室/空室あり)",
     )
+    ap.add_argument(
+        "--name",
+        default="（名称未設定）",
+        help="building name to upsert (default: （名称未設定）)",
+    )
+    ap.add_argument(
+        "--address",
+        default="",
+        help="building address to upsert (default: empty string)",
+    )
     ap.add_argument("--fail", action="store_true", help="Intentionally fail to test failure path")
     args = ap.parse_args()
 
@@ -121,6 +166,8 @@ def main() -> None:
         building_key=args.building_key,
         fail=args.fail,
         vacancy_status=args.vacancy_status,
+        name=args.name,
+        address=args.address,
     )
 
 
