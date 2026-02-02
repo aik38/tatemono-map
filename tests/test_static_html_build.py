@@ -95,3 +95,23 @@ def test_static_build_rejects_forbidden_content(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match=re.escape("管理会社")):
         build_module.build_static_site(output_dir=tmp_path / "dist")
+
+
+def test_static_build_writes_robots_and_sitemap(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine)
+
+    output_dir = tmp_path / "dist"
+    build_module.build_static_site(
+        output_dir=output_dir,
+        site_url="https://example.com/tatemono-map",
+    )
+
+    robots_txt = (output_dir / "robots.txt").read_text(encoding="utf-8")
+    sitemap_xml = (output_dir / "sitemap.xml").read_text(encoding="utf-8")
+
+    assert "Sitemap: https://example.com/tatemono-map/sitemap.xml" in robots_txt
+    assert "<urlset" in sitemap_xml
+    assert "https://example.com/tatemono-map/" in sitemap_xml
+    assert "https://example.com/tatemono-map/b/sample-01.html" in sitemap_xml

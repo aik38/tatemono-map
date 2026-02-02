@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import html
 import json
+import os
 import re
 import sys
+import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -131,13 +133,39 @@ def _render_building(building: dict[str, Any]) -> str:
 """
 
 
-def build_static_site(output_dir: str | Path = "dist") -> Path:
+def _resolve_site_url(site_url: str | None) -> str:
+    if site_url:
+        return site_url
+    return os.getenv("TATEMONO_MAP_SITE_URL", "")
+
+
+def write_robots(output_path: Path, site_url: str) -> None:
+    sitemap_url = f"{site_url.rstrip('/')}/sitemap.xml" if site_url else "/sitemap.xml"
+    robots_txt = f"User-agent: *\nAllow: /\nSitemap: {sitemap_url}\n"
+    (output_path / "robots.txt").write_text(robots_txt, encoding="utf-8")
+
+
+def write_sitemap(output_path: Path, site_url: str, page_paths: list[str]) -> None:
+    urlset = ET.Element("urlset", {"xmlns": "http://www.sitemaps.org/schemas/sitemap/0.9"})
+    base_url = site_url.rstrip("/")
+    for page_path in page_paths:
+        normalized_path = page_path if page_path.startswith("/") else f"/{page_path}"
+        loc_value = f"{base_url}{normalized_path}" if base_url else normalized_path
+        url = ET.SubElement(urlset, "url")
+        loc = ET.SubElement(url, "loc")
+        loc.text = loc_value
+    tree = ET.ElementTree(urlset)
+    tree.write(output_path / "sitemap.xml", encoding="utf-8", xml_declaration=True)
+
+
+def build_static_site(output_dir: str | Path = "dist", site_url: str | None = None) -> Path:
     init_db()
     engine = get_engine()
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     buildings_path = output_path / "b"
     buildings_path.mkdir(parents=True, exist_ok=True)
+    resolved_site_url = _resolve_site_url(site_url)
 
     with engine.begin() as conn:
         table_exists = conn.execute(
@@ -232,6 +260,7 @@ def build_static_site(output_dir: str | Path = "dist") -> Path:
         ).mappings().all()
 
     buildings: list[dict[str, Any]] = []
+    page_paths = ["/"]
     for row in rows:
         building_key = row["building_key"]
         _ensure_building_key(building_key)
@@ -258,10 +287,13 @@ def build_static_site(output_dir: str | Path = "dist") -> Path:
         _assert_safe_html(page_html, f"building {building_key}")
         (buildings_path / f"{building_key}.html").write_text(page_html, encoding="utf-8")
         buildings.append(building)
+        page_paths.append(f"/b/{building_key}.html")
 
     index_html = _render_index(buildings)
     _assert_safe_html(index_html, "index")
     (output_path / "index.html").write_text(index_html, encoding="utf-8")
+    write_robots(output_path, resolved_site_url)
+    write_sitemap(output_path, resolved_site_url, page_paths)
     return output_path
 
 
@@ -272,8 +304,13 @@ def main(argv: list[str] | None = None) -> int:
         default="dist",
         help="Output directory for static HTML (default: dist)",
     )
+    parser.add_argument(
+        "--site-url",
+        default=None,
+        help="Base site URL for sitemap/robots (default: TATEMONO_MAP_SITE_URL env or empty)",
+    )
     args = parser.parse_args(argv)
-    build_static_site(args.output_dir)
+    build_static_site(args.output_dir, site_url=args.site_url)
     return 0
 
 
