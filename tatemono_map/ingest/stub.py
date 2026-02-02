@@ -23,7 +23,17 @@ def _ensure_parent_dir(db_path: Path) -> None:
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def ingest_stub(db_path: Path, building_key: str, fail: bool = False) -> None:
+def _normalize_vacancy_status(value: str | None) -> str:
+    if value is None or value.strip() == "":
+        return "満室"
+    if value not in {"満室", "空室あり"}:
+        raise ValueError("vacancy_status must be '満室' or '空室あり'")
+    return value
+
+
+def ingest_stub(
+    db_path: Path, building_key: str, fail: bool = False, vacancy_status: str | None = None
+) -> None:
     if fail:
         raise RuntimeError("Intentional ingest failure (stub)")
 
@@ -47,11 +57,13 @@ def ingest_stub(db_path: Path, building_key: str, fail: bool = False) -> None:
         exists = cur.fetchone() is not None
 
         # 更新候補（存在するカラムだけ更新）
+        normalized_vacancy_status = _normalize_vacancy_status(vacancy_status)
         candidates: dict[str, Any] = {
             "last_updated": now,
             "updated_at": now,
             # “DB更新が起きた”ことを見分けやすくするための任意フィールド（存在するなら更新）
             "source": "stub",
+            "vacancy_status": normalized_vacancy_status,
         }
         update_map = {k: v for k, v in candidates.items() if k in cols}
 
@@ -96,10 +108,20 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--db", required=True, help="Path to SQLite DB (SQLITE_DB_PATH)")
     ap.add_argument("--building-key", default="demo", help="Target building_key to upsert (default: demo)")
+    ap.add_argument(
+        "--vacancy-status",
+        default="満室",
+        help="vacancy_status to upsert (default: 満室, allowed: 満室/空室あり)",
+    )
     ap.add_argument("--fail", action="store_true", help="Intentionally fail to test failure path")
     args = ap.parse_args()
 
-    ingest_stub(Path(args.db), building_key=args.building_key, fail=args.fail)
+    ingest_stub(
+        Path(args.db),
+        building_key=args.building_key,
+        fail=args.fail,
+        vacancy_status=args.vacancy_status,
+    )
 
 
 if __name__ == "__main__":
