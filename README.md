@@ -28,6 +28,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev.ps1"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\smoke.ps1"
 ```
 
+3.5) **静的HTML生成（build）**
+```powershell
+python -m tatemono_map.render.build --output-dir dist
+```
+
 4) **変更の取り込み（コミット&push）**
 - `scripts/push.ps1` で一発 push（詳細は下記の「スクリプト一覧」）
 
