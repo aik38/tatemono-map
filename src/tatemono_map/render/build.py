@@ -139,6 +139,23 @@ def _resolve_site_url(site_url: str | None) -> str:
     return os.getenv("TATEMONO_MAP_SITE_URL", "")
 
 
+def _resolve_google_verification_file(filename: str | None) -> str | None:
+    if filename:
+        return filename
+    return os.getenv("TATEMONO_MAP_GOOGLE_VERIFICATION_FILE")
+
+
+def _ensure_safe_filename(filename: str) -> None:
+    if "/" in filename or "\\" in filename:
+        raise ValueError(f"Path separators are not allowed in verification filename: {filename}")
+
+
+def _write_google_verification(output_path: Path, filename: str) -> None:
+    _ensure_safe_filename(filename)
+    content = f"google-site-verification: {filename}\n"
+    (output_path / filename).write_text(content, encoding="utf-8")
+
+
 def write_robots(output_path: Path, site_url: str) -> None:
     sitemap_url = f"{site_url.rstrip('/')}/sitemap.xml" if site_url else "/sitemap.xml"
     robots_txt = f"User-agent: *\nAllow: /\nSitemap: {sitemap_url}\n"
@@ -158,7 +175,11 @@ def write_sitemap(output_path: Path, site_url: str, page_paths: list[str]) -> No
     tree.write(output_path / "sitemap.xml", encoding="utf-8", xml_declaration=True)
 
 
-def build_static_site(output_dir: str | Path = "dist", site_url: str | None = None) -> Path:
+def build_static_site(
+    output_dir: str | Path = "dist",
+    site_url: str | None = None,
+    google_verification_file: str | None = None,
+) -> Path:
     init_db()
     engine = get_engine()
     output_path = Path(output_dir)
@@ -166,6 +187,7 @@ def build_static_site(output_dir: str | Path = "dist", site_url: str | None = No
     buildings_path = output_path / "b"
     buildings_path.mkdir(parents=True, exist_ok=True)
     resolved_site_url = _resolve_site_url(site_url)
+    resolved_google_verification_file = _resolve_google_verification_file(google_verification_file)
 
     with engine.begin() as conn:
         table_exists = conn.execute(
@@ -294,6 +316,8 @@ def build_static_site(output_dir: str | Path = "dist", site_url: str | None = No
     (output_path / "index.html").write_text(index_html, encoding="utf-8")
     write_robots(output_path, resolved_site_url)
     write_sitemap(output_path, resolved_site_url, page_paths)
+    if resolved_google_verification_file:
+        _write_google_verification(output_path, resolved_google_verification_file)
     return output_path
 
 
@@ -309,8 +333,17 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Base site URL for sitemap/robots (default: TATEMONO_MAP_SITE_URL env or empty)",
     )
+    parser.add_argument(
+        "--google-verification-file",
+        default=None,
+        help="Google Search Console HTML verification filename (default: TATEMONO_MAP_GOOGLE_VERIFICATION_FILE env)",
+    )
     args = parser.parse_args(argv)
-    build_static_site(args.output_dir, site_url=args.site_url)
+    build_static_site(
+        args.output_dir,
+        site_url=args.site_url,
+        google_verification_file=args.google_verification_file,
+    )
     return 0
 
 
