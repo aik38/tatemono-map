@@ -11,6 +11,19 @@
   - `python -m tatemono_map.render.build --output-dir dist`
 - 禁止情報（号室/参照元URL/元付・管理会社/見積内訳PDFなど）が混入した場合は生成が失敗する
 
+## Phase2 主要変更（運用メモ）
+- 静的HTML生成CLI：`python -m tatemono_map.render.build --output-dir dist`
+- building_summaries が空でも最低1件（seed）を出して `dist/b/*.html` を0件にしない
+- `dist/` はビルド成果物で Git 管理しない（.gitignore で除外）
+- 禁止情報（URL/PDF/号室/参照元/管理会社等）が dist に混入しないチェックを継続し、各ページに「最終更新日時」を必須表示
+- `python -m ...` が repo 直下から動く（PYTHONPATH 追加不要の方向へ寄せた）
+- 既知の警告：Pydantic/FastAPI の deprecation warning は「動作影響なし、後でまとめて対応」でOK
+
+## ローカル検証（pytest → build → dist確認）
+- `pytest`
+- `python -m tatemono_map.render.build --output-dir dist`
+- `ls dist dist\\b`
+
 ## 失敗時
 - 例外は握りつぶさず、管理者へLINE通知
 - Web/APIは停止しない（最終更新日時が古い状態で継続）
