@@ -115,3 +115,23 @@ def test_static_build_writes_robots_and_sitemap(tmp_path, monkeypatch):
     assert "<urlset" in sitemap_xml
     assert "https://example.com/tatemono-map/" in sitemap_xml
     assert "https://example.com/tatemono-map/b/sample-01.html" in sitemap_xml
+
+
+def test_static_build_writes_google_verification_file(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine)
+
+    output_dir = tmp_path / "dist"
+    filename = "google9e29480048aec8bf.html"
+    build_module.build_static_site(
+        output_dir=output_dir,
+        google_verification_file=filename,
+    )
+
+    verification_path = output_dir / filename
+    assert verification_path.exists()
+    assert (
+        verification_path.read_text(encoding="utf-8")
+        == f"google-site-verification: {filename}\n"
+    )
