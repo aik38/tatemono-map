@@ -1,8 +1,10 @@
 # Runbook（運用）
 
-## 定期実行
+## 定期実行（Phase3）
 - 週2回 ingest を実行（例：火・金 10:00）
 - 実行：scripts\run_ingest.ps1
+  - ingest 成功後に build を行い、dist に反映する
+  - build は dist__tmp に生成してから dist に反映するため、build 失敗時は dist は更新されない（前回分維持）
 
 ## 静的HTML生成
 - 静的HTML生成CLIを実行し、`dist/index.html` と `dist/b/{building_key}.html` を生成する
