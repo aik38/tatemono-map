@@ -3,6 +3,7 @@
 param(
   [string]$DbPath = "",
   [string]$BuildingKey = "demo",
+  [string]$UluSmartlinkUrl = "",
   [switch]$SkipBuild,
   [switch]$FailIngest
 )
@@ -31,9 +32,13 @@ if (!(Test-Path $Py)) { $Py = "python" }
 Write-Host "[ingest] repo=$REPO" -ForegroundColor DarkGray
 Write-Host "[ingest] db=$DbPath key=$BuildingKey" -ForegroundColor Cyan
 
-# ingest (stub)
-$ingestArgs = @("-m","tatemono_map.ingest.stub","--db",$DbPath,"--building-key",$BuildingKey)
-if ($FailIngest) { $ingestArgs += "--fail" }
+# ingest
+if (-not [string]::IsNullOrWhiteSpace($UluSmartlinkUrl)) {
+  $ingestArgs = @("-m","tatemono_map.ingest.ulucks_smartlink","--url",$UluSmartlinkUrl,"--limit","10","--db",$DbPath)
+} else {
+  $ingestArgs = @("-m","tatemono_map.ingest.stub","--db",$DbPath,"--building-key",$BuildingKey)
+  if ($FailIngest) { $ingestArgs += "--fail" }
+}
 
 try {
   & $Py @ingestArgs

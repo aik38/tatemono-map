@@ -6,6 +6,9 @@
   - ingest 成功後に build を行い、dist に反映する
   - build は dist__tmp に生成してから dist に反映するため、build 失敗時は dist は更新されない（前回分維持）
 - 動作確認（成功/失敗）：`pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1` / `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1 -FailIngest`
+- ULUCKS smartlink PoC（PowerShell例）
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1 -UluSmartlinkUrl "<smartlink_url>"`
+  - `SQLITE_DB_PATH` を指定しない場合は `data\tatemono_map.sqlite3` が使われる
 
 ## 静的HTML生成
 - 静的HTML生成CLIを実行し、`dist/index.html` と `dist/b/{building_key}.html` を生成する
