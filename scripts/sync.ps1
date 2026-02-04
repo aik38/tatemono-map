@@ -29,7 +29,7 @@ Set-Location $resolvedRepoPath
 
 $gitStatus = git status --porcelain
 if ($gitStatus -and -not $Force) {
-    throw "Uncommitted changes detected. Commit or stash before syncing, or re-run with -Force."
+    throw "Uncommitted changes detected. Commit or stash before syncing, or re-run with -Force. (dist_tmp などの build 中間物なら削除してOK)"
 }
 
 git pull --ff-only
