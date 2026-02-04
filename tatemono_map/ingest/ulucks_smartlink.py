@@ -189,22 +189,127 @@ def _save_raw_source(
     )
 
 
-def _extract_links(base_url: str, html_text: str) -> list[str]:
+def _extract_anchor_links(base_url: str, html_text: str) -> list[str]:
     parser = _LinkExtractor()
     parser.feed(html_text)
     links: list[str] = []
     for link in parser.links:
-        absolute = urllib.parse.urljoin(base_url, link)
-        links.append(absolute)
+        links.append(urllib.parse.urljoin(base_url, link))
+    return links
+
+
+def _extract_regex_links(base_url: str, html_text: str) -> list[str]:
+    links: list[str] = []
+    full_urls = re.findall(
+        r"https?://[^\s\"'<>]*smartview[^\s\"'<>]*",
+        html_text,
+        flags=re.IGNORECASE,
+    )
+    links.extend(full_urls)
+    relative_urls = re.findall(
+        r"/view/smartview/[^\s\"'<>]+",
+        html_text,
+        flags=re.IGNORECASE,
+    )
+    links.extend(urllib.parse.urljoin(base_url, rel) for rel in relative_urls)
+    return links
+
+
+def _extract_urls_from_json(obj: Any, found: list[str]) -> None:
+    if isinstance(obj, dict):
+        for value in obj.values():
+            _extract_urls_from_json(value, found)
+    elif isinstance(obj, list):
+        for item in obj:
+            _extract_urls_from_json(item, found)
+    elif isinstance(obj, str):
+        if "smartview" in obj or "/view/smartview/" in obj:
+            found.append(obj)
+
+
+def _extract_script_links(base_url: str, html_text: str) -> list[str]:
+    scripts = re.findall(
+        r"<script[^>]*>(.*?)</script>",
+        html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    found: list[str] = []
+    for script in scripts:
+        found.extend(
+            re.findall(
+                r"https?://[^\s\"'<>]+",
+                script,
+                flags=re.IGNORECASE,
+            )
+        )
+        found.extend(
+            re.findall(
+                r"/view/smartview/[^\s\"'<>]+",
+                script,
+                flags=re.IGNORECASE,
+            )
+        )
+        for match in re.findall(r"['\"]([^'\"]+)['\"]", script):
+            if "smartview" in match or "/view/smartview/" in match:
+                found.append(match)
+        stripped = script.strip()
+        if stripped.startswith("{") or stripped.startswith("["):
+            try:
+                parsed = json.loads(stripped)
+            except json.JSONDecodeError:
+                parsed = None
+            if parsed is not None:
+                _extract_urls_from_json(parsed, found)
+    return [urllib.parse.urljoin(base_url, link) for link in found]
+
+
+def _dedupe_urls(urls: list[str]) -> list[str]:
     seen: set[str] = set()
-    filtered: list[str] = []
-    for link in links:
-        if link in seen:
+    unique: list[str] = []
+    for url in urls:
+        if not url:
             continue
-        seen.add(link)
-        if "smartview" in link or "smart" in link:
-            filtered.append(link)
-    return filtered
+        normalized = url.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        unique.append(normalized)
+    return unique
+
+
+def _filter_detail_urls(urls: list[str]) -> list[str]:
+    return [url for url in urls if "smartview" in url or "/view/smartview/" in url]
+
+
+def _detect_meta_refresh(html_text: str) -> str | None:
+    match = re.search(
+        r"<meta[^>]+http-equiv=[\"']?refresh[\"']?[^>]*content=[\"']([^\"']+)[\"']",
+        html_text,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        return None
+    content = match.group(1)
+    parts = [part.strip() for part in content.split(";") if part.strip()]
+    for part in parts:
+        if part.lower().startswith("url="):
+            return part.split("=", 1)[1].strip(" '\"")
+    if parts:
+        return parts[-1]
+    return None
+
+
+def _detect_js_redirect(html_text: str) -> str | None:
+    patterns = [
+        r"(?:window\.)?location(?:\.href)?\s*=\s*['\"]([^'\"]+)['\"]",
+        r"(?:window\.)?location\.replace\(\s*['\"]([^'\"]+)['\"]\s*\)",
+        r"(?:window\.)?location\.assign\(\s*['\"]([^'\"]+)['\"]\s*\)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html_text, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
 
 
 def _sanitize_public_field(value: str | None) -> str | None:
@@ -445,6 +550,7 @@ def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path) -> None:
         _ensure_tables(conn)
 
         smartlink_html = _fetch_url(url)
+        print(f"Fetched smartlink bytes: {len(smartlink_html.encode('utf-8'))}")
         _save_raw_source(
             conn,
             source_system="ulucks",
@@ -453,12 +559,58 @@ def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path) -> None:
             content=smartlink_html,
         )
 
-        candidate_links = _extract_links(url, smartlink_html)
-        for link in candidate_links[:limit]:
+        effective_url = url
+        redirect_type: str | None = None
+        redirect_target = _detect_meta_refresh(smartlink_html)
+        if redirect_target:
+            redirect_type = "meta-refresh"
+        else:
+            redirect_target = _detect_js_redirect(smartlink_html)
+            if redirect_target:
+                redirect_type = "js-redirect"
+        if redirect_target:
+            effective_url = urllib.parse.urljoin(url, redirect_target)
+            print(f"Detected redirect ({redirect_type}): {redirect_target} -> {effective_url}")
+            smartlink_html = _fetch_url(effective_url)
+            print(
+                f"Fetched effective smartlink bytes: {len(smartlink_html.encode('utf-8'))}"
+            )
+            _save_raw_source(
+                conn,
+                source_system="ulucks",
+                source_kind="smartlink_effective",
+                source_url=effective_url,
+                content=smartlink_html,
+            )
+        else:
+            print("No redirect detected in smartlink HTML.")
+
+        href_links = _extract_anchor_links(effective_url, smartlink_html)
+        regex_links = _extract_regex_links(effective_url, smartlink_html)
+        script_links = _extract_script_links(effective_url, smartlink_html)
+        print(f"Extracted href links: {len(href_links)}")
+        print(f"Extracted regex links: {len(regex_links)}")
+        print(f"Extracted script links: {len(script_links)}")
+
+        candidate_links = _dedupe_urls(href_links + regex_links + script_links)
+        detail_urls = _filter_detail_urls(candidate_links)
+        detail_urls = _dedupe_urls(detail_urls)[:limit]
+        print(f"Final detail URLs: {len(detail_urls)}")
+        if not detail_urls:
+            raise RuntimeError(
+                "No detail URLs extracted. Use `python -m tatemono_map.tools.db_inspect "
+                "--dump-latest-raw --system ulucks --kind smartlink "
+                "--out tmp_ulucks_smartlink_latest.html` to inspect saved smartlink HTML."
+            )
+
+        fetched_details = 0
+        upserted_listings = 0
+        for link in detail_urls:
             try:
                 detail_html = _fetch_url(link)
             except urllib.error.URLError:
                 continue
+            fetched_details += 1
             _save_raw_source(
                 conn,
                 source_system="ulucks",
@@ -479,8 +631,11 @@ def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path) -> None:
                 "fetched_at": _utc_iso(),
             }
             _upsert_listing(conn, listing)
+            upserted_listings += 1
 
         _aggregate_buildings(conn)
+        print(f"Fetched detail pages: {fetched_details}")
+        print(f"Upserted listings: {upserted_listings}")
         conn.execute("COMMIT")
     except Exception:
         try:
