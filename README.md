@@ -37,8 +37,8 @@ python -m tatemono_map.render.build --output-dir dist
 - `scripts/push.ps1` で一発 push（詳細は下記の「スクリプト一覧」）
 
 5) **よくある停止理由（sync.ps1が止まる）**
-- “Untracked files: db/ があると sync.ps1 が止まる”
-  - **対処（1行）**：`db/` を `.gitignore` に入れる（推奨） or `sync.ps1 -Force`
+- “Untracked files: db/ や dist_tmp などがあると sync.ps1 が止まる”
+  - **対処（1行）**：`db/` と `dist_tmp` 系を `.gitignore` に入れる（推奨） or `sync.ps1 -Force`（不要なら削除）
 
 ---
 
