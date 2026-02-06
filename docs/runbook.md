@@ -1,5 +1,26 @@
 # Runbook（運用）
 
+## Smartlink 一発運用（推奨）
+- どの作業ディレクトリからでも、以下の 1 コマンドで ingest → normalize → build → ブラウザ表示まで実行します。
+  - `pwsh -File scripts/run_ulucks_smartlink.ps1 -Url "<smartlink_url>"`
+- 主なオプション
+  - `-RepoPath`: リポジトリのフルパスを明示（未指定時は `C:\dev\tatemono-map` → `$env:USERPROFILE\tatemono-map` → `$env:USERPROFILE\OneDrive\Desktop\tatemono-map` を探索）
+  - `-MaxItems`: 取り込み上限（既定 200）
+  - `-Port`: `http.server` ポート（既定 8080）
+  - `-NoServe`: サーバ起動せず `dist/index.html` を直接開く
+- 失敗時メッセージ（原因と次アクション）
+  - `RepoPath が見つからない`: clone先の確認、または `-RepoPath` を明示
+  - `-Url が空`: ブラウザで開ける smartlink URL を `-Url` に指定
+  - ingest 0件: smartlink 期限切れ/無効の可能性。ログイン状態で smartlink 再生成後に再実行
+
+## OneDrive 配下を避ける理由（事故例）
+- OneDrive 配下では同期/ロックの影響で、次の連鎖障害が起きやすいです。
+  - `Set-Location` 失敗
+  - `fatal: not a git repository`
+  - venv 未有効化による `ModuleNotFoundError`
+  - build 未到達で `dist/index.html` 不在
+- 推奨運用: `C:\dev\tatemono-map` または `$env:USERPROFILE\tatemono-map` に実体を置き、Desktop はショートカットのみ。
+
 ## 定期実行（Phase3）
 - 週2回 ingest を実行（例：火・金 10:00）
 - 実行：scripts\run_ingest.ps1

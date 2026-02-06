@@ -7,6 +7,17 @@
 ## 最短ルート（迷ったらここだけ）
 **1本の流れで迷わない運用手順です。GitHub で merge した後の同期もこれだけ。**
 
+### Smartlink 一発実行（ingest → normalize → build → ブラウザ表示）
+どの作業ディレクトリからでも次の 1 コマンドで実行できます。
+
+```powershell
+pwsh -File scripts/run_ulucks_smartlink.ps1 -Url "<smartlink_url>"
+```
+
+- 既定動作: リポジトリ検出 → `git pull --ff-only` → `.venv` 作成/有効化 → 依存インストール → smartlink ingest → 正規化 → `dist` build → `http://127.0.0.1:8080/index.html` を表示
+- `-NoServe` 指定時: `http.server` を起動せず、`dist/index.html` を直接開きます。
+- 任意指定: `-RepoPath`, `-MaxItems`（既定200）, `-Port`（既定8080）
+
 0) **前提：PowerShell 7.x / Windows 11**
 
 1) **同期（GitHub→ローカル）**
@@ -52,6 +63,8 @@ python -m tatemono_map.render.build --output-dir dist
 > **OneDrive 外で開発すること**
 > - **理由**：OneDrive の同期/ロックが仮想環境や `.venv` の作成・更新を不安定にするためです。
 > - 例：`C:\dev\tatemono-map` に clone し、Desktop には **ショートカットだけ**置く運用を推奨します。
+> - 実際の事故例：OneDrive 配下で作業すると、`Set-Location` 失敗 → `fatal: not a git repository` → venv未有効化で `ModuleNotFoundError` → build未実行で `dist/index.html` 不在、の連鎖が起きやすくなります。
+> - `scripts/run_ulucks_smartlink.ps1` は `C:\dev\tatemono-map` → `$env:USERPROFILE\tatemono-map` → `$env:USERPROFILE\OneDrive\Desktop\tatemono-map` を順に探索します。安定運用は先頭2候補（OneDrive外）を推奨します。
 
 ---
 
@@ -170,6 +183,14 @@ python -m tatemono_map.render.build --output-dir dist
 ```
 
 ### Smartlink 80件を一気通貫で確認（ingest → normalize → build → index）
+最短は以下の一発スクリプトです。
+
+```powershell
+pwsh -File scripts/run_ulucks_smartlink.ps1 -Url "<smartlink_url>" -MaxItems 80
+```
+
+手動実行する場合のみ、従来手順を使用してください。
+
 ```powershell
 # 1) Smartlink から全ページ取得（必要に応じて上限を指定）
 python -m tatemono_map.ingest.ulucks_smartlink --url "<smartlink_url>" --max-items 80
