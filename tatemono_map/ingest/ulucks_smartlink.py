@@ -307,6 +307,31 @@ def _filter_detail_urls(urls: list[str]) -> list[str]:
     return [url for url in urls if "smartview" in url or "/view/smartview/" in url]
 
 
+def _extract_next_page_url(base_url: str, html_text: str) -> str | None:
+    rel_next = re.search(
+        r"<a[^>]*rel=[\"'][^\"']*next[^\"']*[\"'][^>]*href=[\"']([^\"']+)[\"'][^>]*>",
+        html_text,
+        flags=re.IGNORECASE,
+    )
+    if rel_next:
+        return urllib.parse.urljoin(base_url, rel_next.group(1).strip())
+
+    anchor_matches = re.findall(
+        r"<a[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
+        html_text,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    next_labels = {"次へ", "次", "next", ">", "›", "≫"}
+    for href, label_html in anchor_matches:
+        label = re.sub(r"<[^>]+>", "", html.unescape(label_html)).strip().lower()
+        if label in next_labels:
+            candidate = urllib.parse.urljoin(base_url, href.strip())
+            if candidate and "smartview" not in candidate:
+                return candidate
+
+    return None
+
+
 def _detect_meta_refresh(html_text: str) -> str | None:
     match = re.search(
         r"<meta[^>]+http-equiv=[\"']?refresh[\"']?[^>]*content=[\"']([^\"']+)[\"']",
@@ -527,7 +552,7 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
             source_url,
             fetched_at,
             updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(listing_key) DO UPDATE SET
             building_key=excluded.building_key,
             name=excluded.name,
@@ -786,7 +811,9 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
     _consolidate_building_summaries(conn)
 
 
-def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path, fail_when_empty: bool = False) -> None:
+def ingest_ulucks_smartlink(
+    url: str, limit: int | None, db_path: Path, fail_when_empty: bool = False
+) -> None:
     _ensure_parent_dir(db_path)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -833,16 +860,54 @@ def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path, fail_when_empty
         else:
             print("No redirect detected in smartlink HTML.")
 
-        href_links = _extract_anchor_links(effective_url, smartlink_html)
-        regex_links = _extract_regex_links(effective_url, smartlink_html)
-        script_links = _extract_script_links(effective_url, smartlink_html)
-        print(f"Extracted href links: {len(href_links)}")
-        print(f"Extracted regex links: {len(regex_links)}")
-        print(f"Extracted script links: {len(script_links)}")
+        detail_urls: list[str] = []
+        visited_pages: set[str] = set()
+        page_url = effective_url
+        page_html = smartlink_html
+        page_number = 1
+        max_items = limit if limit and limit > 0 else None
 
-        candidate_links = _dedupe_urls(href_links + regex_links + script_links)
-        detail_urls = _filter_detail_urls(candidate_links)
-        detail_urls = _dedupe_urls(detail_urls)[:limit]
+        while page_url and page_url not in visited_pages:
+            visited_pages.add(page_url)
+
+            href_links = _extract_anchor_links(page_url, page_html)
+            regex_links = _extract_regex_links(page_url, page_html)
+            script_links = _extract_script_links(page_url, page_html)
+            print(
+                f"Page {page_number}: href={len(href_links)}, regex={len(regex_links)}, script={len(script_links)}"
+            )
+
+            candidate_links = _dedupe_urls(href_links + regex_links + script_links)
+            page_detail_urls = _filter_detail_urls(candidate_links)
+            for detail_url in page_detail_urls:
+                if detail_url not in detail_urls:
+                    detail_urls.append(detail_url)
+                    if max_items is not None and len(detail_urls) >= max_items:
+                        break
+
+            if max_items is not None and len(detail_urls) >= max_items:
+                break
+
+            next_page_url = _extract_next_page_url(page_url, page_html)
+            if not next_page_url or next_page_url in visited_pages:
+                break
+
+            try:
+                page_html = _fetch_url(next_page_url)
+            except urllib.error.URLError:
+                break
+
+            _save_raw_source(
+                conn,
+                source_system="ulucks",
+                source_kind="smartlink_page",
+                source_url=next_page_url,
+                content=page_html,
+            )
+            _validate_smartlink_html_or_raise(page_html, next_page_url)
+            page_url = next_page_url
+            page_number += 1
+
         print(f"Final detail URLs: {len(detail_urls)}")
         if not detail_urls:
             raise RuntimeError(
@@ -907,7 +972,19 @@ def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path, fail_when_empty
 def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest Ulucks smartlink pages into SQLite.")
     parser.add_argument("--url", required=True, help="Smartlink URL to ingest")
-    parser.add_argument("--limit", type=int, default=10, help="Max smartview pages to fetch")
+    parser.add_argument(
+        "--max-items",
+        dest="limit",
+        type=int,
+        default=None,
+        help="Max smartview pages to fetch (default: unlimited)",
+    )
+    parser.add_argument(
+        "--limit",
+        dest="limit",
+        type=int,
+        help=argparse.SUPPRESS,
+    )
     parser.add_argument("--db", default=None, help="Path to SQLite DB (SQLITE_DB_PATH)")
     parser.add_argument(
         "--fail",

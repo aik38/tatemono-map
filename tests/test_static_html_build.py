@@ -217,17 +217,17 @@ def test_static_build_writes_google_verification_file(tmp_path, monkeypatch):
     )
 
 
-def test_static_build_includes_google_maps_link_when_lat_lon_present(tmp_path, monkeypatch):
+def test_static_build_uses_address_query_links_for_maps_and_streetview(tmp_path, monkeypatch):
     _setup_db(tmp_path, monkeypatch)
     engine = database.get_engine()
-    _insert_summary(engine, lat=35.1, lon=139.2)
+    _insert_summary(engine, address="東京都千代田区1-2-3", lat=35.1, lon=139.2)
 
     output_dir = tmp_path / "dist"
     build_module.build_static_site(output_dir=output_dir)
 
     building_html = (output_dir / "b" / "sample-01.html").read_text(encoding="utf-8")
-    assert "Google Maps" in building_html
-    assert "ストリートビュー" in building_html
+    assert "maps/search/?api=1&amp;query=%E6%9D%B1%E4%BA%AC%E9%83%BD%E5%8D%83%E4%BB%A3%E7%94%B0%E5%8C%BA1-2-3" in building_html
+    assert "maps?q=&amp;layer=c&amp;cbll=%E6%9D%B1%E4%BA%AC%E9%83%BD%E5%8D%83%E4%BB%A3%E7%94%B0%E5%8C%BA1-2-3" in building_html
 
 
 def test_room_summary_grouping_and_building_summary_rendered(tmp_path, monkeypatch):

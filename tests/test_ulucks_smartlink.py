@@ -73,3 +73,53 @@ def test_building_key_stable_across_rooms():
     key_1 = ulucks_smartlink._build_building_key("東京都新宿区1-2-3", "205: フォーレスト中尾", None, None)  # noqa: SLF001
     key_2 = ulucks_smartlink._build_building_key("東京都新宿区1-2-3", "203: フォーレスト中尾", None, None)  # noqa: SLF001
     assert key_1 == key_2
+
+
+def test_ingest_smartlink_follows_pagination_and_respects_max_items(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    db_path = tmp_path / "test.sqlite3"
+    list_1 = """
+    <html><body>
+      <a href='https://example.com/view/smartview/1'>d1</a>
+      <a href='https://example.com/view/smartview/2'>d2</a>
+      <a rel='next' href='https://example.com/list?page=2'>next</a>
+    </body></html>
+    """
+    list_2 = """
+    <html><body>
+      <a href='https://example.com/view/smartview/3'>d3</a>
+      <a href='https://example.com/view/smartview/4'>d4</a>
+    </body></html>
+    """
+    detail = """
+    <html><head><title>101: テストマンション</title></head><body>
+      <div>建物名: 101: テストマンション</div>
+      <div>住所: 東京都新宿区1-2-3</div>
+      <div>賃料: 5.2万円</div>
+      <div>面積: 20.1㎡</div>
+    </body></html>
+    """
+
+    def fake_fetch(url: str) -> str:
+        if url == "https://example.com/list":
+            return list_1
+        if url == "https://example.com/list?page=2":
+            return list_2
+        if "smartview" in url:
+            return detail
+        raise AssertionError(url)
+
+    monkeypatch.setattr(ulucks_smartlink, "_fetch_url", fake_fetch)
+
+    ulucks_smartlink.ingest_ulucks_smartlink(
+        "https://example.com/list",
+        limit=3,
+        db_path=db_path,
+        fail_when_empty=True,
+    )
+
+    conn = ulucks_smartlink.sqlite3.connect(str(db_path))
+    try:
+        listing_count = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
+        assert listing_count == 3
+    finally:
+        conn.close()
