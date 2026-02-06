@@ -3,7 +3,7 @@
 ## Smartlink 一発運用（推奨）
 - リポジトリ実体は **`$env:USERPROFILE\tatemono-map` 固定**（OneDrive 配下は使用しない）。
 - どの作業ディレクトリからでも、以下の 1 コマンドで ingest → normalize → build → ブラウザ表示まで実行します。
-  - `pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url "<smartlink_url>" -NoServe`
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://...' -NoServe`
 - 主なオプション
   - `-RepoPath`: 既定は `$env:USERPROFILE\tatemono-map`。OneDrive 配下を指定すると警告して停止。
   - `-MaxItems`: 取り込み上限（既定 200）
@@ -13,6 +13,17 @@
   - `RepoPath が見つからない`: clone先の確認、または `-RepoPath` を明示
   - `-Url が空`: ブラウザで開ける smartlink URL を `-Url` に指定
   - ingest 0件: smartlink 期限切れ/無効の可能性。ログイン状態で smartlink 再生成後に再実行
+
+
+## UI確認（build-only）
+- 既存DBがある前提で、`$env:USERPROFILE\tatemono-map` から `dist/index.html` を再生成して開きます。
+- 実行例（PowerShell）
+  - `$REPO = Join-Path $env:USERPROFILE "tatemono-map"`
+  - `Set-Location $REPO`
+  - `. .\.venv\Scripts\Activate.ps1`
+  - `if (-not $env:SQLITE_DB_PATH) { $env:SQLITE_DB_PATH = "data\tatemono_map.sqlite3" }`
+  - `python -m tatemono_map.render.build --output-dir dist`
+  - `Start-Process (Join-Path $REPO "dist\index.html")`
 
 ## OneDrive 配下を避ける理由（事故例）
 - 統一運用: **`$env:USERPROFILE\tatemono-map` を唯一の実体パス**にする。
@@ -30,7 +41,7 @@
   - build は dist__tmp に生成してから dist に反映するため、build 失敗時は dist は更新されない（前回分維持）
 - 動作確認（成功/失敗）：`pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1` / `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1 -FailIngest`
 - ULUCKS smartlink PoC（PowerShell例）
-  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1 -UluSmartlinkUrl "<smartlink_url>"`
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1 -UluSmartlinkUrl 'https://...'`
   - `SQLITE_DB_PATH` を指定しない場合は `data\tatemono_map.sqlite3` が使われる
   - `tmp_ulucks_*.html` は smartlink のデバッグ生成物なのでコミット不要（`dist_tmp/` など Git 管理外に出力）
 
