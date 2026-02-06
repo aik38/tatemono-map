@@ -77,11 +77,12 @@ def test_building_key_stable_across_rooms():
 
 def test_ingest_smartlink_follows_pagination_and_respects_max_items(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path = tmp_path / "test.sqlite3"
+    source_url = "https://example.com/view/smartlink?link_id=abc&mail=test%40example.com&sort=desc"
     list_1 = """
     <html><body>
       <a href='https://example.com/view/smartview/1'>d1</a>
       <a href='https://example.com/view/smartview/2'>d2</a>
-      <a rel='next' href='https://example.com/list?page=2'>next</a>
+      <a rel='next' href='/view/smartlink/page:2/'>next</a>
     </body></html>
     """
     list_2 = """
@@ -99,10 +100,13 @@ def test_ingest_smartlink_follows_pagination_and_respects_max_items(tmp_path: Pa
     </body></html>
     """
 
+    requested_urls: list[str] = []
+
     def fake_fetch(url: str) -> str:
-        if url == "https://example.com/list":
+        requested_urls.append(url)
+        if url == source_url:
             return list_1
-        if url == "https://example.com/list?page=2":
+        if url == "https://example.com/view/smartlink/page:2/?link_id=abc&mail=test%40example.com&sort=desc":
             return list_2
         if "smartview" in url:
             return detail
@@ -111,7 +115,7 @@ def test_ingest_smartlink_follows_pagination_and_respects_max_items(tmp_path: Pa
     monkeypatch.setattr(ulucks_smartlink, "_fetch_url", fake_fetch)
 
     ulucks_smartlink.ingest_ulucks_smartlink(
-        "https://example.com/list",
+        source_url,
         limit=3,
         db_path=db_path,
         fail_when_empty=True,
@@ -123,3 +127,5 @@ def test_ingest_smartlink_follows_pagination_and_respects_max_items(tmp_path: Pa
         assert listing_count == 3
     finally:
         conn.close()
+
+    assert "https://example.com/view/smartlink/page:2/?link_id=abc&mail=test%40example.com&sort=desc" in requested_urls

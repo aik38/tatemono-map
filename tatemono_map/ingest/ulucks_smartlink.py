@@ -307,6 +307,25 @@ def _filter_detail_urls(urls: list[str]) -> list[str]:
     return [url for url in urls if "smartview" in url or "/view/smartview/" in url]
 
 
+def _inherit_query_params(candidate_url: str, source_url: str) -> str:
+    candidate_parts = urllib.parse.urlparse(candidate_url)
+    if candidate_parts.query:
+        return candidate_url
+
+    source_parts = urllib.parse.urlparse(source_url)
+    source_query_items = urllib.parse.parse_qsl(
+        source_parts.query,
+        keep_blank_values=True,
+    )
+    if not source_query_items:
+        return candidate_url
+
+    merged_parts = candidate_parts._replace(
+        query=urllib.parse.urlencode(source_query_items),
+    )
+    return urllib.parse.urlunparse(merged_parts)
+
+
 def _extract_next_page_url(base_url: str, html_text: str) -> str | None:
     rel_next = re.search(
         r"<a[^>]*rel=[\"'][^\"']*next[^\"']*[\"'][^>]*href=[\"']([^\"']+)[\"'][^>]*>",
@@ -314,7 +333,8 @@ def _extract_next_page_url(base_url: str, html_text: str) -> str | None:
         flags=re.IGNORECASE,
     )
     if rel_next:
-        return urllib.parse.urljoin(base_url, rel_next.group(1).strip())
+        candidate = urllib.parse.urljoin(base_url, rel_next.group(1).strip())
+        return _inherit_query_params(candidate, base_url)
 
     anchor_matches = re.findall(
         r"<a[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
@@ -327,7 +347,7 @@ def _extract_next_page_url(base_url: str, html_text: str) -> str | None:
         if label in next_labels:
             candidate = urllib.parse.urljoin(base_url, href.strip())
             if candidate and "smartview" not in candidate:
-                return candidate
+                return _inherit_query_params(candidate, base_url)
 
     return None
 
