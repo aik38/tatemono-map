@@ -2,7 +2,7 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$Url,
-    [string]$RepoPath,
+    [string]$RepoPath = (Join-Path $env:USERPROFILE "tatemono-map"),
     [int]$MaxItems = 200,
     [int]$Port = 8080,
     [switch]$NoServe
@@ -13,39 +13,26 @@ $ErrorActionPreference = "Stop"
 function Resolve-RepoPath {
     param([string]$RequestedPath)
 
-    $candidates = @()
-    if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
-        $candidates += $RequestedPath
-    } else {
-        $candidates += "C:\dev\tatemono-map"
-        if ($env:USERPROFILE) {
-            $candidates += (Join-Path $env:USERPROFILE "tatemono-map")
-            $candidates += (Join-Path $env:USERPROFILE "OneDrive\Desktop\tatemono-map")
-        }
+    if ([string]::IsNullOrWhiteSpace($RequestedPath)) {
+        throw "RepoPath が空です。次のアクション: -RepoPath を指定するか、`$env:USERPROFILE\\tatemono-map に clone してください。"
     }
 
-    foreach ($candidate in $candidates) {
-        if ([string]::IsNullOrWhiteSpace($candidate)) { continue }
-        $resolved = Resolve-Path -Path $candidate -ErrorAction SilentlyContinue
-        if (-not $resolved) { continue }
-
-        $fullPath = $resolved.Path
-        if (Test-Path (Join-Path $fullPath ".git")) {
-            return $fullPath
-        }
+    $resolved = Resolve-Path -Path $RequestedPath -ErrorAction SilentlyContinue
+    if (-not $resolved) {
+        throw "RepoPath が見つかりません: $RequestedPath`n次のアクション: `$env:USERPROFILE\\tatemono-map に clone するか、正しい -RepoPath を指定してください。"
     }
 
-    $tips = @(
-        "RepoPath が見つかりません。候補を確認してください:",
-        " - C:\dev\tatemono-map",
-        " - `$env:USERPROFILE\tatemono-map",
-        " - `$env:USERPROFILE\OneDrive\Desktop\tatemono-map"
-    )
-    if (-not [string]::IsNullOrWhiteSpace($RequestedPath)) {
-        $tips += "指定された -RepoPath: $RequestedPath"
+    $fullPath = $resolved.Path
+    if ($fullPath -match "\\OneDrive\\") {
+        Write-Warning "OneDrive 配下のリポジトリは非推奨です: $fullPath"
+        throw "統一運用のため `$env:USERPROFILE\\tatemono-map を使用してください（OneDrive 配下では実行しません）。"
     }
-    $tips += "次のアクション: 正しいパスを -RepoPath で明示するか、上記候補に clone してください。"
-    throw ($tips -join [Environment]::NewLine)
+
+    if (-not (Test-Path (Join-Path $fullPath ".git"))) {
+        throw "Git リポジトリではありません: $fullPath`n次のアクション: tatemono-map の clone 先を指定してください。"
+    }
+
+    return $fullPath
 }
 
 function Invoke-Step {
@@ -89,6 +76,11 @@ if ($PSCmdlet.ShouldProcess($resolvedRepoPath, "Run smartlink ingest + normalize
         throw "Activate スクリプトが見つかりません: $activateScript`n次のアクション: .venv を削除して再実行してください。"
     }
     . $activateScript
+
+    if (-not $env:SQLITE_DB_PATH) {
+        $env:SQLITE_DB_PATH = "data\tatemono_map.sqlite3"
+        Write-Host "[run_ulucks] SQLITE_DB_PATH=$($env:SQLITE_DB_PATH)" -ForegroundColor DarkGray
+    }
 
     Invoke-Step "python -m pip install -U pip" {
         python -m pip install -U pip

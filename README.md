@@ -4,6 +4,44 @@
 
 ---
 
+## Quick Start（Windows / PowerShell）
+この章のコマンドをそのまま使えば、`C:\Users\OWNER\tatemono-map`（=`%USERPROFILE%\tatemono-map`）固定で事故を避けて運用できます。
+
+- 前提: リポジトリ配置は **`%USERPROFILE%\tatemono-map` に固定**
+- OneDrive 配下は非推奨（同期/ロックで作業ディレクトリがぶれやすく、別クローン混在の原因になるため）
+
+### 1) UI確認（build → dist/index.html をファイルで開く）
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+Set-Location $REPO
+if (-not (Test-Path ".venv\Scripts\Activate.ps1")) { throw ".venv がありません。scripts/dev_setup.ps1 などで初期化してください。" }
+. .\.venv\Scripts\Activate.ps1
+if (-not $env:SQLITE_DB_PATH) { $env:SQLITE_DB_PATH = "data\tatemono_map.sqlite3" }
+python -m tatemono_map.render.build --output-dir dist
+Start-Process (Join-Path $REPO "dist\index.html")
+```
+
+### 2) ULUCKS smartlink 一発実行（ingest → normalize → build → open）
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url "<smartlink_url>" -NoServe
+```
+
+### よくある失敗と原因
+- **DBが見つからない**
+  - 別クローンを見ている、または DB 未作成。
+  - `Set-Location "$env:USERPROFILE\tatemono-map"` と `SQLITE_DB_PATH=data\tatemono_map.sqlite3` を確認。
+- **`scripts/run_ulucks_smartlink.ps1` が見つからない**
+  - 相対パス実行でカレントディレクトリが違う、または別クローンを操作している。
+  - フルパス（`$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1`）で実行する。
+- **127.0.0.1 拒否**
+  - `http.server` が起動していない、またはポート競合。
+  - `-NoServe` 運用なら HTTP サーバ不要（`dist/index.html` を直接開く）。
+- **`ModuleNotFoundError: tatemono_map`**
+  - venv 未有効化、依存未導入、作業ディレクトリ違い。
+  - `.venv\Scripts\Activate.ps1` 実行後に `python -m pip install -r requirements.txt` を実施。
+
+---
+
 ## 最短ルート（迷ったらここだけ）
 **1本の流れで迷わない運用手順です。GitHub で merge した後の同期もこれだけ。**
 
@@ -11,7 +49,7 @@
 どの作業ディレクトリからでも次の 1 コマンドで実行できます。
 
 ```powershell
-pwsh -File scripts/run_ulucks_smartlink.ps1 -Url "<smartlink_url>"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url "<smartlink_url>"
 ```
 
 - 既定動作: リポジトリ検出 → `git pull --ff-only` → `.venv` 作成/有効化 → 依存インストール → smartlink ingest → 正規化 → `dist` build → `http://127.0.0.1:8080/index.html` を表示
@@ -60,18 +98,18 @@ python -m tatemono_map.render.build --output-dir dist
 - Python：**3.11 以上**（`py -0` で確認）
 - Git：インストール済み（`git --version`）
 
-> **OneDrive 外で開発すること**
-> - **理由**：OneDrive の同期/ロックが仮想環境や `.venv` の作成・更新を不安定にするためです。
-> - 例：`C:\dev\tatemono-map` に clone し、Desktop には **ショートカットだけ**置く運用を推奨します。
+> **OneDrive 外で開発すること（必須）**
+> - **統一方針**：リポジトリ実体は **`$env:USERPROFILE\tatemono-map` 固定**。
+> - **理由**：OneDrive の同期/ロックが `.venv` や作業ディレクトリを不安定にし、別クローン混在を招くためです。
 > - 実際の事故例：OneDrive 配下で作業すると、`Set-Location` 失敗 → `fatal: not a git repository` → venv未有効化で `ModuleNotFoundError` → build未実行で `dist/index.html` 不在、の連鎖が起きやすくなります。
-> - `scripts/run_ulucks_smartlink.ps1` は `C:\dev\tatemono-map` → `$env:USERPROFILE\tatemono-map` → `$env:USERPROFILE\OneDrive\Desktop\tatemono-map` を順に探索します。安定運用は先頭2候補（OneDrive外）を推奨します。
+> - `scripts/run_ulucks_smartlink.ps1` は OneDrive 配下を検知すると警告して停止します。
 
 ---
 
 ## 初回セットアップ
 ### 1) リポジトリを取得（未クローンの場合）
 ```powershell
-git clone https://github.com/<your-org>/tatemono-map.git C:\dev\tatemono-map
+git clone https://github.com/<your-org>/tatemono-map.git "$env:USERPROFILE\tatemono-map"
 ```
 
 ### 2) 依存インストール & 起動
@@ -186,7 +224,7 @@ python -m tatemono_map.render.build --output-dir dist
 最短は以下の一発スクリプトです。
 
 ```powershell
-pwsh -File scripts/run_ulucks_smartlink.ps1 -Url "<smartlink_url>" -MaxItems 80
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url "<smartlink_url>" -MaxItems 80
 ```
 
 手動実行する場合のみ、従来手順を使用してください。
