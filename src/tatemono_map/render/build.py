@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import html
 import json
+import math
 import os
 import re
+from urllib.parse import quote_plus
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
@@ -28,6 +31,13 @@ FORBIDDEN_PATTERNS = [
     re.compile(r"見積"),
     re.compile(r"\.pdf\b", re.IGNORECASE),
     re.compile(r"\bURL\b", re.IGNORECASE),
+]
+
+DIST_LEAK_PATTERNS = [
+    re.compile(r"号室"),
+    re.compile(r"部屋"),
+    re.compile(r"#\d{2,4}"),
+    re.compile(r"(?:^|\s)\d{1,4}\s*[:：]\s*\S"),
 ]
 
 
@@ -175,13 +185,54 @@ def _render_building(building: dict[str, Any]) -> str:
     rent_text = _format_range(building["rent_min"], building["rent_max"], "円")
     area_text = _format_range(building["area_min"], building["area_max"], "㎡")
     move_in_text = _format_range(building["move_in_min"], building["move_in_max"], "")
-    maps_link = ""
+    google_maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY", "").strip()
+    address_for_url = building.get("address") or building.get("name") or ""
+    encoded_query = quote_plus(address_for_url)
+    maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_query}"
     if building.get("lat") is not None and building.get("lon") is not None:
-        maps_url = f"https://www.google.com/maps?q={building['lat']},{building['lon']}"
-        maps_link = (
-            f'<div><b>地図</b>：<a href="{html.escape(maps_url)}" target="_blank" '
-            'rel="noopener">Google Mapsで開く</a></div>'
+        streetview_url = f"https://www.google.com/maps?q=&layer=c&cbll={building['lat']},{building['lon']}"
+    else:
+        streetview_url = maps_url
+
+    map_block = (
+        f'<div><b>Google Maps</b>：<a href="{html.escape(maps_url)}" target="_blank" rel="noopener">地図を開く</a></div>'
+        f'<div><b>Street View</b>：<a href="{html.escape(streetview_url)}" target="_blank" rel="noopener">ストリートビューを開く</a></div>'
+    )
+
+    if google_maps_api_key:
+        location = f"{building.get('lat')},{building.get('lon')}" if building.get("lat") is not None and building.get("lon") is not None else encoded_query
+        map_iframe_src = (
+            "https://www.google.com/maps/embed/v1/place"
+            f"?key={html.escape(google_maps_api_key)}&q={encoded_query}"
         )
+        street_iframe_src = (
+            "https://www.google.com/maps/embed/v1/streetview"
+            f"?key={html.escape(google_maps_api_key)}&location={location}"
+        )
+        map_block = (
+            '<div class="map-grid">'
+            '<div><b>Google Maps</b>'
+            f'<iframe src="{map_iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>'
+            '</div>'
+            '<div><b>Street View</b>'
+            f'<iframe src="{street_iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>'
+            '</div>'
+            '</div>'
+        )
+
+    room_rows_html = "".join(
+        "<tr>"
+        f"<td>{html.escape(str(row['layout'] or '—'))}</td>"
+        f"<td>{html.escape(row['area_range_text'])}</td>"
+        f"<td>{html.escape(row['rent_range_text'])}</td>"
+        f"<td>{html.escape(row['fee_text'])}</td>"
+        f"<td>{row['count']}</td>"
+        "</tr>"
+        for row in building["room_summaries"]
+    )
+    if not room_rows_html:
+        room_rows_html = "<tr><td colspan='5' class='muted'>公開可能な空室情報はありません。</td></tr>"
+
     return f"""<!doctype html>
 <html lang="ja">
 <head>
@@ -194,6 +245,10 @@ def _render_building(building: dict[str, Any]) -> str:
     .grid{{display:grid;grid-template-columns:1fr 1fr;gap:12px}}
     @media (max-width:720px){{.grid{{grid-template-columns:1fr}}}}
     .muted{{color:#6b7280}}
+    .map-grid{{display:grid;grid-template-columns:1fr;gap:12px}}
+    iframe{{width:100%;height:320px;border:0;border-radius:10px}}
+    table{{width:100%;border-collapse:collapse}}
+    th,td{{border-bottom:1px solid #e5e7eb;padding:8px;text-align:left}}
   </style>
 </head>
 <body>
@@ -201,19 +256,85 @@ def _render_building(building: dict[str, Any]) -> str:
   <p class="muted">{html.escape(building["address"] or "")}</p>
   <div class="card">
     <div class="grid">
-      <div><b>空室</b>：{html.escape(building["vacancy_status"])}</div>
-      <div><b>最終更新日時</b>：{html.escape(building["last_updated"])}</div>
-      <div><b>募集件数</b>：{building["listings_count"] or 0}</div>
+      <div><b>空室</b>：{building["vacant_total"]}</div>
+      <div><b>最終更新日時</b>：{html.escape(building["building_updated_at"])}</div>
       <div><b>家賃レンジ</b>：{html.escape(rent_text)}</div>
       <div><b>面積レンジ</b>：{html.escape(area_text)}</div>
       <div><b>間取りタイプ</b>：{html.escape(layout_text)}</div>
       <div><b>入居可能日</b>：{html.escape(move_in_text)}</div>
-      {maps_link}
     </div>
+  </div>
+  <div class="card">
+    <h2>空室サマリー</h2>
+    <table>
+      <thead><tr><th>間取り</th><th>面積</th><th>賃料</th><th>共益費</th><th>空室数</th></tr></thead>
+      <tbody>
+        {room_rows_html}
+      </tbody>
+    </table>
+  </div>
+  <div class="card">
+    <h2>地図・ストリートビュー</h2>
+    {map_block}
   </div>
 </body>
 </html>
 """
+
+
+def _group_room_summaries(listing_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, int | None, int | None], list[dict[str, Any]]] = collections.defaultdict(list)
+    for row in listing_rows:
+        layout = str(row.get("layout") or "").strip() or "—"
+        area_sqm = row.get("area_sqm")
+        rent_yen = row.get("rent_yen")
+        area_bucket = math.floor(float(area_sqm)) if area_sqm is not None else None
+        rent_bucket = math.floor(float(rent_yen) / 1000) * 1000 if rent_yen is not None else None
+        grouped[(layout, area_bucket, rent_bucket)].append(row)
+
+    room_summaries: list[dict[str, Any]] = []
+    for (layout, area_bucket, rent_bucket), rows in sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1] or -1, x[0][2] or -1)):
+        area_max = area_bucket + 1 if area_bucket is not None else None
+        rent_max = rent_bucket + 2000 if rent_bucket is not None else None
+        fee_values = [row.get("fee_yen") for row in rows if row.get("fee_yen") is not None]
+        fee_text = "—"
+        if fee_values:
+            fee_text = f"+共益費{min(fee_values):,}円"
+            if min(fee_values) != max(fee_values):
+                fee_text = f"+共益費{min(fee_values):,}〜{max(fee_values):,}円"
+        room_summaries.append(
+            {
+                "layout": layout,
+                "area_range_text": f"{area_bucket}〜{area_max}㎡" if area_bucket is not None else "—",
+                "rent_range_text": (
+                    f"{rent_bucket / 10000:.1f}〜{rent_max / 10000:.1f}万円" if rent_bucket is not None else "—"
+                ),
+                "fee_text": fee_text,
+                "count": len(rows),
+            }
+        )
+    return room_summaries
+
+
+
+
+def _extract_visible_text(content: str) -> str:
+    without_style = re.sub(r"<style\b[^>]*>.*?</style>", " ", content, flags=re.IGNORECASE | re.DOTALL)
+    without_script = re.sub(r"<script\b[^>]*>.*?</script>", " ", without_style, flags=re.IGNORECASE | re.DOTALL)
+    without_tags = re.sub(r"<[^>]+>", " ", without_script)
+    return html.unescape(without_tags)
+
+def _scan_dist_for_leaks(output_path: Path) -> None:
+    html_files = list(output_path.rglob("*.html"))
+    for html_file in html_files:
+        content = html_file.read_text(encoding="utf-8")
+        visible_text = _extract_visible_text(content)
+        for pattern in DIST_LEAK_PATTERNS:
+            if pattern.search(visible_text):
+                raise ValueError(
+                    "Public leak scan failed: suspicious token pattern "
+                    f"{pattern.pattern} found in {html_file.relative_to(output_path)}"
+                )
 
 
 def _resolve_site_url(site_url: str | None) -> str:
@@ -367,15 +488,53 @@ def build_static_site(
             )
         ).mappings().all()
 
+        listings_by_key: dict[str, list[dict[str, Any]]] = collections.defaultdict(list)
+        listings_exists = conn.execute(
+            text("SELECT name FROM sqlite_master WHERE type='table' AND name='listings'")
+        ).first()
+        if listings_exists is not None:
+            listing_columns = {
+                row["name"]
+                for row in conn.execute(text("PRAGMA table_info(listings)")).mappings().all()
+            }
+            updated_expr = "updated_at" if "updated_at" in listing_columns else "fetched_at"
+            listing_rows = conn.execute(
+                text(
+                    """
+                    SELECT
+                        building_key,
+                        rent_yen,
+                        fee_yen,
+                        area_sqm,
+                        layout,
+                        COALESCE("""
+                    + updated_expr
+                    + """, fetched_at) AS updated_at
+                    FROM listings
+                    WHERE building_key IS NOT NULL
+                    """
+                )
+            ).mappings().all()
+            for listing_row in listing_rows:
+                listings_by_key[str(listing_row["building_key"])].append(dict(listing_row))
+
     buildings: list[dict[str, Any]] = []
     page_paths = ["/"]
     for row in rows:
         building_key = row["building_key"]
         _ensure_building_key(building_key)
         vacancy_status = _normalize_vacancy_status(row["vacancy_status"])
-        last_updated = row["last_updated"]
-        if not last_updated:
-            raise ValueError(f"last_updated is required for {building_key}")
+        listing_rows = listings_by_key.get(building_key, [])
+        listing_updated_candidates = [
+            str(candidate)
+            for candidate in (listing_row.get("updated_at") for listing_row in listing_rows)
+            if candidate
+        ]
+        fallback_updated = row["last_updated"] or datetime.now(timezone.utc).isoformat()
+        building_updated_at = max(listing_updated_candidates) if listing_updated_candidates else str(fallback_updated)
+        room_summaries = _group_room_summaries(listing_rows)
+        vacant_total = len(listing_rows) if listing_rows else (row["listings_count"] or 0)
+
         building = {
             "building_key": building_key,
             "name": row["name"],
@@ -389,7 +548,10 @@ def build_static_site(
             "area_max": row["area_max"],
             "move_in_min": row["move_in_min"],
             "move_in_max": row["move_in_max"],
-            "last_updated": str(last_updated),
+            "last_updated": str(fallback_updated),
+            "building_updated_at": building_updated_at,
+            "vacant_total": f"{vacant_total}室",
+            "room_summaries": room_summaries,
             "lat": row["lat"],
             "lon": row["lon"],
         }
@@ -402,6 +564,7 @@ def build_static_site(
     index_html = _render_index(buildings)
     _assert_safe_html(index_html, "index")
     (output_path / "index.html").write_text(index_html, encoding="utf-8")
+    _scan_dist_for_leaks(output_path)
     if private_output_dir:
         private_path = Path(private_output_dir)
         private_path.mkdir(parents=True, exist_ok=True)
