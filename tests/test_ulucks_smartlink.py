@@ -69,6 +69,29 @@ def test_extract_listing_fields_splits_room_label_and_normalizes_name():
     assert extracted["room_label"] == "205"
 
 
+def test_extract_listing_fields_from_th_td_and_dt_dd_pairs():
+    html = """
+    <html><head><title>サンプルマンション</title></head><body>
+      <table>
+        <tr><th>所在地</th><td>東京都 渋谷区 2-3-4</td></tr>
+        <tr><th>賃料</th><td>8.2万円</td></tr>
+        <tr><th>面積</th><td>30.5㎡</td></tr>
+      </table>
+      <dl>
+        <dt>間取り</dt><dd>1LDK</dd>
+        <dt>入居可能日</dt><dd>即入居可</dd>
+      </dl>
+    </body></html>
+    """
+
+    extracted = ulucks_smartlink._extract_listing_fields("https://example.com/view/smartview/a", html)  # noqa: SLF001
+    assert extracted["address"] == "東京都 渋谷区 2-3-4"
+    assert extracted["rent_yen"] == 82000
+    assert extracted["area_sqm"] == 30.5
+    assert extracted["layout"] == "1LDK"
+    assert extracted["move_in"] == "即入居可"
+
+
 def test_building_key_stable_across_rooms():
     key_1 = ulucks_smartlink._build_building_key("東京都新宿区1-2-3", "205: フォーレスト中尾", None, None)  # noqa: SLF001
     key_2 = ulucks_smartlink._build_building_key("東京都新宿区1-2-3", "203: フォーレスト中尾", None, None)  # noqa: SLF001
