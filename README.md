@@ -169,6 +169,25 @@ python scripts/normalize_building_summaries.py
 python -m tatemono_map.render.build --output-dir dist
 ```
 
+### Smartlink 80件を一気通貫で確認（ingest → normalize → build → index）
+```powershell
+# 1) Smartlink から全ページ取得（必要に応じて上限を指定）
+python -m tatemono_map.ingest.ulucks_smartlink --url "<smartlink_url>" --max-items 80
+
+# 2) building_key 正規化・重複統合
+python scripts/normalize_building_summaries.py
+
+# 3) 公開HTML生成（漏洩スキャン実行）
+python -m tatemono_map.render.build --output-dir dist
+
+# 4) 出力確認（件数・建物ページ導線）
+python -m http.server 8080 --directory dist
+# ブラウザで http://127.0.0.1:8080/index.html を開く
+```
+
+- `--max-items` 未指定時は smartlink の次ページがなくなるまで取得します。
+- 例: `--max-items 200` を指定すると、最大200件までで停止します。
+
 - build は `listings` から公開許可項目のみを集計し、`(layout, area_sqm, rent_yen, maint_yen)` ごとの空室サマリーを生成します。
 - 建物ページには `vacancy_total`（建物内募集合計）と、表の `vacancy_count`（サマリー行ごとの件数）を表示します。
 - 「最終更新日時」は listings の最大 `updated_at`（なければ `fetched_at`）を優先し、値がなければ `building_summaries.last_updated` を使用します。

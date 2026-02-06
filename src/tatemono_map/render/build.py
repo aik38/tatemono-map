@@ -185,10 +185,13 @@ def _render_building(building: dict[str, Any]) -> str:
     area_text = _format_range(building["area_min"], building["area_max"], "㎡")
     move_in_text = _format_range(building["move_in_min"], building["move_in_max"], "")
     google_maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY", "").strip()
-    address_for_url = building.get("address") or building.get("name") or ""
+    address = str(building.get("address") or "").strip()
+    address_for_url = address or str(building.get("name") or "")
     encoded_query = quote_plus(address_for_url)
     maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_query}"
-    if building.get("lat") is not None and building.get("lon") is not None:
+    if address:
+        streetview_url = f"https://www.google.com/maps?q=&layer=c&cbll={quote_plus(address)}"
+    elif building.get("lat") is not None and building.get("lon") is not None:
         streetview_url = f"https://www.google.com/maps?q=&layer=c&cbll={building['lat']},{building['lon']}"
     else:
         streetview_url = maps_url
