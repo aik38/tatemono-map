@@ -78,6 +78,58 @@ def _insert_summary(engine, **overrides) -> None:
         conn.execute(text(sql), payload)
 
 
+def _create_listings_table(engine) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS listings (
+                    listing_key TEXT PRIMARY KEY,
+                    building_key TEXT,
+                    name TEXT,
+                    room_label TEXT,
+                    address TEXT,
+                    rent_yen INTEGER,
+                    fee_yen INTEGER,
+                    area_sqm REAL,
+                    layout TEXT,
+                    move_in TEXT,
+                    lat REAL,
+                    lon REAL,
+                    source_url TEXT,
+                    fetched_at TEXT,
+                    updated_at TEXT
+                )
+                """
+            )
+        )
+
+
+def _insert_listing(engine, **overrides) -> None:
+    payload = {
+        "listing_key": "listing-1",
+        "building_key": "sample-01",
+        "name": "サンプルビル",
+        "room_label": "205",
+        "address": "東京都千代田区1-2-3",
+        "rent_yen": 52000,
+        "fee_yen": 3000,
+        "area_sqm": 25.8,
+        "layout": "1K",
+        "move_in": "即入居",
+        "lat": 35.0,
+        "lon": 139.0,
+        "source_url": "https://example.com/src",
+        "fetched_at": "2024-01-02T00:00:00+00:00",
+        "updated_at": "2024-01-03T00:00:00+00:00",
+    }
+    payload.update(overrides)
+    columns = ", ".join(payload.keys())
+    values = ", ".join(f":{key}" for key in payload.keys())
+    with engine.begin() as conn:
+        conn.execute(text(f"INSERT INTO listings ({columns}) VALUES ({values})"), payload)
+
+
 def test_static_build_outputs_summary_and_last_updated(tmp_path, monkeypatch):
     _setup_db(tmp_path, monkeypatch)
     engine = database.get_engine()
@@ -172,59 +224,52 @@ def test_static_build_includes_google_maps_link_when_lat_lon_present(tmp_path, m
     build_module.build_static_site(output_dir=output_dir)
 
     building_html = (output_dir / "b" / "sample-01.html").read_text(encoding="utf-8")
-    assert "https://www.google.com/maps?q=35.1,139.2" in building_html
+    assert "Google Maps" in building_html
+    assert "ストリートビュー" in building_html
+
+
+def test_room_summary_grouping_and_building_summary_rendered(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine)
+    _create_listings_table(engine)
+    _insert_listing(engine, listing_key="l1", room_label="101", area_sqm=25.1, rent_yen=52000, fee_yen=3000, layout="1K")
+    _insert_listing(engine, listing_key="l2", room_label="205", area_sqm=25.9, rent_yen=52999, fee_yen=3500, layout="1K")
+    _insert_listing(engine, listing_key="l3", room_label="302", area_sqm=26.2, rent_yen=54000, fee_yen=2000, layout="1K")
+
+    output_dir = tmp_path / "dist"
+    build_module.build_static_site(output_dir=output_dir)
+
+    building_html = (output_dir / "b" / "sample-01.html").read_text(encoding="utf-8")
+    assert "空室</b>：3室" in building_html
+    assert "最終更新日時" in building_html
+    assert "空室サマリー" in building_html
+    assert "1K" in building_html
+    assert "25〜26㎡" in building_html
+    assert "5.2〜5.4万円" in building_html
+    assert ">2</td>" in building_html
+
+
+def test_dist_leak_scan_detects_room_number_tokens(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine)
+    output_dir = tmp_path / "dist"
+    build_module.build_static_site(output_dir=output_dir)
+
+    suspicious = output_dir / "b" / "manual.html"
+    suspicious.write_text("<html><body>#205</body></html>", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Public leak scan failed"):
+        build_module._scan_dist_for_leaks(output_dir)
 
 
 def test_static_build_writes_private_output_without_linking_from_public(tmp_path, monkeypatch):
     _setup_db(tmp_path, monkeypatch)
     engine = database.get_engine()
     _insert_summary(engine)
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS listings (
-                    listing_key TEXT PRIMARY KEY,
-                    building_key TEXT,
-                    name TEXT,
-                    room_label TEXT,
-                    address TEXT,
-                    rent_yen INTEGER,
-                    fee_yen INTEGER,
-                    area_sqm REAL,
-                    layout TEXT,
-                    move_in TEXT,
-                    lat REAL,
-                    lon REAL,
-                    source_url TEXT,
-                    fetched_at TEXT
-                )
-                """
-            )
-        )
-        conn.execute(
-            text(
-                """
-                INSERT INTO listings (
-                    listing_key, building_key, name, room_label, address, rent_yen, area_sqm, layout, move_in, fetched_at
-                ) VALUES (
-                    :listing_key, :building_key, :name, :room_label, :address, :rent_yen, :area_sqm, :layout, :move_in, :fetched_at
-                )
-                """
-            ),
-            {
-                "listing_key": "a",
-                "building_key": "sample-01",
-                "name": "サンプルビル",
-                "room_label": "205",
-                "address": "東京都千代田区1-2-3",
-                "rent_yen": 50000,
-                "area_sqm": 21.0,
-                "layout": "1K",
-                "move_in": "即入居",
-                "fetched_at": "2024-01-01T00:00:00+00:00",
-            },
-        )
+    _create_listings_table(engine)
+    _insert_listing(engine, listing_key="a", room_label="205", rent_yen=50000, area_sqm=21.0, updated_at=None)
 
     output_dir = tmp_path / "dist"
     private_dir = tmp_path / "dist_private"
