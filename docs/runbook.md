@@ -9,6 +9,7 @@
 - ULUCKS smartlink PoC（PowerShell例）
   - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1 -UluSmartlinkUrl "<smartlink_url>"`
   - `SQLITE_DB_PATH` を指定しない場合は `data\tatemono_map.sqlite3` が使われる
+  - `tmp_ulucks_*.html` は smartlink のデバッグ生成物なのでコミット不要（`dist_tmp/` など Git 管理外に出力）
 
 ## 静的HTML生成
 - 静的HTML生成CLIを実行し、`dist/index.html` と `dist/b/{building_key}.html` を生成する

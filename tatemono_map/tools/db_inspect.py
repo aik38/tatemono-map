@@ -108,6 +108,14 @@ def _dump_latest_raw(
     print(f"Wrote {len(payload_bytes)} bytes to {output_path}")
 
 
+
+
+def _default_dump_output_path(source_system: str, source_kind: str) -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    out_dir = repo_root / "dist_tmp"
+    filename = f"tmp_{source_system}_{source_kind}_latest.html"
+    return out_dir / filename
+
 def _maybe_open(path: Path) -> None:
     if sys.platform.startswith("win"):
         os.startfile(path)  # type: ignore[attr-defined]
@@ -147,11 +155,13 @@ def main() -> None:
         if args.schema:
             _print_schema(conn, args.schema)
         if args.dump_latest_raw:
-            if not (args.system and args.kind and args.out):
-                raise RuntimeError(
-                    "--dump-latest-raw requires --system, --kind, and --out"
-                )
-            output_path = Path(args.out).expanduser().resolve()
+            if not (args.system and args.kind):
+                raise RuntimeError("--dump-latest-raw requires --system and --kind")
+            output_path = (
+                Path(args.out).expanduser().resolve()
+                if args.out
+                else _default_dump_output_path(args.system, args.kind).resolve()
+            )
             _dump_latest_raw(
                 conn,
                 source_system=args.system,
