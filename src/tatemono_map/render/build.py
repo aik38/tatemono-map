@@ -94,6 +94,26 @@ def _validate_public_building_summaries(conn: Any) -> None:
             f"Fix normalization before build: {sample}"
         )
 
+    duplicate_names = conn.execute(
+        text(
+            """
+            SELECT name, COUNT(DISTINCT building_key) AS key_count
+            FROM building_summaries
+            WHERE name IS NOT NULL AND TRIM(name) <> ''
+            GROUP BY name
+            HAVING COUNT(DISTINCT building_key) > 1
+            """
+        )
+    ).mappings().all()
+    if duplicate_names:
+        sample = ", ".join(
+            f"{row['name']}({row['key_count']})" for row in duplicate_names[:5]
+        )
+        raise ValueError(
+            "Duplicate building_key detected for same building name in building_summaries. "
+            f"Run consolidation before build: {sample}"
+        )
+
 def _render_index(buildings: list[dict[str, Any]]) -> str:
     items = []
     for building in buildings:

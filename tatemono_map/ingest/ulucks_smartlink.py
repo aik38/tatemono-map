@@ -165,6 +165,7 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
         "rent_yen_max": "INTEGER",
         "area_sqm_min": "REAL",
         "area_sqm_max": "REAL",
+        "updated_at": "TEXT",
     }
     existing_columns = _table_columns(conn, "building_summaries")
     for column, column_type in required_columns.items():
@@ -397,6 +398,13 @@ def _normalize_address(value: str | None) -> str:
     return normalized
 
 
+def _normalize_address_for_match(value: str | None) -> str:
+    normalized = _normalize_address(value)
+    normalized = re.sub(r"[‐‑‒–—―ーｰ−]", "-", normalized)
+    normalized = re.sub(r"[\s、,。\.\-]", "", normalized)
+    return normalized.lower()
+
+
 def _normalize_key_component(value: str) -> str:
     normalized = unicodedata.normalize("NFKC", value)
     normalized = normalized.replace("　", " ")
@@ -408,9 +416,8 @@ def _normalize_key_component(value: str) -> str:
 
 
 def _build_building_key(address: str, name: str, lat: float | None, lon: float | None) -> str:
-    source = f"{_normalize_key_component(address)}|{_normalize_key_component(name)}"
-    if lat is not None and lon is not None:
-        source = f"{source}|{lat:.4f},{lon:.4f}"
+    del lat, lon
+    source = f"{_normalize_key_component(name)}|{_normalize_key_component(address)}"
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
 
 
@@ -548,6 +555,92 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
     )
 
 
+def _choose_canonical_key(rows: list[sqlite3.Row]) -> str:
+    def _priority(row: sqlite3.Row) -> tuple[int, int, int, str]:
+        has_address = 0 if _normalize_address(row["address"]) else 1
+        last_updated = str(row["last_updated"] or "")
+        listing_count = -(int(row["listings_count"] or 0))
+        return (has_address, -len(last_updated), listing_count, str(row["building_key"]))
+
+    return str(min(rows, key=_priority)["building_key"])
+
+
+def _consolidate_building_summaries(conn: sqlite3.Connection) -> int:
+    rows = conn.execute(
+        """
+        SELECT building_key, name, raw_name, address, last_updated, updated_at, listings_count
+        FROM building_summaries
+        WHERE name IS NOT NULL
+        """
+    ).fetchall()
+
+    grouped_by_name: dict[str, list[sqlite3.Row]] = {}
+    for row in rows:
+        name_key = _normalize_key_component(str(row["name"] or ""))
+        grouped_by_name.setdefault(name_key, []).append(row)
+
+    merged_rows = 0
+    for same_name_rows in grouped_by_name.values():
+        if len(same_name_rows) <= 1:
+            continue
+
+        has_any_address = any(_normalize_address(row["address"]) for row in same_name_rows)
+        grouped_by_address: dict[str, list[sqlite3.Row]] = {}
+        for row in same_name_rows:
+            address_key = (
+                _normalize_address_for_match(row["address"]) if has_any_address else ""
+            )
+            grouped_by_address.setdefault(address_key, []).append(row)
+
+        for same_building_rows in grouped_by_address.values():
+            if len(same_building_rows) <= 1:
+                continue
+
+            canonical_key = _choose_canonical_key(same_building_rows)
+            canonical_row = next(
+                row for row in same_building_rows if str(row["building_key"]) == canonical_key
+            )
+            canonical_raw = canonical_row["raw_name"] or canonical_row["name"]
+            canonical_address = _normalize_address(canonical_row["address"])
+            canonical_updated = canonical_row["updated_at"] or canonical_row["last_updated"]
+
+            for duplicate_row in same_building_rows:
+                duplicate_key = str(duplicate_row["building_key"])
+                if duplicate_key == canonical_key:
+                    continue
+                merged_rows += 1
+                conn.execute(
+                    "UPDATE listings SET building_key = ? WHERE building_key = ?",
+                    (canonical_key, duplicate_key),
+                )
+                if not canonical_address and _normalize_address(duplicate_row["address"]):
+                    canonical_address = _normalize_address(duplicate_row["address"])
+                if not canonical_raw and (duplicate_row["raw_name"] or duplicate_row["name"]):
+                    canonical_raw = duplicate_row["raw_name"] or duplicate_row["name"]
+                duplicate_updated = duplicate_row["updated_at"] or duplicate_row["last_updated"]
+                if duplicate_updated and (
+                    not canonical_updated or str(duplicate_updated) > str(canonical_updated)
+                ):
+                    canonical_updated = duplicate_updated
+                conn.execute(
+                    "DELETE FROM building_summaries WHERE building_key = ?",
+                    (duplicate_key,),
+                )
+
+            conn.execute(
+                """
+                UPDATE building_summaries
+                SET raw_name = ?,
+                    address = CASE WHEN address IS NULL OR TRIM(address) = '' THEN ? ELSE address END,
+                    updated_at = COALESCE(?, updated_at, last_updated)
+                WHERE building_key = ?
+                """,
+                (canonical_raw, canonical_address, canonical_updated, canonical_key),
+            )
+
+    return merged_rows
+
+
 def _aggregate_buildings(conn: sqlite3.Connection) -> None:
     rows = conn.execute(
         """
@@ -624,13 +717,14 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
                 move_in_min,
                 move_in_max,
                 last_updated,
+                updated_at,
                 rent_yen_min,
                 rent_yen_max,
                 area_sqm_min,
                 area_sqm_max,
                 lat,
                 lon
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(building_key) DO UPDATE SET
                 name=excluded.name,
                 raw_name=excluded.raw_name,
@@ -645,6 +739,7 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
                 move_in_min=excluded.move_in_min,
                 move_in_max=excluded.move_in_max,
                 last_updated=excluded.last_updated,
+                updated_at=excluded.updated_at,
                 rent_yen_min=excluded.rent_yen_min,
                 rent_yen_max=excluded.rent_yen_max,
                 area_sqm_min=excluded.area_sqm_min,
@@ -667,6 +762,7 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
                 move_ins[0] if move_ins else None,
                 move_ins[-1] if move_ins else None,
                 last_updated,
+                last_updated,
                 min(rents) if rents else None,
                 max(rents) if rents else None,
                 min(areas) if areas else None,
@@ -675,6 +771,8 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
                 lon,
             ),
         )
+
+    _consolidate_building_summaries(conn)
 
 
 def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path, fail_when_empty: bool = False) -> None:
