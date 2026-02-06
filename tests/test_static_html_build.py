@@ -135,3 +135,78 @@ def test_static_build_writes_google_verification_file(tmp_path, monkeypatch):
         verification_path.read_text(encoding="utf-8")
         == f"google-site-verification: {filename}\n"
     )
+
+
+def test_static_build_includes_google_maps_link_when_lat_lon_present(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine, lat=35.1, lon=139.2)
+
+    output_dir = tmp_path / "dist"
+    build_module.build_static_site(output_dir=output_dir)
+
+    building_html = (output_dir / "b" / "sample-01.html").read_text(encoding="utf-8")
+    assert "https://www.google.com/maps?q=35.1,139.2" in building_html
+
+
+def test_static_build_writes_private_output_without_linking_from_public(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS listings (
+                    listing_key TEXT PRIMARY KEY,
+                    building_key TEXT,
+                    name TEXT,
+                    room_label TEXT,
+                    address TEXT,
+                    rent_yen INTEGER,
+                    fee_yen INTEGER,
+                    area_sqm REAL,
+                    layout TEXT,
+                    move_in TEXT,
+                    lat REAL,
+                    lon REAL,
+                    source_url TEXT,
+                    fetched_at TEXT
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                INSERT INTO listings (
+                    listing_key, building_key, name, room_label, address, rent_yen, area_sqm, layout, move_in, fetched_at
+                ) VALUES (
+                    :listing_key, :building_key, :name, :room_label, :address, :rent_yen, :area_sqm, :layout, :move_in, :fetched_at
+                )
+                """
+            ),
+            {
+                "listing_key": "a",
+                "building_key": "sample-01",
+                "name": "サンプルビル",
+                "room_label": "205",
+                "address": "東京都千代田区1-2-3",
+                "rent_yen": 50000,
+                "area_sqm": 21.0,
+                "layout": "1K",
+                "move_in": "即入居",
+                "fetched_at": "2024-01-01T00:00:00+00:00",
+            },
+        )
+
+    output_dir = tmp_path / "dist"
+    private_dir = tmp_path / "dist_private"
+    build_module.build_static_site(output_dir=output_dir, private_output_dir=private_dir)
+
+    public_index = (output_dir / "index.html").read_text(encoding="utf-8")
+    private_index = (private_dir / "index.html").read_text(encoding="utf-8")
+
+    assert "dist_private" not in public_index
+    assert "room_label" in private_index
+    assert "205" in private_index

@@ -16,6 +16,9 @@
 - 実行例（PowerShell）
   - `$env:SQLITE_DB_PATH="data\\tatemono_map.sqlite3"`
   - `python -m tatemono_map.render.build --output-dir dist`
+- 公開 output（Phase2）は建物単位のみ。号室（例: `205:`）・部屋一覧・参照元URL・管理会社情報・PDF情報は公開しない
+- オペレーター向け private output を作る場合のみ、次を使う（公開 dist からは未参照）
+  - `python -m tatemono_map.render.build --output-dir dist --private-output-dir dist_private`
 - 禁止情報（号室/参照元URL/元付・管理会社/見積内訳PDFなど）が混入した場合は生成が失敗する
 
 ## Phase2 主要変更（運用メモ）
