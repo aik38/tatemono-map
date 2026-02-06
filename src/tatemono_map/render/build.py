@@ -56,10 +56,25 @@ def _format_range(min_value: Any, max_value: Any, unit: str) -> str:
     if min_value is None and max_value is None:
         return "—"
     if min_value is None:
-        return f"{max_value}{unit}"
+        min_value = max_value
     if max_value is None:
-        return f"{min_value}{unit}"
-    return f"{min_value}{unit}〜{max_value}{unit}"
+        max_value = min_value
+    return f"{min_value}{unit}-{max_value}{unit}"
+
+
+
+
+def _format_address_with_postal_code(address: str | None) -> str:
+    raw = str(address or "").strip()
+    if not raw:
+        return ""
+    cleaned = raw.replace("〒", "").strip()
+    match = re.match(r"(\d{3}-\d{4})\s*(.*)", cleaned)
+    if match:
+        postal_code = match.group(1)
+        rest = match.group(2).strip()
+        return f"〒{postal_code} {rest}".strip()
+    return raw
 
 
 def _normalize_vacancy_status(value: str | None) -> str:
@@ -180,10 +195,10 @@ def _render_index(buildings: list[dict[str, Any]]) -> str:
 
 def _render_building(building: dict[str, Any]) -> str:
     layout_types = building["layout_types"]
-    layout_text = "、".join(layout_types) if layout_types else "—"
+    layout_text = " / ".join(layout_types) if layout_types else "—"
     rent_text = _format_range(building["rent_min"], building["rent_max"], "円")
     area_text = _format_range(building["area_min"], building["area_max"], "㎡")
-    move_in_text = _format_range(building["move_in_min"], building["move_in_max"], "")
+    move_in_text = str(building.get("move_in_min") or "—")
     google_maps_api_key = os.getenv("GOOGLE_MAPS_API_KEY", "").strip()
     address = str(building.get("address") or "").strip()
     address_for_url = address or str(building.get("name") or "")
@@ -194,26 +209,12 @@ def _render_building(building: dict[str, Any]) -> str:
         maps_url = f"https://www.google.com/maps?q={building['lat']},{building['lon']}"
     else:
         maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_query}"
-    if address:
-        streetview_url = f"https://www.google.com/maps?q=&layer=c&cbll={quote_plus(address)}"
-    elif building.get("lat") is not None and building.get("lon") is not None:
-        streetview_url = f"https://www.google.com/maps?q=&layer=c&cbll={building['lat']},{building['lon']}"
-    else:
-        streetview_url = maps_url
-
-    map_block = f'<div><a href="{html.escape(maps_url)}" target="_blank" rel="noopener">地図を開く</a></div>'
+    formatted_address = _format_address_with_postal_code(address)
+    address_block = f'<div>{html.escape(formatted_address)}</div>' if formatted_address else ""
+    map_block = address_block + f'<div><a href="{html.escape(maps_url)}" target="_blank" rel="noopener">地図を開く</a></div>'
 
     if google_maps_api_key:
-        location = f"{building.get('lat')},{building.get('lon')}" if building.get("lat") is not None and building.get("lon") is not None else encoded_query
-        map_iframe_src = (
-            "https://www.google.com/maps/embed/v1/place"
-            f"?key={html.escape(google_maps_api_key)}&q={encoded_query}"
-        )
-        street_iframe_src = (
-            "https://www.google.com/maps/embed/v1/streetview"
-            f"?key={html.escape(google_maps_api_key)}&location={location}"
-        )
-        map_block = f'<div><a href="{html.escape(maps_url)}" target="_blank" rel="noopener">地図を開く</a></div>'
+        map_block = address_block + f'<div><a href="{html.escape(maps_url)}" target="_blank" rel="noopener">地図を開く</a></div>'
 
     room_rows_html = "".join(
         "<tr>"
