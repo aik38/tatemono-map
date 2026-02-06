@@ -188,7 +188,12 @@ def _render_building(building: dict[str, Any]) -> str:
     address = str(building.get("address") or "").strip()
     address_for_url = address or str(building.get("name") or "")
     encoded_query = quote_plus(address_for_url)
-    maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_query}"
+    if address:
+        maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_query}"
+    elif building.get("lat") is not None and building.get("lon") is not None:
+        maps_url = f"https://www.google.com/maps?q={building['lat']},{building['lon']}"
+    else:
+        maps_url = f"https://www.google.com/maps/search/?api=1&query={encoded_query}"
     if address:
         streetview_url = f"https://www.google.com/maps?q=&layer=c&cbll={quote_plus(address)}"
     elif building.get("lat") is not None and building.get("lon") is not None:
@@ -196,10 +201,7 @@ def _render_building(building: dict[str, Any]) -> str:
     else:
         streetview_url = maps_url
 
-    map_block = (
-        f'<div><b>Google Maps</b>：<a href="{html.escape(maps_url)}" target="_blank" rel="noopener">地図を開く</a></div>'
-        f'<div><b>Street View</b>：<a href="{html.escape(streetview_url)}" target="_blank" rel="noopener">ストリートビューを開く</a></div>'
-    )
+    map_block = f'<div><a href="{html.escape(maps_url)}" target="_blank" rel="noopener">地図を開く</a></div>'
 
     if google_maps_api_key:
         location = f"{building.get('lat')},{building.get('lon')}" if building.get("lat") is not None and building.get("lon") is not None else encoded_query
@@ -211,16 +213,7 @@ def _render_building(building: dict[str, Any]) -> str:
             "https://www.google.com/maps/embed/v1/streetview"
             f"?key={html.escape(google_maps_api_key)}&location={location}"
         )
-        map_block = (
-            '<div class="map-grid">'
-            '<div><b>Google Maps</b>'
-            f'<iframe src="{map_iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>'
-            '</div>'
-            '<div><b>Street View</b>'
-            f'<iframe src="{street_iframe_src}" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>'
-            '</div>'
-            '</div>'
-        )
+        map_block = f'<div><a href="{html.escape(maps_url)}" target="_blank" rel="noopener">地図を開く</a></div>'
 
     room_rows_html = "".join(
         "<tr>"
@@ -276,7 +269,7 @@ def _render_building(building: dict[str, Any]) -> str:
     </table>
   </div>
   <div class="card">
-    <h2>地図・ストリートビュー</h2>
+    <h2>Google マップ</h2>
     {map_block}
   </div>
 </body>
