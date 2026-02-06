@@ -15,7 +15,7 @@ from sqlalchemy import text
 
 from tatemono_map.api.database import get_engine, init_db
 
-ALLOWED_VACANCY_STATUS = {"空室あり", "満室"}
+ALLOWED_VACANCY_STATUS = {"空室あり", "満室", "不明"}
 BUILDING_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 FORBIDDEN_PATTERNS = [
     re.compile(r"号室"),
@@ -24,7 +24,6 @@ FORBIDDEN_PATTERNS = [
     re.compile(r"管理会社"),
     re.compile(r"見積"),
     re.compile(r"\.pdf\b", re.IGNORECASE),
-    re.compile(r"https?://", re.IGNORECASE),
     re.compile(r"\bURL\b", re.IGNORECASE),
 ]
 
@@ -73,7 +72,14 @@ def _render_index(buildings: list[dict[str, Any]]) -> str:
     for building in buildings:
         key = building["building_key"]
         name = html.escape(building["name"] or "")
-        items.append(f'<li><a href="b/{key}.html">{name}</a></li>')
+        address = html.escape(building["address"] or "")
+        updated = html.escape(building["last_updated"])
+        items.append(
+            f'<li data-name="{name.lower()}" data-address="{address.lower()}">'
+            f'<a href="b/{key}.html">{name}</a> '
+            f'<span class="muted">{address}</span> '
+            f'<span class="muted">({updated})</span></li>'
+        )
     items_html = "\n".join(items) if items else "<li>公開建物はまだありません。</li>"
     return f"""<!doctype html>
 <html lang="ja">
@@ -83,13 +89,34 @@ def _render_index(buildings: list[dict[str, Any]]) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body{{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:920px;margin:24px auto;padding:0 16px;line-height:1.6}}
+    .muted{{color:#6b7280;font-size:0.9em}}
+    input{{padding:8px 10px;width:100%;max-width:420px;margin-bottom:12px}}
   </style>
 </head>
 <body>
   <h1>建物一覧</h1>
-  <ul>
+  <p>総建物数: <b id="building-count">{len(buildings)}</b></p>
+  <input id="search" type="search" placeholder="建物名・住所で絞り込み" />
+  <ul id="building-list">
     {items_html}
   </ul>
+  <script>
+    const input = document.getElementById('search');
+    const list = document.getElementById('building-list');
+    const items = Array.from(list.querySelectorAll('li'));
+    const count = document.getElementById('building-count');
+    input.addEventListener('input', () => {{
+      const q = input.value.trim().toLowerCase();
+      let visible = 0;
+      for (const item of items) {{
+        const hay = `${{item.dataset.name}} ${{item.dataset.address}}`;
+        const show = q === '' || hay.includes(q);
+        item.style.display = show ? '' : 'none';
+        if (show) visible += 1;
+      }}
+      count.textContent = String(visible);
+    }});
+  </script>
 </body>
 </html>
 """
@@ -101,6 +128,13 @@ def _render_building(building: dict[str, Any]) -> str:
     rent_text = _format_range(building["rent_min"], building["rent_max"], "円")
     area_text = _format_range(building["area_min"], building["area_max"], "㎡")
     move_in_text = _format_range(building["move_in_min"], building["move_in_max"], "")
+    maps_link = ""
+    if building.get("lat") is not None and building.get("lon") is not None:
+        maps_url = f"https://www.google.com/maps?q={building['lat']},{building['lon']}"
+        maps_link = (
+            f'<div><b>地図</b>：<a href="{html.escape(maps_url)}" target="_blank" '
+            'rel="noopener">Google Mapsで開く</a></div>'
+        )
     return f"""<!doctype html>
 <html lang="ja">
 <head>
@@ -122,10 +156,12 @@ def _render_building(building: dict[str, Any]) -> str:
     <div class="grid">
       <div><b>空室</b>：{html.escape(building["vacancy_status"])}</div>
       <div><b>最終更新日時</b>：{html.escape(building["last_updated"])}</div>
+      <div><b>募集件数</b>：{building["listings_count"] or 0}</div>
       <div><b>家賃レンジ</b>：{html.escape(rent_text)}</div>
       <div><b>面積レンジ</b>：{html.escape(area_text)}</div>
       <div><b>間取りタイプ</b>：{html.escape(layout_text)}</div>
       <div><b>入居可能日</b>：{html.escape(move_in_text)}</div>
+      {maps_link}
     </div>
   </div>
 </body>
@@ -179,6 +215,7 @@ def build_static_site(
     output_dir: str | Path = "dist",
     site_url: str | None = None,
     google_verification_file: str | None = None,
+    private_output_dir: str | Path | None = None,
 ) -> Path:
     init_db()
     engine = get_engine()
@@ -304,6 +341,8 @@ def build_static_site(
             "move_in_min": row["move_in_min"],
             "move_in_max": row["move_in_max"],
             "last_updated": str(last_updated),
+            "lat": row["lat"],
+            "lon": row["lon"],
         }
         page_html = _render_building(building)
         _assert_safe_html(page_html, f"building {building_key}")
@@ -314,6 +353,44 @@ def build_static_site(
     index_html = _render_index(buildings)
     _assert_safe_html(index_html, "index")
     (output_path / "index.html").write_text(index_html, encoding="utf-8")
+    if private_output_dir:
+        private_path = Path(private_output_dir)
+        private_path.mkdir(parents=True, exist_ok=True)
+        with engine.begin() as conn:
+            listings_exists = conn.execute(
+                text("SELECT name FROM sqlite_master WHERE type='table' AND name='listings'")
+            ).first()
+            private_rows = []
+            if listings_exists is not None:
+                private_rows = conn.execute(
+                    text(
+                        """
+                        SELECT building_key, name, room_label, rent_yen, area_sqm, layout, move_in, fetched_at
+                        FROM listings
+                        ORDER BY fetched_at DESC
+                        """
+                    )
+                ).mappings().all()
+        table_rows = "".join(
+            "<tr>"
+            f"<td>{html.escape(str(row['building_key'] or ''))}</td>"
+            f"<td>{html.escape(str(row['name'] or ''))}</td>"
+            f"<td>{html.escape(str(row['room_label'] or ''))}</td>"
+            f"<td>{html.escape(str(row['rent_yen'] or ''))}</td>"
+            f"<td>{html.escape(str(row['area_sqm'] or ''))}</td>"
+            f"<td>{html.escape(str(row['layout'] or ''))}</td>"
+            f"<td>{html.escape(str(row['move_in'] or ''))}</td>"
+            "</tr>"
+            for row in private_rows
+        )
+        private_html = (
+            "<!doctype html><html lang='ja'><head><meta charset='utf-8'><title>Private Listings</title>"
+            "</head><body><h1>Private Listings</h1><table border='1'><tr>"
+            "<th>building_key</th><th>name</th><th>room_label</th><th>rent_yen</th>"
+            "<th>area_sqm</th><th>layout</th><th>move_in</th></tr>"
+            f"{table_rows}</table></body></html>"
+        )
+        (private_path / "index.html").write_text(private_html, encoding="utf-8")
     write_robots(output_path, resolved_site_url)
     write_sitemap(output_path, resolved_site_url, page_paths)
     if resolved_google_verification_file:
@@ -338,11 +415,17 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Google Search Console HTML verification filename (default: TATEMONO_MAP_GOOGLE_VERIFICATION_FILE env)",
     )
+    parser.add_argument(
+        "--private-output-dir",
+        default=None,
+        help="Optional private output directory for room-level listings (never linked from public pages)",
+    )
     args = parser.parse_args(argv)
     build_static_site(
         args.output_dir,
         site_url=args.site_url,
         google_verification_file=args.google_verification_file,
+        private_output_dir=args.private_output_dir,
     )
     return 0
 

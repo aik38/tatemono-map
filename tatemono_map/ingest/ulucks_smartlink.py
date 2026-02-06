@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sqlite3
+import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -104,12 +105,15 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
             listing_key TEXT PRIMARY KEY,
             building_key TEXT,
             name TEXT,
+            room_label TEXT,
             address TEXT,
             rent_yen INTEGER,
             fee_yen INTEGER,
             area_sqm REAL,
             layout TEXT,
             move_in TEXT,
+            lat REAL,
+            lon REAL,
             source_url TEXT,
             fetched_at TEXT
         )
@@ -166,6 +170,15 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
             conn.execute(
                 f"ALTER TABLE building_summaries ADD COLUMN {column} {column_type}"
             )
+    listing_required_columns = {
+        "room_label": "TEXT",
+        "lat": "REAL",
+        "lon": "REAL",
+    }
+    listing_existing_columns = _table_columns(conn, "listings")
+    for column, column_type in listing_required_columns.items():
+        if column not in listing_existing_columns:
+            conn.execute(f"ALTER TABLE listings ADD COLUMN {column} {column_type}")
 
 
 def _fetch_url(url: str) -> str:
@@ -365,21 +378,57 @@ def _sanitize_public_field(value: str | None) -> str | None:
 
 def _normalize_building_name(value: str | None) -> str:
     sanitized = _sanitize_public_field(value)
-    return sanitized or "（名称未設定）"
+    if not sanitized:
+        return "（名称未設定）"
+    normalized = unicodedata.normalize("NFKC", sanitized)
+    normalized = re.sub(r"^\s*\d+\s*[:：]\s*", "", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized or "（名称未設定）"
 
 
 def _normalize_address(value: str | None) -> str:
     sanitized = _sanitize_public_field(value)
-    return sanitized or ""
+    if not sanitized:
+        return ""
+    normalized = unicodedata.normalize("NFKC", sanitized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
 
 
 def _normalize_key_component(value: str) -> str:
-    return re.sub(r"\s+", "", value).lower()
+    normalized = unicodedata.normalize("NFKC", value)
+    normalized = normalized.replace("　", " ")
+    normalized = re.sub(r"^\s*\d+\s*[:：]\s*", "", normalized)
+    normalized = re.sub(r"[‐‑‒–—―ーｰ−]", "-", normalized)
+    normalized = re.sub(r"[、,。.]", "", normalized)
+    normalized = re.sub(r"\s+", "", normalized)
+    return normalized.lower().strip()
 
 
-def _build_building_key(address: str, name: str) -> str:
+def _build_building_key(address: str, name: str, lat: float | None, lon: float | None) -> str:
     source = f"{_normalize_key_component(address)}|{_normalize_key_component(name)}"
+    if lat is not None and lon is not None:
+        source = f"{source}|{lat:.4f},{lon:.4f}"
     return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
+def _extract_room_label(name: str | None, lines: list[str]) -> tuple[str | None, str | None]:
+    room = _extract_field(lines, ["号室", "部屋番号", "室番号"]) or None
+    if room:
+        room = unicodedata.normalize("NFKC", room).strip()
+    if not name:
+        return None, room
+    normalized_name = unicodedata.normalize("NFKC", name).strip()
+    match = re.match(r"^\s*(\d+[A-Za-z]?)\s*[:：]\s*(.+)$", normalized_name)
+    if match:
+        return match.group(2).strip(), room or match.group(1)
+    return normalized_name, room
+
+
+def _parse_lat_lon(lines: list[str]) -> tuple[float | None, float | None]:
+    lat = _parse_area(_extract_field(lines, ["緯度", "lat", "LAT"]) or "")
+    lon = _parse_area(_extract_field(lines, ["経度", "lng", "lon", "LNG", "LON"]) or "")
+    return lat, lon
 
 
 def _parse_money(value: str) -> int | None:
@@ -419,22 +468,27 @@ def _extract_listing_fields(source_url: str, html_text: str) -> dict[str, Any]:
     text = parser.text()
     lines = [line.strip() for line in text.splitlines() if line.strip()]
 
-    name = _extract_field(lines, ["建物名", "物件名"]) or title
+    raw_name = _extract_field(lines, ["建物名", "物件名"]) or title
+    name, room_label = _extract_room_label(raw_name, lines)
     address = _extract_field(lines, ["住所", "所在地"]) or None
     rent_raw = _extract_field(lines, ["家賃", "賃料"])
     fee_raw = _extract_field(lines, ["共益費", "管理費"])
     area_raw = _extract_field(lines, ["面積", "専有面積"])
     layout = _extract_field(lines, ["間取り"])
     move_in = _extract_field(lines, ["入居可能日", "入居時期"])
+    lat, lon = _parse_lat_lon(lines)
 
     return {
         "name": _normalize_building_name(name),
+        "room_label": room_label,
         "address": _normalize_address(address),
         "rent_yen": _parse_money(rent_raw or ""),
         "fee_yen": _parse_money(fee_raw or ""),
         "area_sqm": _parse_area(area_raw or ""),
         "layout": _sanitize_public_field(layout),
         "move_in": _sanitize_public_field(move_in),
+        "lat": lat,
+        "lon": lon,
         "source_url": source_url,
     }
 
@@ -446,24 +500,30 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
             listing_key,
             building_key,
             name,
+            room_label,
             address,
             rent_yen,
             fee_yen,
             area_sqm,
             layout,
             move_in,
+            lat,
+            lon,
             source_url,
             fetched_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(listing_key) DO UPDATE SET
             building_key=excluded.building_key,
             name=excluded.name,
+            room_label=excluded.room_label,
             address=excluded.address,
             rent_yen=excluded.rent_yen,
             fee_yen=excluded.fee_yen,
             area_sqm=excluded.area_sqm,
             layout=excluded.layout,
             move_in=excluded.move_in,
+            lat=excluded.lat,
+            lon=excluded.lon,
             source_url=excluded.source_url,
             fetched_at=excluded.fetched_at
         """,
@@ -471,12 +531,15 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
             listing["listing_key"],
             listing["building_key"],
             listing["name"],
+            listing["room_label"],
             listing["address"],
             listing["rent_yen"],
             listing["fee_yen"],
             listing["area_sqm"],
             listing["layout"],
             listing["move_in"],
+            listing["lat"],
+            listing["lon"],
             listing["source_url"],
             listing["fetched_at"],
         ),
@@ -486,7 +549,7 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
 def _aggregate_buildings(conn: sqlite3.Connection) -> None:
     rows = conn.execute(
         """
-        SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in
+        SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in, fetched_at, lat, lon
         FROM listings
         WHERE building_key IS NOT NULL
         """
@@ -506,8 +569,12 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
                 "areas": [],
                 "layouts": set(),
                 "move_ins": [],
+                "updated_at": [],
+                "lat_lon": [],
+                "count": 0,
             },
         )
+        entry["count"] += 1
         rent = row[3]
         if rent is not None:
             entry["rents"].append(rent)
@@ -520,15 +587,22 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
         move_in = row[6]
         if move_in:
             entry["move_ins"].append(move_in)
+        updated = row[7]
+        if updated:
+            entry["updated_at"].append(updated)
+        if row[8] is not None and row[9] is not None:
+            entry["lat_lon"].append((row[8], row[9]))
 
-    now = _utc_iso()
     for entry in grouped.values():
         rents = entry["rents"]
         areas = entry["areas"]
         move_ins = sorted(set(entry["move_ins"]))
         layout_types = sorted(entry["layouts"])
-        listings_count = max(len(rents), len(areas), len(layout_types), len(move_ins))
-        vacancy_status = "空室あり" if listings_count > 0 else "満室"
+        listings_count = entry["count"]
+        vacancy_status = "空室あり" if listings_count > 0 else "不明"
+        last_updated = max(entry["updated_at"]) if entry["updated_at"] else _utc_iso()
+        lat = entry["lat_lon"][0][0] if entry["lat_lon"] else None
+        lon = entry["lat_lon"][0][1] if entry["lat_lon"] else None
 
         conn.execute(
             """
@@ -545,8 +619,14 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
                 area_max,
                 move_in_min,
                 move_in_max,
-                last_updated
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                last_updated,
+                rent_yen_min,
+                rent_yen_max,
+                area_sqm_min,
+                area_sqm_max,
+                lat,
+                lon
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(building_key) DO UPDATE SET
                 name=excluded.name,
                 address=excluded.address,
@@ -559,7 +639,13 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
                 area_max=excluded.area_max,
                 move_in_min=excluded.move_in_min,
                 move_in_max=excluded.move_in_max,
-                last_updated=excluded.last_updated
+                last_updated=excluded.last_updated,
+                rent_yen_min=excluded.rent_yen_min,
+                rent_yen_max=excluded.rent_yen_max,
+                area_sqm_min=excluded.area_sqm_min,
+                area_sqm_max=excluded.area_sqm_max,
+                lat=COALESCE(excluded.lat, building_summaries.lat),
+                lon=COALESCE(excluded.lon, building_summaries.lon)
             """,
             (
                 entry["building_key"],
@@ -574,7 +660,13 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
                 max(areas) if areas else None,
                 move_ins[0] if move_ins else None,
                 move_ins[-1] if move_ins else None,
-                now,
+                last_updated,
+                min(rents) if rents else None,
+                max(rents) if rents else None,
+                min(areas) if areas else None,
+                max(areas) if areas else None,
+                lat,
+                lon,
             ),
         )
 
@@ -664,6 +756,8 @@ def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path, fail_when_empty
             building_key = _build_building_key(
                 extracted["address"],
                 extracted["name"],
+                extracted["lat"],
+                extracted["lon"],
             )
             listing_key = hashlib.sha256(link.encode("utf-8")).hexdigest()
             listing = {
