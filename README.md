@@ -39,6 +39,7 @@ python -m tatemono_map.render.build --output-dir dist
 5) **よくある停止理由（sync.ps1が止まる）**
 - “Untracked files: db/ や dist_tmp などがあると sync.ps1 が止まる”
   - **対処（1行）**：`db/` と `dist_tmp` 系を `.gitignore` に入れる（推奨） or `sync.ps1 -Force`（不要なら削除）
+  - `tmp_ulucks_*.html` は smartlink デバッグ生成物のためコミット不要です（`dist_tmp/` など Git 管理外に出力）。
 
 ---
 

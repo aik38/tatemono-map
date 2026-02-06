@@ -28,6 +28,12 @@ FORBIDDEN_PUBLIC_PATTERNS = [
     re.compile(r"\bURL\b", re.IGNORECASE),
 ]
 
+SMARTLINK_ERROR_HINT = (
+    "smartlink が期限切れ、または link_id が無効の可能性があります。"
+    " ブラウザで当該 URL を開いてリストが表示できるか確認してください。"
+    " 表示できない場合は、ログイン状態で smartlink を再生成してください。"
+)
+
 
 class _LinkExtractor(HTMLParser):
     def __init__(self) -> None:
@@ -312,6 +318,39 @@ def _detect_js_redirect(html_text: str) -> str | None:
     return None
 
 
+def _detect_smartlink_error_reason(html_text: str) -> str | None:
+    normalized_html = html_text.lower()
+    parser = _TextExtractor()
+    parser.feed(html_text)
+    normalized_text = parser.text().lower()
+
+    direct_markers = [
+        "このリストは存在しません",
+        "ログインして再表示",
+        "ulucksユーザーはログインして再表示",
+    ]
+    for marker in direct_markers:
+        if marker in html_text or marker in normalized_text:
+            return marker
+
+    error_section_markers = ["flashmessage", "error", "alert", "c-message"]
+    generic_error_text_markers = ["存在しません", "ログイン", "期限", "無効"]
+    if any(marker in normalized_html for marker in error_section_markers):
+        if any(marker in normalized_text for marker in generic_error_text_markers):
+            return "flash/error 領域にエラーメッセージ"
+
+    return None
+
+
+def _validate_smartlink_html_or_raise(html_text: str, source_url: str) -> None:
+    reason = _detect_smartlink_error_reason(html_text)
+    if reason is None:
+        return
+    raise RuntimeError(
+        f"Smartlink error page detected ({reason}) for: {source_url}. {SMARTLINK_ERROR_HINT}"
+    )
+
+
 def _sanitize_public_field(value: str | None) -> str | None:
     if value is None:
         return None
@@ -540,7 +579,7 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
         )
 
 
-def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path) -> None:
+def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path, fail_when_empty: bool = False) -> None:
     _ensure_parent_dir(db_path)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
@@ -558,6 +597,7 @@ def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path) -> None:
             source_url=url,
             content=smartlink_html,
         )
+        _validate_smartlink_html_or_raise(smartlink_html, url)
 
         effective_url = url
         redirect_type: str | None = None
@@ -582,6 +622,7 @@ def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path) -> None:
                 source_url=effective_url,
                 content=smartlink_html,
             )
+            _validate_smartlink_html_or_raise(smartlink_html, effective_url)
         else:
             print("No redirect detected in smartlink HTML.")
 
@@ -600,7 +641,8 @@ def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path) -> None:
             raise RuntimeError(
                 "No detail URLs extracted. Use `python -m tatemono_map.tools.db_inspect "
                 "--dump-latest-raw --system ulucks --kind smartlink "
-                "--out tmp_ulucks_smartlink_latest.html` to inspect saved smartlink HTML."
+                "--out dist_tmp/tmp_ulucks_smartlink_latest.html` to inspect saved smartlink HTML. "
+                f"{SMARTLINK_ERROR_HINT}"
             )
 
         fetched_details = 0
@@ -633,6 +675,12 @@ def ingest_ulucks_smartlink(url: str, limit: int, db_path: Path) -> None:
             _upsert_listing(conn, listing)
             upserted_listings += 1
 
+        if fail_when_empty and upserted_listings == 0:
+            raise RuntimeError(
+                "No listings were upserted from smartlink detail pages. "
+                f"{SMARTLINK_ERROR_HINT}"
+            )
+
         _aggregate_buildings(conn)
         print(f"Fetched detail pages: {fetched_details}")
         print(f"Upserted listings: {upserted_listings}")
@@ -652,9 +700,19 @@ def main() -> None:
     parser.add_argument("--url", required=True, help="Smartlink URL to ingest")
     parser.add_argument("--limit", type=int, default=10, help="Max smartview pages to fetch")
     parser.add_argument("--db", default=None, help="Path to SQLite DB (SQLITE_DB_PATH)")
+    parser.add_argument(
+        "--fail",
+        action="store_true",
+        help="Fail when no listings are upserted (for runbook failure checks)",
+    )
     args = parser.parse_args()
 
-    ingest_ulucks_smartlink(args.url, args.limit, _resolve_db_path(args.db))
+    ingest_ulucks_smartlink(
+        args.url,
+        args.limit,
+        _resolve_db_path(args.db),
+        fail_when_empty=args.fail,
+    )
 
 
 if __name__ == "__main__":
