@@ -4,7 +4,6 @@ import argparse
 import collections
 import html
 import json
-import math
 import os
 import re
 from urllib.parse import quote_plus
@@ -35,9 +34,9 @@ FORBIDDEN_PATTERNS = [
 
 DIST_LEAK_PATTERNS = [
     re.compile(r"号室"),
-    re.compile(r"部屋"),
+    re.compile(r"(?:部屋番号|室番号)"),
     re.compile(r"#\d{2,4}"),
-    re.compile(r"(?:^|\s)\d{1,4}\s*[:：]\s*(?!\d{2}\b)\S"),
+    re.compile(r"(?:^|\s)\d{1,4}\s*[:：]\s*(?!\d{2}:\d{2}(?::\d{2})?\b)\S"),
 ]
 
 
@@ -282,34 +281,39 @@ def _render_building(building: dict[str, Any]) -> str:
 """
 
 
+def _format_yen(value: int | None) -> str:
+    if value is None:
+        return "—"
+    return f"{value:,}円"
+
+
+def _format_sqm(value: float | None) -> str:
+    if value is None:
+        return "—"
+    formatted = f"{value:.2f}".rstrip("0").rstrip(".")
+    return f"{formatted}㎡"
+
+
 def _group_room_summaries(listing_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    grouped: dict[tuple[str, int | None, int | None], list[dict[str, Any]]] = collections.defaultdict(list)
+    grouped: dict[tuple[str, float | None, int | None, int | None], list[dict[str, Any]]] = collections.defaultdict(list)
     for row in listing_rows:
         layout = str(row.get("layout") or "").strip() or "—"
-        area_sqm = row.get("area_sqm")
-        rent_yen = row.get("rent_yen")
-        area_bucket = math.floor(float(area_sqm)) if area_sqm is not None else None
-        rent_bucket = math.floor(float(rent_yen) / 1000) * 1000 if rent_yen is not None else None
-        grouped[(layout, area_bucket, rent_bucket)].append(row)
+        area_sqm = float(row["area_sqm"]) if row.get("area_sqm") is not None else None
+        rent_yen = int(row["rent_yen"]) if row.get("rent_yen") is not None else None
+        maint_yen = int(row["maint_yen"]) if row.get("maint_yen") is not None else None
+        grouped[(layout, area_sqm, rent_yen, maint_yen)].append(row)
 
     room_summaries: list[dict[str, Any]] = []
-    for (layout, area_bucket, rent_bucket), rows in sorted(grouped.items(), key=lambda x: (x[0][0], x[0][1] or -1, x[0][2] or -1)):
-        area_max = area_bucket + 1 if area_bucket is not None else None
-        rent_max = rent_bucket + 2000 if rent_bucket is not None else None
-        fee_values = [row.get("fee_yen") for row in rows if row.get("fee_yen") is not None]
-        fee_text = "—"
-        if fee_values:
-            fee_text = f"+共益費{min(fee_values):,}円"
-            if min(fee_values) != max(fee_values):
-                fee_text = f"+共益費{min(fee_values):,}〜{max(fee_values):,}円"
+    for (layout, area_sqm, rent_yen, maint_yen), rows in sorted(
+        grouped.items(),
+        key=lambda x: (x[0][0], x[0][1] if x[0][1] is not None else -1, x[0][2] if x[0][2] is not None else -1, x[0][3] if x[0][3] is not None else -1),
+    ):
         room_summaries.append(
             {
                 "layout": layout,
-                "area_range_text": f"{area_bucket}〜{area_max}㎡" if area_bucket is not None else "—",
-                "rent_range_text": (
-                    f"{rent_bucket / 10000:.1f}〜{rent_max / 10000:.1f}万円" if rent_bucket is not None else "—"
-                ),
-                "fee_text": fee_text,
+                "area_range_text": _format_sqm(area_sqm),
+                "rent_range_text": _format_yen(rent_yen),
+                "fee_text": _format_yen(maint_yen),
                 "count": len(rows),
             }
         )
@@ -503,13 +507,16 @@ def build_static_site(
                 for row in conn.execute(text("PRAGMA table_info(listings)")).mappings().all()
             }
             updated_expr = "updated_at" if "updated_at" in listing_columns else "fetched_at"
+            maint_expr = "maint_yen" if "maint_yen" in listing_columns else "fee_yen"
             listing_rows = conn.execute(
                 text(
                     """
                     SELECT
                         building_key,
                         rent_yen,
-                        fee_yen,
+                        """
+                    + maint_expr
+                    + """ AS maint_yen,
                         area_sqm,
                         layout,
                         COALESCE("""
@@ -535,7 +542,7 @@ def build_static_site(
             for candidate in (listing_row.get("updated_at") for listing_row in listing_rows)
             if candidate
         ]
-        fallback_updated = row["last_updated"] or datetime.now(timezone.utc).isoformat()
+        fallback_updated = row.get("updated_at") or row["last_updated"] or datetime.now(timezone.utc).isoformat()
         building_updated_at = max(listing_updated_candidates) if listing_updated_candidates else str(fallback_updated)
         room_summaries = _group_room_summaries(listing_rows)
         vacant_total = len(listing_rows) if listing_rows else (row["listings_count"] or 0)

@@ -90,6 +90,7 @@ def _create_listings_table(engine) -> None:
                     room_label TEXT,
                     address TEXT,
                     rent_yen INTEGER,
+                    maint_yen INTEGER,
                     fee_yen INTEGER,
                     area_sqm REAL,
                     layout TEXT,
@@ -113,6 +114,7 @@ def _insert_listing(engine, **overrides) -> None:
         "room_label": "205",
         "address": "東京都千代田区1-2-3",
         "rent_yen": 52000,
+        "maint_yen": 3000,
         "fee_yen": 3000,
         "area_sqm": 25.8,
         "layout": "1K",
@@ -233,9 +235,9 @@ def test_room_summary_grouping_and_building_summary_rendered(tmp_path, monkeypat
     engine = database.get_engine()
     _insert_summary(engine)
     _create_listings_table(engine)
-    _insert_listing(engine, listing_key="l1", room_label="101", area_sqm=25.1, rent_yen=52000, fee_yen=3000, layout="1K")
-    _insert_listing(engine, listing_key="l2", room_label="205", area_sqm=25.9, rent_yen=52999, fee_yen=3500, layout="1K")
-    _insert_listing(engine, listing_key="l3", room_label="302", area_sqm=26.2, rent_yen=54000, fee_yen=2000, layout="1K")
+    _insert_listing(engine, listing_key="l1", room_label="101", area_sqm=25.1, rent_yen=52000, maint_yen=3000, fee_yen=3000, layout="1K")
+    _insert_listing(engine, listing_key="l2", room_label="205", area_sqm=25.1, rent_yen=52000, maint_yen=3000, fee_yen=3000, layout="1K")
+    _insert_listing(engine, listing_key="l3", room_label="302", area_sqm=26.2, rent_yen=54000, maint_yen=2000, fee_yen=2000, layout="1K")
 
     output_dir = tmp_path / "dist"
     build_module.build_static_site(output_dir=output_dir)
@@ -245,9 +247,54 @@ def test_room_summary_grouping_and_building_summary_rendered(tmp_path, monkeypat
     assert "最終更新日時" in building_html
     assert "空室サマリー" in building_html
     assert "1K" in building_html
-    assert "25〜26㎡" in building_html
-    assert "5.2〜5.4万円" in building_html
+    assert "25.1㎡" in building_html
+    assert "52,000円" in building_html
     assert ">2</td>" in building_html
+
+
+def test_public_building_page_never_exposes_room_or_source_fields(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine)
+    _create_listings_table(engine)
+    _insert_listing(
+        engine,
+        listing_key="x1",
+        room_label="205",
+        source_url="https://example.com/private-source",
+        name="サンプルビル",
+        maint_yen=1500,
+        fee_yen=1500,
+    )
+
+    output_dir = tmp_path / "dist"
+    build_module.build_static_site(output_dir=output_dir)
+
+    building_html = (output_dir / "b" / "sample-01.html").read_text(encoding="utf-8")
+    assert "205" not in building_html
+    assert "source" not in building_html.lower()
+    assert "listing-" not in building_html
+
+
+def test_vacancy_total_matches_sum_of_vacancy_count(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine)
+    _create_listings_table(engine)
+    _insert_listing(engine, listing_key="v1", layout="1K", area_sqm=25.1, rent_yen=52000, maint_yen=3000, fee_yen=3000)
+    _insert_listing(engine, listing_key="v2", layout="1K", area_sqm=25.1, rent_yen=52000, maint_yen=3000, fee_yen=3000)
+    _insert_listing(engine, listing_key="v3", layout="2LDK", area_sqm=50.0, rent_yen=120000, maint_yen=5000, fee_yen=5000)
+
+    output_dir = tmp_path / "dist"
+    build_module.build_static_site(output_dir=output_dir)
+
+    building_html = (output_dir / "b" / "sample-01.html").read_text(encoding="utf-8")
+    total_match = re.search(r"空室</b>：(\d+)室", building_html)
+    assert total_match
+    vacancy_total = int(total_match.group(1))
+
+    counts = [int(value) for value in re.findall(r"<td>(\d+)</td>\s*</tr>", building_html)]
+    assert vacancy_total == sum(counts)
 
 
 def test_dist_leak_scan_detects_room_number_tokens(tmp_path, monkeypatch):
