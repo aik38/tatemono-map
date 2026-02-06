@@ -144,13 +144,16 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 - 公開用テーブル `building_summaries` では **建物単位のみ** を扱い、号室・部屋番号・募集単位の文字列を公開してはいけません。
 - `building_summaries.name` は公開名（正規化済み）として扱い、`^\s*\d{1,4}\s*[:：]\s*` のような部屋番号プレフィックスを保存しないこと。
 - 元文字列は `building_summaries.raw_name` に保持し、正規化前データの追跡に使います（公開UIでは `raw_name` を直接表示しない）。
+- 同一建物判定は **第一キー: 正規化済み `name`**、**補助キー: 正規化済み `address`**（完全一致または正規化一致）で行い、同一建物は canonical `building_key` 1つへ統合します。
+- 統合時は `raw_name` を保持し、canonical 側で `address` 欠損がある場合は重複側の `address` で補完し、`updated_at`（なければ `last_updated`）を引き継ぎます。
 - build 実行時は fail-fast バリデーションで `name` の部屋番号プレフィックス/号室表現を検出した時点で停止します。
+- build 実行時は同一 `name` に複数 `building_key` が残っていても fail-fast で停止します（統合漏れを公開前に検知）。
 
 ### 正規化の実行
 ```powershell
 python scripts/normalize_building_summaries.py
 ```
-- 必要に応じて `--db-path` で対象DBを指定できます。
+- 必要に応じて `--db-path` で対象DBを指定できます。スクリプトは name/address 正規化と canonical `building_key` への統合を実行します。
 
 ## 仕様・ドキュメント
 - `docs/spec.md`

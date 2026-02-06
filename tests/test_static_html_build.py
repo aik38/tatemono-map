@@ -30,6 +30,7 @@ def _setup_db(tmp_path, monkeypatch) -> Path:
         move_in_min TEXT,
         move_in_max TEXT,
         last_updated TEXT,
+        updated_at TEXT,
         lat REAL,
         lon REAL,
         rent_yen_min INTEGER,
@@ -40,6 +41,8 @@ def _setup_db(tmp_path, monkeypatch) -> Path:
     """
     with engine.begin() as conn:
         conn.execute(text(ddl))
+        conn.execute(text("ALTER TABLE building_summaries ADD COLUMN updated_at TEXT"))
+        conn.execute(text("UPDATE building_summaries SET updated_at = last_updated WHERE updated_at IS NULL"))
     return db_path
 
 
@@ -59,6 +62,7 @@ def _insert_summary(engine, **overrides) -> None:
         "move_in_min": "即入居",
         "move_in_max": "要相談",
         "last_updated": "2024-01-01T10:00:00+00:00",
+        "updated_at": "2024-01-01T10:00:00+00:00",
         "lat": 35.0,
         "lon": 139.0,
         "rent_yen_min": None,
@@ -107,6 +111,16 @@ def test_static_build_fails_fast_when_room_prefix_remains(tmp_path, monkeypatch)
     _insert_summary(engine, name="グランデステーション生田III 205号室")
 
     with pytest.raises(ValueError, match="room-like prefixes"):
+        build_module.build_static_site(output_dir=tmp_path / "dist")
+
+
+def test_static_build_fails_fast_when_same_name_has_multiple_building_keys(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine, building_key="k1", name="フォーレスト中尾")
+    _insert_summary(engine, building_key="k2", name="フォーレスト中尾")
+
+    with pytest.raises(ValueError, match="Duplicate building_key"):
         build_module.build_static_site(output_dir=tmp_path / "dist")
 
 def test_static_build_writes_robots_and_sitemap(tmp_path, monkeypatch):
