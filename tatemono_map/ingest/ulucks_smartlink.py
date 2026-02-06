@@ -124,6 +124,7 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS building_summaries (
             building_key TEXT PRIMARY KEY,
             name TEXT,
+            raw_name TEXT,
             address TEXT,
             vacancy_status TEXT,
             listings_count INTEGER,
@@ -146,6 +147,7 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
     )
     required_columns = {
         "name": "TEXT",
+        "raw_name": "TEXT",
         "address": "TEXT",
         "vacancy_status": "TEXT",
         "listings_count": "INTEGER",
@@ -564,6 +566,7 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
             {
                 "building_key": building_key,
                 "name": name,
+                "raw_name": name,
                 "address": address,
                 "rents": [],
                 "areas": [],
@@ -609,6 +612,7 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
             INSERT INTO building_summaries (
                 building_key,
                 name,
+                raw_name,
                 address,
                 vacancy_status,
                 listings_count,
@@ -626,9 +630,10 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
                 area_sqm_max,
                 lat,
                 lon
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(building_key) DO UPDATE SET
                 name=excluded.name,
+                raw_name=excluded.raw_name,
                 address=excluded.address,
                 vacancy_status=excluded.vacancy_status,
                 listings_count=excluded.listings_count,
@@ -650,6 +655,7 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
             (
                 entry["building_key"],
                 _normalize_building_name(entry["name"]),
+                entry["name"],
                 _normalize_address(entry["address"]),
                 vacancy_status,
                 listings_count,

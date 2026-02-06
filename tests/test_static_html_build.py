@@ -18,6 +18,7 @@ def _setup_db(tmp_path, monkeypatch) -> Path:
     CREATE TABLE IF NOT EXISTS building_summaries (
         building_key TEXT PRIMARY KEY,
         name TEXT,
+        raw_name TEXT,
         address TEXT,
         vacancy_status TEXT,
         listings_count INTEGER,
@@ -46,6 +47,7 @@ def _insert_summary(engine, **overrides) -> None:
     payload = {
         "building_key": "sample-01",
         "name": "サンプルビル",
+        "raw_name": "サンプルビル",
         "address": "東京都千代田区1-2-3",
         "vacancy_status": "空室あり",
         "listings_count": 2,
@@ -96,6 +98,16 @@ def test_static_build_rejects_forbidden_content(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match=re.escape("管理会社")):
         build_module.build_static_site(output_dir=tmp_path / "dist")
 
+
+
+
+def test_static_build_fails_fast_when_room_prefix_remains(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine, name="グランデステーション生田III 205号室")
+
+    with pytest.raises(ValueError, match="room-like prefixes"):
+        build_module.build_static_site(output_dir=tmp_path / "dist")
 
 def test_static_build_writes_robots_and_sitemap(tmp_path, monkeypatch):
     _setup_db(tmp_path, monkeypatch)

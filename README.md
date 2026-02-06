@@ -139,6 +139,19 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 ---
 
+
+## 公開禁止ルール（building単位のみ公開）
+- 公開用テーブル `building_summaries` では **建物単位のみ** を扱い、号室・部屋番号・募集単位の文字列を公開してはいけません。
+- `building_summaries.name` は公開名（正規化済み）として扱い、`^\s*\d{1,4}\s*[:：]\s*` のような部屋番号プレフィックスを保存しないこと。
+- 元文字列は `building_summaries.raw_name` に保持し、正規化前データの追跡に使います（公開UIでは `raw_name` を直接表示しない）。
+- build 実行時は fail-fast バリデーションで `name` の部屋番号プレフィックス/号室表現を検出した時点で停止します。
+
+### 正規化の実行
+```powershell
+python scripts/normalize_building_summaries.py
+```
+- 必要に応じて `--db-path` で対象DBを指定できます。
+
 ## 仕様・ドキュメント
 - `docs/spec.md`
 - `docs/data_contract.md`
