@@ -47,7 +47,7 @@ def test_fail_flag_errors_when_no_listing_upsert(tmp_path: Path, monkeypatch: py
 
     with pytest.raises(RuntimeError, match="No listings were upserted"):
         ulucks_smartlink.ingest_ulucks_smartlink(
-            "https://example.com/list",
+            "https://example.com/view/smartlink?link_id=abc&mail=test%40example.com",
             limit=10,
             db_path=db_path,
             fail_when_empty=True,
@@ -235,7 +235,7 @@ def test_ingest_smartlink_follows_pagination_and_respects_max_items(tmp_path: Pa
 
     def fake_fetch(url: str) -> str:
         requested_urls.append(url)
-        if url == source_url:
+        if url in {source_url, "https://example.com/view/smartlink/?link_id=abc&mail=test%40example.com&sort=desc"}:
             return list_1
         if url == "https://example.com/view/smartlink/page:2/?link_id=abc&mail=test%40example.com&sort=desc":
             return list_2
@@ -260,3 +260,59 @@ def test_ingest_smartlink_follows_pagination_and_respects_max_items(tmp_path: Pa
         conn.close()
 
     assert "https://example.com/view/smartlink/page:2/?link_id=abc&mail=test%40example.com&sort=desc" in requested_urls
+
+
+def test_normalize_smartlink_url_accepts_paged_url_and_normalizes_mail():
+    url = "https://kitakyushu.ulucks.jp/view/smartlink/page:3/sort:Rent.modified/direction:desc?link_id=xTkB8Pl1&mail=u5.inc.orporated.info@gmail.com&sort=1"
+    normalized = ulucks_smartlink._normalize_smartlink_url(url)  # noqa: SLF001
+    assert "/page:" not in normalized
+    assert "link_id=xTkB8Pl1" in normalized
+    assert "mail=u5.inc.orporated.info%40gmail.com" in normalized
+
+
+def test_ingest_smartlink_crawls_all_pages_from_paged_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    db_path = tmp_path / "test.sqlite3"
+    fixture_dir = Path(__file__).resolve().parent / "fixtures"
+    list_1 = (fixture_dir / "smartlink_page_1.html").read_text(encoding="utf-8")
+    list_2 = (fixture_dir / "smartlink_page_2.html").read_text(encoding="utf-8")
+    list_3 = (fixture_dir / "smartlink_page_3.html").read_text(encoding="utf-8")
+
+    source_url = "https://example.com/view/smartlink/page:2/sort:Rent.modified/direction:desc?link_id=abc&mail=test@example.com"
+
+    detail = """
+    <html><head><title>101: テストマンション</title></head><body>
+      <div>建物名: 101: テストマンション</div>
+      <div>住所: 東京都新宿区1-2-3</div>
+      <div>賃料: 5.2万円</div>
+      <div>面積: 20.1㎡</div>
+      <div>間取り: 1K</div>
+      <div>入居可能日: 即入居可</div>
+    </body></html>
+    """
+
+    def fake_fetch(url: str) -> str:
+        if "/page:2/" in url:
+            return list_2
+        if "/page:3/" in url:
+            return list_3
+        if "smartlink" in url:
+            return list_1
+        if "smartview" in url:
+            return detail
+        raise AssertionError(url)
+
+    monkeypatch.setattr(ulucks_smartlink, "_fetch_url", fake_fetch)
+
+    ulucks_smartlink.ingest_ulucks_smartlink(
+        source_url,
+        limit=None,
+        db_path=db_path,
+        fail_when_empty=True,
+    )
+
+    conn = ulucks_smartlink.sqlite3.connect(str(db_path))
+    try:
+        listing_count = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
+        assert listing_count == 5
+    finally:
+        conn.close()

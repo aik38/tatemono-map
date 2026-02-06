@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sqlite3
+import time
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -387,6 +388,56 @@ def _extract_next_page_url(base_url: str, html_text: str) -> str | None:
                 return _inherit_query_params(candidate, base_url)
 
     return None
+
+
+def _normalize_mail_param(value: str | None) -> str | None:
+    if not value:
+        return None
+    decoded = urllib.parse.unquote_plus(value).strip()
+    if not decoded:
+        return None
+    return decoded
+
+
+def _normalize_smartlink_url(url: str) -> str:
+    parsed = urllib.parse.urlparse(url)
+    path = re.sub(r"/page:\d+", "", parsed.path)
+    path = re.sub(r"//+", "/", path)
+    if not path.endswith("/"):
+        path += "/"
+
+    query_items = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+    link_id = (query_items.get("link_id") or [""])[0].strip()
+    mail = _normalize_mail_param((query_items.get("mail") or [""])[0])
+    if not link_id or not mail:
+        raise ValueError("smartlink URL must include link_id and mail query parameters")
+
+    normalized_query: list[tuple[str, str]] = [("link_id", link_id), ("mail", mail)]
+    for key, values in query_items.items():
+        if key in {"link_id", "mail"}:
+            continue
+        for value in values:
+            normalized_query.append((key, value))
+
+    base = parsed._replace(path=path, query=urllib.parse.urlencode(normalized_query), fragment="")
+    return urllib.parse.urlunparse(base)
+
+
+def _build_smartlink_page_url(base_url: str, page: int) -> str:
+    parsed = urllib.parse.urlparse(base_url)
+    path = parsed.path.rstrip("/")
+    if page <= 1:
+        page_path = f"{path}/"
+    else:
+        page_path = f"{path}/page:{page}/"
+    return urllib.parse.urlunparse(parsed._replace(path=page_path))
+
+
+def _extract_max_page(html_text: str) -> int | None:
+    pages = [int(m.group(1)) for m in re.finditer(r"/page:(\d+)", html_text, flags=re.IGNORECASE)]
+    if not pages:
+        return None
+    return max(pages)
 
 
 def _detect_meta_refresh(html_text: str) -> str | None:
@@ -922,7 +973,13 @@ def _aggregate_buildings(conn: sqlite3.Connection) -> None:
 
 
 def ingest_ulucks_smartlink(
-    url: str, limit: int | None, db_path: Path, fail_when_empty: bool = False
+    url: str,
+    limit: int | None,
+    db_path: Path,
+    fail_when_empty: bool = False,
+    max_pages: int | None = None,
+    sleep_ms: int = 0,
+    debug_dump_html: str | None = None,
 ) -> None:
     _ensure_parent_dir(db_path)
     conn = sqlite3.connect(str(db_path))
@@ -932,18 +989,20 @@ def ingest_ulucks_smartlink(
         conn.execute("BEGIN IMMEDIATE")
         _ensure_tables(conn)
 
-        smartlink_html = _fetch_url(url)
+        normalized_url = _normalize_smartlink_url(url)
+        print(f"Normalized smartlink URL: {normalized_url}")
+        smartlink_html = _fetch_url(normalized_url)
         print(f"Fetched smartlink bytes: {len(smartlink_html.encode('utf-8'))}")
         _save_raw_source(
             conn,
             source_system="ulucks",
             source_kind="smartlink",
-            source_url=url,
+            source_url=normalized_url,
             content=smartlink_html,
         )
-        _validate_smartlink_html_or_raise(smartlink_html, url)
+        _validate_smartlink_html_or_raise(smartlink_html, normalized_url)
 
-        effective_url = url
+        effective_url = normalized_url
         redirect_type: str | None = None
         redirect_target = _detect_meta_refresh(smartlink_html)
         if redirect_target:
@@ -953,7 +1012,8 @@ def ingest_ulucks_smartlink(
             if redirect_target:
                 redirect_type = "js-redirect"
         if redirect_target:
-            effective_url = urllib.parse.urljoin(url, redirect_target)
+            redirected_url = urllib.parse.urljoin(normalized_url, redirect_target)
+            effective_url = _normalize_smartlink_url(redirected_url)
             print(f"Detected redirect ({redirect_type}): {redirect_target} -> {effective_url}")
             smartlink_html = _fetch_url(effective_url)
             print(
@@ -970,53 +1030,63 @@ def ingest_ulucks_smartlink(
         else:
             print("No redirect detected in smartlink HTML.")
 
-        detail_urls: list[str] = []
-        visited_pages: set[str] = set()
-        page_url = effective_url
-        page_html = smartlink_html
-        page_number = 1
-        max_items = limit if limit and limit > 0 else None
+        if debug_dump_html:
+            Path(debug_dump_html).expanduser().resolve().write_text(smartlink_html, encoding="utf-8")
 
-        while page_url and page_url not in visited_pages:
-            visited_pages.add(page_url)
+        detail_urls: list[str] = []
+        max_items = limit if limit and limit > 0 else None
+        pager_max = _extract_max_page(smartlink_html)
+        if pager_max is None:
+            target_pages = max_pages if max_pages and max_pages > 0 else 50
+        elif max_pages and max_pages > 0:
+            target_pages = min(pager_max, max_pages)
+        else:
+            target_pages = pager_max
+
+        print(f"Pagination target pages: {target_pages} (pager_max={pager_max})")
+
+        page = 1
+        while page <= target_pages:
+            page_url = _build_smartlink_page_url(effective_url, page)
+            try:
+                page_html = smartlink_html if page == 1 else _fetch_url(page_url)
+            except urllib.error.URLError:
+                print(f"Failed fetching page:{page} -> {page_url}")
+                page += 1
+                continue
+
+            _save_raw_source(
+                conn,
+                source_system="ulucks",
+                source_kind="smartlink_page",
+                source_url=page_url,
+                content=page_html,
+            )
+            _validate_smartlink_html_or_raise(page_html, page_url)
 
             href_links = _extract_anchor_links(page_url, page_html)
             regex_links = _extract_regex_links(page_url, page_html)
             script_links = _extract_script_links(page_url, page_html)
-            print(
-                f"Page {page_number}: href={len(href_links)}, regex={len(regex_links)}, script={len(script_links)}"
-            )
-
             candidate_links = _dedupe_urls(href_links + regex_links + script_links)
             page_detail_urls = _filter_detail_urls(candidate_links)
+            print(
+                f"Page {page}: href={len(href_links)}, regex={len(regex_links)}, script={len(script_links)}, details={len(page_detail_urls)}"
+            )
+
+            before_count = len(detail_urls)
             for detail_url in page_detail_urls:
                 if detail_url not in detail_urls:
                     detail_urls.append(detail_url)
                     if max_items is not None and len(detail_urls) >= max_items:
                         break
 
+            if pager_max is None and len(detail_urls) == before_count and page_detail_urls == []:
+                break
             if max_items is not None and len(detail_urls) >= max_items:
                 break
-
-            next_page_url = _extract_next_page_url(page_url, page_html)
-            if not next_page_url or next_page_url in visited_pages:
-                break
-
-            try:
-                page_html = _fetch_url(next_page_url)
-            except urllib.error.URLError:
-                break
-
-            _save_raw_source(
-                conn,
-                source_system="ulucks",
-                source_kind="smartlink_page",
-                source_url=next_page_url,
-                content=page_html,
-            )
-            _validate_smartlink_html_or_raise(page_html, next_page_url)
-            page_url = next_page_url
-            page_number += 1
+            if sleep_ms > 0:
+                time.sleep(sleep_ms / 1000)
+            page += 1
 
         print(f"Final detail URLs: {len(detail_urls)}")
         if not detail_urls:
@@ -1087,7 +1157,24 @@ def main() -> None:
         dest="limit",
         type=int,
         default=None,
-        help="Max smartview pages to fetch (default: unlimited)",
+        help="Max smartview detail pages to fetch (default: unlimited)",
+    )
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=None,
+        help="Max smartlink list pages to crawl (default: auto)",
+    )
+    parser.add_argument(
+        "--sleep-ms",
+        type=int,
+        default=0,
+        help="Sleep milliseconds between list page requests",
+    )
+    parser.add_argument(
+        "--debug-dump-html",
+        default=None,
+        help="Write the first normalized smartlink HTML to a file",
     )
     parser.add_argument(
         "--limit",
@@ -1108,6 +1195,9 @@ def main() -> None:
         args.limit,
         _resolve_db_path(args.db),
         fail_when_empty=args.fail,
+        max_pages=args.max_pages,
+        sleep_ms=args.sleep_ms,
+        debug_dump_html=args.debug_dump_html,
     )
 
 
