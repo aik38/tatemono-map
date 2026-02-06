@@ -264,6 +264,33 @@ def test_dist_leak_scan_detects_room_number_tokens(tmp_path, monkeypatch):
         build_module._scan_dist_for_leaks(output_dir)
 
 
+def test_dist_leak_scan_allows_timestamps(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine)
+    output_dir = tmp_path / "dist"
+    build_module.build_static_site(output_dir=output_dir)
+
+    timestamp_html = output_dir / "b" / "timestamp.html"
+    timestamp_html.write_text("<html><body> 最終更新 08:50:26 </body></html>", encoding="utf-8")
+
+    build_module._scan_dist_for_leaks(output_dir)
+
+
+def test_dist_leak_scan_detects_room_like_colon_prefix(tmp_path, monkeypatch):
+    _setup_db(tmp_path, monkeypatch)
+    engine = database.get_engine()
+    _insert_summary(engine)
+    output_dir = tmp_path / "dist"
+    build_module.build_static_site(output_dir=output_dir)
+
+    suspicious = output_dir / "b" / "room-like-prefix.html"
+    suspicious.write_text("<html><body> 205:フォーレスト中尾 </body></html>", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="205:フォーレスト中尾"):
+        build_module._scan_dist_for_leaks(output_dir)
+
+
 def test_static_build_writes_private_output_without_linking_from_public(tmp_path, monkeypatch):
     _setup_db(tmp_path, monkeypatch)
     engine = database.get_engine()

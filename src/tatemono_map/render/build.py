@@ -37,7 +37,7 @@ DIST_LEAK_PATTERNS = [
     re.compile(r"号室"),
     re.compile(r"部屋"),
     re.compile(r"#\d{2,4}"),
-    re.compile(r"(?:^|\s)\d{1,4}\s*[:：]\s*\S"),
+    re.compile(r"(?:^|\s)\d{1,4}\s*[:：]\s*(?!\d{2}\b)\S"),
 ]
 
 
@@ -330,10 +330,15 @@ def _scan_dist_for_leaks(output_path: Path) -> None:
         content = html_file.read_text(encoding="utf-8")
         visible_text = _extract_visible_text(content)
         for pattern in DIST_LEAK_PATTERNS:
-            if pattern.search(visible_text):
+            match = pattern.search(visible_text)
+            if match:
+                start = max(0, match.start() - 60)
+                end = min(len(visible_text), match.end() + 60)
+                snippet = visible_text[start:end].replace("\n", "\\n")
                 raise ValueError(
                     "Public leak scan failed: suspicious token pattern "
-                    f"{pattern.pattern} found in {html_file.relative_to(output_path)}"
+                    f"{pattern.pattern} found in {html_file.relative_to(output_path)}; "
+                    f"matched={match.group(0)!r}; context={snippet!r}"
                 )
 
 
