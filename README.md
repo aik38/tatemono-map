@@ -155,6 +155,24 @@ python scripts/normalize_building_summaries.py
 ```
 - 必要に応じて `--db-path` で対象DBを指定できます。スクリプトは name/address 正規化と canonical `building_key` への統合を実行します。
 
+### 公開サイト運用手順（ingest → normalize → build）
+公開HTMLは建物単位でのみ出力し、号室/参照元URL/管理会社/PDFなどの募集詳細は公開しません。
+
+```powershell
+# 1) 募集データ取り込み（DBには詳細を保持してOK）
+python -m tatemono_map.ingest.run
+
+# 2) 建物単位へ正規化・統合
+python scripts/normalize_building_summaries.py
+
+# 3) 公開HTML生成（fail-fast leak scan 付き）
+python -m tatemono_map.render.build --output-dir dist
+```
+
+- build は `listings` から公開許可項目のみを集計し、`(layout, area_sqm, rent_yen, maint_yen)` ごとの空室サマリーを生成します。
+- 建物ページには `vacancy_total`（建物内募集合計）と、表の `vacancy_count`（サマリー行ごとの件数）を表示します。
+- 「最終更新日時」は listings の最大 `updated_at`（なければ `fetched_at`）を優先し、値がなければ `building_summaries.last_updated` を使用します。
+
 ## 仕様・ドキュメント
 - `docs/spec.md`
 - `docs/data_contract.md`

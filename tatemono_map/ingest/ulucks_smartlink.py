@@ -108,6 +108,7 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
             room_label TEXT,
             address TEXT,
             rent_yen INTEGER,
+            maint_yen INTEGER,
             fee_yen INTEGER,
             area_sqm REAL,
             layout TEXT,
@@ -115,7 +116,8 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
             lat REAL,
             lon REAL,
             source_url TEXT,
-            fetched_at TEXT
+            fetched_at TEXT,
+            updated_at TEXT
         )
         """
     )
@@ -175,8 +177,10 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
             )
     listing_required_columns = {
         "room_label": "TEXT",
+        "maint_yen": "INTEGER",
         "lat": "REAL",
         "lon": "REAL",
+        "updated_at": "TEXT",
     }
     listing_existing_columns = _table_columns(conn, "listings")
     for column, column_type in listing_required_columns.items():
@@ -492,6 +496,7 @@ def _extract_listing_fields(source_url: str, html_text: str) -> dict[str, Any]:
         "room_label": room_label,
         "address": _normalize_address(address),
         "rent_yen": _parse_money(rent_raw or ""),
+        "maint_yen": _parse_money(fee_raw or ""),
         "fee_yen": _parse_money(fee_raw or ""),
         "area_sqm": _parse_area(area_raw or ""),
         "layout": _sanitize_public_field(layout),
@@ -512,6 +517,7 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
             room_label,
             address,
             rent_yen,
+            maint_yen,
             fee_yen,
             area_sqm,
             layout,
@@ -519,14 +525,16 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
             lat,
             lon,
             source_url,
-            fetched_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            fetched_at,
+            updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(listing_key) DO UPDATE SET
             building_key=excluded.building_key,
             name=excluded.name,
             room_label=excluded.room_label,
             address=excluded.address,
             rent_yen=excluded.rent_yen,
+            maint_yen=excluded.maint_yen,
             fee_yen=excluded.fee_yen,
             area_sqm=excluded.area_sqm,
             layout=excluded.layout,
@@ -534,7 +542,8 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
             lat=excluded.lat,
             lon=excluded.lon,
             source_url=excluded.source_url,
-            fetched_at=excluded.fetched_at
+            fetched_at=excluded.fetched_at,
+            updated_at=excluded.updated_at
         """,
         (
             listing["listing_key"],
@@ -543,6 +552,7 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
             listing["room_label"],
             listing["address"],
             listing["rent_yen"],
+            listing["maint_yen"],
             listing["fee_yen"],
             listing["area_sqm"],
             listing["layout"],
@@ -550,6 +560,7 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
             listing["lat"],
             listing["lon"],
             listing["source_url"],
+            listing["fetched_at"],
             listing["fetched_at"],
         ),
     )
