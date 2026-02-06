@@ -10,7 +10,7 @@
 - 前提: リポジトリ配置は **`%USERPROFILE%\tatemono-map` に固定**
 - OneDrive 配下は非推奨（同期/ロックで作業ディレクトリがぶれやすく、別クローン混在の原因になるため）
 
-### 1) UI確認（build → dist/index.html をファイルで開く）
+### A) 既存DBからUIを生成して dist/index.html を開く（build-only）
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 Set-Location $REPO
@@ -21,9 +21,9 @@ python -m tatemono_map.render.build --output-dir dist
 Start-Process (Join-Path $REPO "dist\index.html")
 ```
 
-### 2) ULUCKS smartlink 一発実行（ingest → normalize → build → open）
+### B) Ulucks smartlink を渡して one-shot 実行（ingest → normalize → build → open）
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url "<smartlink_url>" -NoServe
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://...' -NoServe
 ```
 
 ### よくある失敗と原因
@@ -49,7 +49,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scr
 どの作業ディレクトリからでも次の 1 コマンドで実行できます。
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url "<smartlink_url>"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://...'
 ```
 
 - 既定動作: リポジトリ検出 → `git pull --ff-only` → `.venv` 作成/有効化 → 依存インストール → smartlink ingest → 正規化 → `dist` build → `http://127.0.0.1:8080/index.html` を表示
@@ -224,7 +224,7 @@ python -m tatemono_map.render.build --output-dir dist
 最短は以下の一発スクリプトです。
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url "<smartlink_url>" -MaxItems 80
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://...' -MaxItems 80
 ```
 
 手動実行する場合のみ、従来手順を使用してください。
