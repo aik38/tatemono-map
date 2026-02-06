@@ -63,6 +63,43 @@ class _TextExtractor(HTMLParser):
         return "\n".join(self._chunks)
 
 
+class _DefinitionListExtractor(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.pairs: list[tuple[str, str]] = []
+        self._current_tag: str | None = None
+        self._current_chunks: list[str] = []
+        self._pending_label: str | None = None
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        del attrs
+        tag_lower = tag.lower()
+        if tag_lower in {"th", "dt", "td", "dd"}:
+            self._current_tag = tag_lower
+            self._current_chunks = []
+
+    def handle_data(self, data: str) -> None:
+        if self._current_tag is None:
+            return
+        cleaned = data.strip()
+        if cleaned:
+            self._current_chunks.append(cleaned)
+
+    def handle_endtag(self, tag: str) -> None:
+        tag_lower = tag.lower()
+        if self._current_tag != tag_lower:
+            return
+        value = " ".join(self._current_chunks).strip()
+        if tag_lower in {"th", "dt"}:
+            self._pending_label = value or None
+        elif tag_lower in {"td", "dd"}:
+            if self._pending_label and value:
+                self.pairs.append((self._pending_label, value))
+            self._pending_label = None
+        self._current_tag = None
+        self._current_chunks = []
+
+
 def _utc_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -518,6 +555,16 @@ def _extract_field(lines: list[str], labels: list[str]) -> str | None:
     return None
 
 
+def _extract_field_from_pairs(pairs: list[tuple[str, str]], labels: list[str]) -> str | None:
+    normalized_labels = [unicodedata.normalize("NFKC", label).strip() for label in labels]
+    for raw_label, value in pairs:
+        normalized_label = unicodedata.normalize("NFKC", raw_label).strip()
+        for label in normalized_labels:
+            if normalized_label == label:
+                return value.strip()
+    return None
+
+
 def _extract_listing_fields(source_url: str, html_text: str) -> dict[str, Any]:
     title_match = re.search(r"<title>(.*?)</title>", html_text, re.IGNORECASE | re.DOTALL)
     title = html.unescape(title_match.group(1)).strip() if title_match else None
@@ -525,15 +572,30 @@ def _extract_listing_fields(source_url: str, html_text: str) -> dict[str, Any]:
     parser.feed(html_text)
     text = parser.text()
     lines = [line.strip() for line in text.splitlines() if line.strip()]
+    pair_parser = _DefinitionListExtractor()
+    pair_parser.feed(html_text)
+    pairs = pair_parser.pairs
 
-    raw_name = _extract_field(lines, ["建物名", "物件名"]) or title
+    raw_name = _extract_field(lines, ["建物名", "物件名"]) or _extract_field_from_pairs(
+        pairs, ["建物名", "物件名"]
+    ) or title
     name, room_label = _extract_room_label(raw_name, lines)
-    address = _extract_field(lines, ["住所", "所在地"]) or None
-    rent_raw = _extract_field(lines, ["家賃", "賃料"])
-    fee_raw = _extract_field(lines, ["共益費", "管理費"])
-    area_raw = _extract_field(lines, ["面積", "専有面積"])
-    layout = _extract_field(lines, ["間取り"])
-    move_in = _extract_field(lines, ["入居可能日", "入居時期"])
+    address = _extract_field(lines, ["住所", "所在地"]) or _extract_field_from_pairs(
+        pairs, ["住所", "所在地"]
+    )
+    rent_raw = _extract_field(lines, ["家賃", "賃料"]) or _extract_field_from_pairs(
+        pairs, ["家賃", "賃料"]
+    )
+    fee_raw = _extract_field(lines, ["共益費", "管理費"]) or _extract_field_from_pairs(
+        pairs, ["共益費", "管理費"]
+    )
+    area_raw = _extract_field(lines, ["面積", "専有面積"]) or _extract_field_from_pairs(
+        pairs, ["面積", "専有面積"]
+    )
+    layout = _extract_field(lines, ["間取り"]) or _extract_field_from_pairs(pairs, ["間取り"])
+    move_in = _extract_field(lines, ["入居可能日", "入居時期"]) or _extract_field_from_pairs(
+        pairs, ["入居可能日", "入居時期"]
+    )
     lat, lon = _parse_lat_lon(lines)
 
     return {
