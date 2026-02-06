@@ -220,7 +220,7 @@ def test_static_build_writes_google_verification_file(tmp_path, monkeypatch):
 def test_static_build_uses_address_query_links_for_google_maps(tmp_path, monkeypatch):
     _setup_db(tmp_path, monkeypatch)
     engine = database.get_engine()
-    _insert_summary(engine, address="東京都千代田区1-2-3", lat=35.1, lon=139.2)
+    _insert_summary(engine, address="822-0002 福岡県直方市1-2-3", lat=35.1, lon=139.2)
 
     output_dir = tmp_path / "dist"
     build_module.build_static_site(output_dir=output_dir)
@@ -228,7 +228,8 @@ def test_static_build_uses_address_query_links_for_google_maps(tmp_path, monkeyp
     building_html = (output_dir / "b" / "sample-01.html").read_text(encoding="utf-8")
     assert "Google マップ" in building_html
     assert "地図を開く" in building_html
-    assert "maps/search/?api=1&amp;query=%E6%9D%B1%E4%BA%AC%E9%83%BD%E5%8D%83%E4%BB%A3%E7%94%B0%E5%8C%BA1-2-3" in building_html
+    assert "〒822-0002 福岡県直方市1-2-3" in building_html
+    assert "maps/search/?api=1&amp;query=822-0002+%E7%A6%8F%E5%B2%A1%E7%9C%8C%E7%9B%B4%E6%96%B9%E5%B8%821-2-3" in building_html
     assert "ストリートビューを開く" not in building_html
 
 
