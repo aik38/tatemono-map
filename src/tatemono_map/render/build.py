@@ -17,6 +17,9 @@ from tatemono_map.api.database import get_engine, init_db
 
 ALLOWED_VACANCY_STATUS = {"空室あり", "満室", "不明"}
 BUILDING_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+ROOM_PREFIX_PATTERN = re.compile(r"^\s*\d{1,4}\s*[:：]\s*")
+ROOM_LIKE_PATTERN = re.compile(r"(?:号室|部屋番号|室番号)")
+
 FORBIDDEN_PATTERNS = [
     re.compile(r"号室"),
     re.compile(r"参照元"),
@@ -66,6 +69,30 @@ def _assert_safe_html(content: str, label: str) -> None:
         if pattern.search(content):
             raise ValueError(f"Forbidden content detected in {label}: {pattern.pattern}")
 
+
+
+
+def _validate_public_building_summaries(conn: Any) -> None:
+    rows = conn.execute(
+        text(
+            """
+            SELECT building_key, name
+            FROM building_summaries
+            WHERE name IS NOT NULL
+            """
+        )
+    ).mappings().all()
+    violations: list[str] = []
+    for row in rows:
+        name = str(row["name"]).strip()
+        if ROOM_PREFIX_PATTERN.match(name) or ROOM_LIKE_PATTERN.search(name):
+            violations.append(f"{row['building_key']}:{name}")
+    if violations:
+        sample = ", ".join(violations[:5])
+        raise ValueError(
+            "Public building_summaries contains room-like prefixes in name. "
+            f"Fix normalization before build: {sample}"
+        )
 
 def _render_index(buildings: list[dict[str, Any]]) -> str:
     items = []
@@ -232,6 +259,8 @@ def build_static_site(
         ).first()
         if table_exists is None:
             raise RuntimeError("building_summaries table not found")
+
+        _validate_public_building_summaries(conn)
 
         count = conn.execute(text("SELECT COUNT(*) AS count FROM building_summaries")).scalar_one()
         if count == 0:

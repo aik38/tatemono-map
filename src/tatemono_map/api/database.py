@@ -1,10 +1,13 @@
 import os
+import re
 from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 Base = declarative_base()
+
+ROOM_PREFIX_PATTERN = re.compile(r"^\s*\d{1,4}\s*[:：]\s*")
 
 _ENGINE = None
 _DB_PATH: Path | None = None
@@ -57,6 +60,7 @@ def ensure_building_summaries_table(engine=None) -> None:
     CREATE TABLE IF NOT EXISTS building_summaries (
         building_key TEXT PRIMARY KEY,
         name TEXT,
+        raw_name TEXT,
         address TEXT,
         vacancy_status TEXT,
         listings_count INTEGER,
@@ -78,6 +82,7 @@ def ensure_building_summaries_table(engine=None) -> None:
     """
     required_columns = {
         "name": "TEXT",
+        "raw_name": "TEXT",
         "address": "TEXT",
         "vacancy_status": "TEXT",
         "listings_count": "INTEGER",
@@ -107,6 +112,49 @@ def ensure_building_summaries_table(engine=None) -> None:
             if column not in existing_columns:
                 conn.execute(
                     text(f"ALTER TABLE building_summaries ADD COLUMN {column} {column_type}")
+                )
+
+        conn.execute(
+            text(
+                """
+                UPDATE building_summaries
+                SET raw_name = COALESCE(raw_name, name)
+                WHERE name IS NOT NULL
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                UPDATE building_summaries
+                SET name = TRIM(
+                    CASE
+                        WHEN name GLOB '[0-9]:*' THEN SUBSTR(name, INSTR(name, ':') + 1)
+                        WHEN name GLOB '[0-9][0-9]:*' THEN SUBSTR(name, INSTR(name, ':') + 1)
+                        WHEN name GLOB '[0-9][0-9][0-9]:*' THEN SUBSTR(name, INSTR(name, ':') + 1)
+                        WHEN name GLOB '[0-9][0-9][0-9][0-9]:*' THEN SUBSTR(name, INSTR(name, ':') + 1)
+                        WHEN name GLOB '[0-9]：*' THEN SUBSTR(name, INSTR(name, '：') + 1)
+                        WHEN name GLOB '[0-9][0-9]：*' THEN SUBSTR(name, INSTR(name, '：') + 1)
+                        WHEN name GLOB '[0-9][0-9][0-9]：*' THEN SUBSTR(name, INSTR(name, '：') + 1)
+                        WHEN name GLOB '[0-9][0-9][0-9][0-9]：*' THEN SUBSTR(name, INSTR(name, '：') + 1)
+                        ELSE name
+                    END
+                )
+                WHERE name IS NOT NULL
+                """
+            )
+        )
+        rows = conn.execute(
+            text("SELECT building_key, name FROM building_summaries WHERE name IS NOT NULL")
+        ).mappings().all()
+        for row in rows:
+            normalized = ROOM_PREFIX_PATTERN.sub("", str(row["name"]).strip()).strip()
+            if normalized != row["name"]:
+                conn.execute(
+                    text(
+                        "UPDATE building_summaries SET name = :name WHERE building_key = :building_key"
+                    ),
+                    {"building_key": row["building_key"], "name": normalized},
                 )
         if legacy_columns.keys() & existing_columns:
             conn.execute(
