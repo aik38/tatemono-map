@@ -92,6 +92,114 @@ def test_extract_listing_fields_from_th_td_and_dt_dd_pairs():
     assert extracted["move_in"] == "即入居可"
 
 
+@pytest.mark.parametrize(
+    ("fixture_name", "expected"),
+    [
+        (
+            "smartview_th_td.html",
+            {
+                "address": "福岡県 福岡市中央区 1-2-3",
+                "rent_yen": 65000,
+                "area_sqm": 25.1,
+                "layout": "1K",
+                "move_in": "即入居可",
+                "maint_yen": 5000,
+            },
+        ),
+        (
+            "smartview_dt_dd.html",
+            {
+                "address": "福岡県福岡市博多区4-5-6",
+                "rent_yen": 65000,
+                "area_sqm": 30.2,
+                "layout": "2DK",
+                "move_in": "2026年03月下旬",
+                "maint_yen": 0,
+            },
+        ),
+    ],
+)
+def test_extract_listing_fields_from_smartview_fixtures(fixture_name: str, expected: dict[str, object]):
+    fixture = Path(__file__).resolve().parent / "fixtures" / fixture_name
+    html = fixture.read_text(encoding="utf-8")
+
+    extracted = ulucks_smartlink._extract_listing_fields("https://example.com/view/smartview/a", html)  # noqa: SLF001
+
+    assert extracted["address"] == expected["address"]
+    assert extracted["rent_yen"] == expected["rent_yen"]
+    assert extracted["area_sqm"] == expected["area_sqm"]
+    assert extracted["layout"] == expected["layout"]
+    assert extracted["move_in"] == expected["move_in"]
+    assert extracted["maint_yen"] == expected["maint_yen"]
+
+
+def test_upsert_listing_does_not_overwrite_existing_values_with_empty_or_null(tmp_path: Path):
+    db_path = tmp_path / "listings.sqlite3"
+    conn = ulucks_smartlink.sqlite3.connect(str(db_path))
+    try:
+        ulucks_smartlink._ensure_tables(conn)  # noqa: SLF001
+        conn.row_factory = ulucks_smartlink.sqlite3.Row
+
+        ulucks_smartlink._upsert_listing(  # noqa: SLF001
+            conn,
+            {
+                "listing_key": "key-1",
+                "building_key": "building-1",
+                "name": "テストマンション",
+                "room_label": "101",
+                "address": "東京都新宿区1-2-3",
+                "rent_yen": 70000,
+                "maint_yen": 5000,
+                "fee_yen": 5000,
+                "area_sqm": 25.1,
+                "layout": "1K",
+                "move_in": "即入居可",
+                "lat": 35.0,
+                "lon": 139.0,
+                "source_url": "https://example.com/1",
+                "fetched_at": "2026-01-01T00:00:00+00:00",
+            },
+        )
+
+        ulucks_smartlink._upsert_listing(  # noqa: SLF001
+            conn,
+            {
+                "listing_key": "key-1",
+                "building_key": "",
+                "name": "",
+                "room_label": "",
+                "address": "",
+                "rent_yen": None,
+                "maint_yen": None,
+                "fee_yen": None,
+                "area_sqm": None,
+                "layout": "",
+                "move_in": "",
+                "lat": None,
+                "lon": None,
+                "source_url": "",
+                "fetched_at": "2026-01-02T00:00:00+00:00",
+            },
+        )
+
+        row = conn.execute("SELECT * FROM listings WHERE listing_key = 'key-1'").fetchone()
+        assert row is not None
+        assert row["building_key"] == "building-1"
+        assert row["name"] == "テストマンション"
+        assert row["room_label"] == "101"
+        assert row["address"] == "東京都新宿区1-2-3"
+        assert row["rent_yen"] == 70000
+        assert row["maint_yen"] == 5000
+        assert row["area_sqm"] == 25.1
+        assert row["layout"] == "1K"
+        assert row["move_in"] == "即入居可"
+        assert row["lat"] == 35.0
+        assert row["lon"] == 139.0
+        assert row["source_url"] == "https://example.com/1"
+    finally:
+        conn.close()
+
+
 def test_building_key_stable_across_rooms():
     key_1 = ulucks_smartlink._build_building_key("東京都新宿区1-2-3", "205: フォーレスト中尾", None, None)  # noqa: SLF001
     key_2 = ulucks_smartlink._build_building_key("東京都新宿区1-2-3", "203: フォーレスト中尾", None, None)  # noqa: SLF001

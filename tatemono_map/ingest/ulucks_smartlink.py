@@ -526,6 +526,45 @@ def _parse_lat_lon(lines: list[str]) -> tuple[float | None, float | None]:
     return lat, lon
 
 
+def _normalize_field_label(label: str) -> str:
+    normalized = unicodedata.normalize("NFKC", label)
+    normalized = normalized.replace("：", ":")
+    normalized = normalized.strip().rstrip(":")
+    normalized = re.sub(r"\s+", "", normalized)
+    return normalized
+
+
+def _extract_labeled_values(lines: list[str], pairs: list[tuple[str, str]]) -> dict[str, str]:
+    labeled: dict[str, str] = {}
+
+    def _store(raw_label: str, raw_value: str) -> None:
+        key = _normalize_field_label(raw_label)
+        if not key:
+            return
+        value = unicodedata.normalize("NFKC", raw_value).strip()
+        if value:
+            labeled[key] = value
+
+    for label, value in pairs:
+        _store(label, value)
+
+    for line in lines:
+        match = re.search(r"^\s*([^:：\s][^:：]*?)\s*[:：]\s*(.+)$", line)
+        if not match:
+            continue
+        _store(match.group(1), match.group(2))
+
+    return labeled
+
+
+def _pick_labeled_value(labeled: dict[str, str], labels: list[str]) -> str | None:
+    for label in labels:
+        value = labeled.get(_normalize_field_label(label))
+        if value:
+            return value
+    return None
+
+
 def _parse_money(value: str) -> int | None:
     cleaned = value.replace(",", "").strip()
     match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*万円", cleaned)
@@ -575,27 +614,16 @@ def _extract_listing_fields(source_url: str, html_text: str) -> dict[str, Any]:
     pair_parser = _DefinitionListExtractor()
     pair_parser.feed(html_text)
     pairs = pair_parser.pairs
+    labeled_values = _extract_labeled_values(lines, pairs)
 
-    raw_name = _extract_field(lines, ["建物名", "物件名"]) or _extract_field_from_pairs(
-        pairs, ["建物名", "物件名"]
-    ) or title
+    raw_name = _pick_labeled_value(labeled_values, ["建物名", "物件名"]) or title
     name, room_label = _extract_room_label(raw_name, lines)
-    address = _extract_field(lines, ["住所", "所在地"]) or _extract_field_from_pairs(
-        pairs, ["住所", "所在地"]
-    )
-    rent_raw = _extract_field(lines, ["家賃", "賃料"]) or _extract_field_from_pairs(
-        pairs, ["家賃", "賃料"]
-    )
-    fee_raw = _extract_field(lines, ["共益費", "管理費"]) or _extract_field_from_pairs(
-        pairs, ["共益費", "管理費"]
-    )
-    area_raw = _extract_field(lines, ["面積", "専有面積"]) or _extract_field_from_pairs(
-        pairs, ["面積", "専有面積"]
-    )
-    layout = _extract_field(lines, ["間取り"]) or _extract_field_from_pairs(pairs, ["間取り"])
-    move_in = _extract_field(lines, ["入居可能日", "入居時期"]) or _extract_field_from_pairs(
-        pairs, ["入居可能日", "入居時期"]
-    )
+    address = _pick_labeled_value(labeled_values, ["住所", "所在地"])
+    rent_raw = _pick_labeled_value(labeled_values, ["家賃", "賃料"])
+    fee_raw = _pick_labeled_value(labeled_values, ["共益費", "管理費"])
+    area_raw = _pick_labeled_value(labeled_values, ["面積", "専有面積"])
+    layout = _pick_labeled_value(labeled_values, ["間取り"])
+    move_in = _pick_labeled_value(labeled_values, ["入居可能日", "入居時期"])
     lat, lon = _parse_lat_lon(lines)
 
     return {
@@ -636,19 +664,19 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
             updated_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(listing_key) DO UPDATE SET
-            building_key=excluded.building_key,
-            name=excluded.name,
-            room_label=excluded.room_label,
-            address=excluded.address,
-            rent_yen=excluded.rent_yen,
-            maint_yen=excluded.maint_yen,
-            fee_yen=excluded.fee_yen,
-            area_sqm=excluded.area_sqm,
-            layout=excluded.layout,
-            move_in=excluded.move_in,
-            lat=excluded.lat,
-            lon=excluded.lon,
-            source_url=excluded.source_url,
+            building_key=COALESCE(NULLIF(excluded.building_key, ''), listings.building_key),
+            name=COALESCE(NULLIF(excluded.name, ''), listings.name),
+            room_label=COALESCE(NULLIF(excluded.room_label, ''), listings.room_label),
+            address=COALESCE(NULLIF(excluded.address, ''), listings.address),
+            rent_yen=COALESCE(excluded.rent_yen, listings.rent_yen),
+            maint_yen=COALESCE(excluded.maint_yen, listings.maint_yen),
+            fee_yen=COALESCE(excluded.fee_yen, listings.fee_yen),
+            area_sqm=COALESCE(excluded.area_sqm, listings.area_sqm),
+            layout=COALESCE(NULLIF(excluded.layout, ''), listings.layout),
+            move_in=COALESCE(NULLIF(excluded.move_in, ''), listings.move_in),
+            lat=COALESCE(excluded.lat, listings.lat),
+            lon=COALESCE(excluded.lon, listings.lon),
+            source_url=COALESCE(NULLIF(excluded.source_url, ''), listings.source_url),
             fetched_at=excluded.fetched_at,
             updated_at=excluded.updated_at
         """,
