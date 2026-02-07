@@ -2,28 +2,16 @@
 
 ## Smartlink 一発運用（推奨）
 - リポジトリ実体は **`$env:USERPROFILE\tatemono-map` 固定**（OneDrive 配下は使用しない）。
-- どの作業ディレクトリからでも、以下の 1 コマンドで ingest → normalize → build → ブラウザ表示まで実行します。
-  - `pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://...' -NoServe`
-- 主なオプション
-  - `-RepoPath`: 既定は `$env:USERPROFILE\tatemono-map`。OneDrive 配下を指定すると警告して停止。
-  - `-MaxItems`: 取り込み上限（既定 200）
-  - `-Port`: `http.server` ポート（既定 8080）
-  - `-NoServe`: サーバ起動せず `dist/index.html` を直接開く
-- 失敗時メッセージ（原因と次アクション）
-  - `RepoPath が見つからない`: clone先の確認、または `-RepoPath` を明示
-  - `-Url が空`: ブラウザで開ける smartlink URL を `-Url` に指定
-  - ingest 0件: smartlink 期限切れ/無効の可能性。ログイン状態で smartlink 再生成後に再実行
-
+- 実行手順とコマンドは README の Quick Start を正本とする（A: build-only / B: ingest）。
+- Smartlink URL は PowerShell で壊れないよう **単一引用符** を使い、`mail=` は `%40` 形式で指定する。
 
 ## UI確認（build-only）
-- 既存DBがある前提で、`$env:USERPROFILE\tatemono-map` から `dist/index.html` を再生成して開きます。
-- 実行例（PowerShell）
-  - `$REPO = Join-Path $env:USERPROFILE "tatemono-map"`
-  - `Set-Location $REPO`
-  - `. .\.venv\Scripts\Activate.ps1`
-  - `if (-not $env:SQLITE_DB_PATH) { $env:SQLITE_DB_PATH = "data\tatemono_map.sqlite3" }`
-  - `python -m tatemono_map.render.build --output-dir dist`
-  - `Start-Process (Join-Path $REPO "dist\index.html")`
+- 実行手順とコマンドは README の Quick Start A を参照（この runbook では重複掲載しない）。
+- `SQLITE_DB_PATH` を未指定で運用する場合は `data\tatemono_map.sqlite3` が使われる。
+
+## PowerShell スクリプトの静的確認（ローカル）
+- `scripts/run_ulucks_smartlink.ps1` の ParserError を事前検知する場合は、ローカル Windows / PowerShell で次を実行する。
+  - `pwsh -NoProfile -Command "[void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path '.\\scripts\\run_ulucks_smartlink.ps1'), [ref]$null, [ref]$errors); if ($errors) { $errors | Format-List; exit 1 }"`
 
 ## OneDrive 配下を避ける理由（事故例）
 - 統一運用: **`$env:USERPROFILE\tatemono-map` を唯一の実体パス**にする。
@@ -41,7 +29,7 @@
   - build は dist__tmp に生成してから dist に反映するため、build 失敗時は dist は更新されない（前回分維持）
 - 動作確認（成功/失敗）：`pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1` / `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1 -FailIngest`
 - ULUCKS smartlink PoC（PowerShell例）
-  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1 -UluSmartlinkUrl 'https://...'`
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1 -UluSmartlinkUrl 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com'`
   - `SQLITE_DB_PATH` を指定しない場合は `data\tatemono_map.sqlite3` が使われる
   - `tmp_ulucks_*.html` は smartlink のデバッグ生成物なのでコミット不要（`dist_tmp/` など Git 管理外に出力）
 
