@@ -365,6 +365,25 @@ def _inherit_query_params(candidate_url: str, source_url: str) -> str:
 
 
 def _extract_next_page_url(base_url: str, html_text: str) -> str | None:
+    current_page_match = re.search(r"/page:(\d+)", urllib.parse.urlparse(base_url).path, flags=re.IGNORECASE)
+    current_page = int(current_page_match.group(1)) if current_page_match else 1
+
+    href_values = re.findall(
+        r"<a[^>]*href=[\"']([^\"']+)[\"'][^>]*>",
+        html_text,
+        flags=re.IGNORECASE,
+    )
+    numeric_candidates: list[tuple[int, str]] = []
+    for href in href_values:
+        candidate = urllib.parse.urljoin(base_url, href.strip())
+        page_match = re.search(r"/page:(\d+)", urllib.parse.urlparse(candidate).path, flags=re.IGNORECASE)
+        if page_match:
+            numeric_candidates.append((int(page_match.group(1)), candidate))
+
+    next_numeric = sorted({(page, url) for page, url in numeric_candidates if page > current_page})
+    if next_numeric:
+        return _inherit_query_params(next_numeric[0][1], base_url)
+
     rel_next = re.search(
         r"<a[^>]*rel=[\"'][^\"']*next[^\"']*[\"'][^>]*href=[\"']([^\"']+)[\"'][^>]*>",
         html_text,
@@ -423,21 +442,21 @@ def _normalize_smartlink_url(url: str) -> str:
     return urllib.parse.urlunparse(base)
 
 
-def _build_smartlink_page_url(base_url: str, page: int) -> str:
-    parsed = urllib.parse.urlparse(base_url)
-    path = parsed.path.rstrip("/")
-    if page <= 1:
-        page_path = f"{path}/"
-    else:
-        page_path = f"{path}/page:{page}/"
-    return urllib.parse.urlunparse(parsed._replace(path=page_path))
-
-
 def _extract_max_page(html_text: str) -> int | None:
     pages = [int(m.group(1)) for m in re.finditer(r"/page:(\d+)", html_text, flags=re.IGNORECASE)]
     if not pages:
         return None
     return max(pages)
+
+
+def _build_smartlink_page_url(base_url: str, page: int) -> str:
+    parsed = urllib.parse.urlparse(base_url)
+    path = re.sub(r"/page:\d+", "", parsed.path).rstrip("/")
+    if page <= 1:
+        page_path = f"{path}/"
+    else:
+        page_path = f"{path}/page:{page}/"
+    return urllib.parse.urlunparse(parsed._replace(path=page_path))
 
 
 def _detect_meta_refresh(html_text: str) -> str | None:
@@ -502,6 +521,22 @@ def _validate_smartlink_html_or_raise(html_text: str, source_url: str) -> None:
     raise RuntimeError(
         f"Smartlink error page detected ({reason}) for: {source_url}. {SMARTLINK_ERROR_HINT}"
     )
+
+
+def _validate_smartlink_html_or_raise_with_dump(
+    html_text: str,
+    source_url: str,
+    debug_dump_html: str | None,
+) -> None:
+    try:
+        _validate_smartlink_html_or_raise(html_text, source_url)
+    except RuntimeError as exc:
+        if not debug_dump_html:
+            raise
+        dump_path = Path(debug_dump_html).expanduser().resolve()
+        dump_path.parent.mkdir(parents=True, exist_ok=True)
+        dump_path.write_text(html_text, encoding="utf-8")
+        raise RuntimeError(f"{exc} Debug HTML saved to: {dump_path}") from exc
 
 
 def _sanitize_public_field(value: str | None) -> str | None:
@@ -1000,7 +1035,7 @@ def ingest_ulucks_smartlink(
             source_url=normalized_url,
             content=smartlink_html,
         )
-        _validate_smartlink_html_or_raise(smartlink_html, normalized_url)
+        _validate_smartlink_html_or_raise_with_dump(smartlink_html, normalized_url, debug_dump_html)
 
         effective_url = normalized_url
         redirect_type: str | None = None
@@ -1026,7 +1061,7 @@ def ingest_ulucks_smartlink(
                 source_url=effective_url,
                 content=smartlink_html,
             )
-            _validate_smartlink_html_or_raise(smartlink_html, effective_url)
+            _validate_smartlink_html_or_raise_with_dump(smartlink_html, effective_url, debug_dump_html)
         else:
             print("No redirect detected in smartlink HTML.")
 
@@ -1046,8 +1081,10 @@ def ingest_ulucks_smartlink(
         print(f"Pagination target pages: {target_pages} (pager_max={pager_max})")
 
         page = 1
-        while page <= target_pages:
-            page_url = _build_smartlink_page_url(effective_url, page)
+        page_url = effective_url
+        visited_page_urls: set[str] = set()
+        while page <= target_pages and page_url not in visited_page_urls:
+            visited_page_urls.add(page_url)
             try:
                 page_html = smartlink_html if page == 1 else _fetch_url(page_url)
             except urllib.error.URLError:
@@ -1062,7 +1099,7 @@ def ingest_ulucks_smartlink(
                 source_url=page_url,
                 content=page_html,
             )
-            _validate_smartlink_html_or_raise(page_html, page_url)
+            _validate_smartlink_html_or_raise_with_dump(page_html, page_url, debug_dump_html)
 
             href_links = _extract_anchor_links(page_url, page_html)
             regex_links = _extract_regex_links(page_url, page_html)
@@ -1084,6 +1121,14 @@ def ingest_ulucks_smartlink(
                 break
             if max_items is not None and len(detail_urls) >= max_items:
                 break
+            next_page_url = _extract_next_page_url(page_url, page_html)
+            if next_page_url:
+                page_url = next_page_url
+            else:
+                next_page = page + 1
+                if next_page > target_pages:
+                    break
+                page_url = _build_smartlink_page_url(effective_url, next_page)
             if sleep_ms > 0:
                 time.sleep(sleep_ms / 1000)
             page += 1

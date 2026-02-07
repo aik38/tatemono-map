@@ -5,12 +5,13 @@
 ---
 
 ## Quick Start（Windows / PowerShell）
-この章のコマンドをそのまま使えば、`C:\Users\OWNER\tatemono-map`（=`%USERPROFILE%\tatemono-map`）固定で事故を避けて運用できます。
+この章を **正本** とし、次の2手順だけを標準運用とします。どちらも実体パスは **`$env:USERPROFILE\tatemono-map` 固定** です。
 
-- 前提: リポジトリ配置は **`%USERPROFILE%\tatemono-map` に固定**
-- OneDrive 配下は非推奨（同期/ロックで作業ディレクトリがぶれやすく、別クローン混在の原因になるため）
+- 前提: リポジトリ配置は **`$env:USERPROFILE\tatemono-map` に固定**
+- OneDrive 配下の同名 repo は混在事故の原因になるため使用しない
+- Smartlink URL 例は PowerShell で壊れないよう **単一引用符** を使う（`mail=` の `@` は `%40` で指定）
 
-### A) 既存DBからUIを生成して dist/index.html を開く（build-only）
+### A) build-only（既存DB → dist生成 → index.htmlを開く）
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 Set-Location $REPO
@@ -21,10 +22,12 @@ python -m tatemono_map.render.build --output-dir dist
 Start-Process (Join-Path $REPO "dist\index.html")
 ```
 
-### B) Ulucks smartlink を渡して one-shot 実行（ingest → normalize → build → open）
+### B) ingest（smartlink → DB更新 → normalize → dist生成 → open）
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://...' -NoServe
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com' -NoServe
 ```
+
+> `C:\dev\tatemono-map` は **非推奨** です。運用は `$env:USERPROFILE\tatemono-map` に統一してください。
 
 ### よくある失敗と原因
 - **DBが見つからない**
@@ -49,7 +52,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scr
 どの作業ディレクトリからでも次の 1 コマンドで実行できます。
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://...'
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com'
 ```
 
 - 既定動作: リポジトリ検出 → `git pull --ff-only` → `.venv` 作成/有効化 → 依存インストール → smartlink ingest → 正規化 → `dist` build → `http://127.0.0.1:8080/index.html` を表示
@@ -224,14 +227,14 @@ python -m tatemono_map.render.build --output-dir dist
 最短は以下の一発スクリプトです。
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://...' -MaxItems 80
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com' -MaxItems 80
 ```
 
 手動実行する場合のみ、従来手順を使用してください。
 
 ```powershell
 # 1) Smartlink から全ページ取得（必要に応じて上限を指定）
-python -m tatemono_map.ingest.ulucks_smartlink --url "<smartlink_url>" --max-items 80
+python -m tatemono_map.ingest.ulucks_smartlink --url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com' --max-items 80
 
 # 2) building_key 正規化・重複統合
 python scripts/normalize_building_summaries.py

@@ -45,7 +45,11 @@ function Invoke-Step {
 }
 
 if ([string]::IsNullOrWhiteSpace($Url)) {
-    throw "-Url が空です。次のアクション: ブラウザで開ける ULUCKS smartlink URL を指定して再実行してください。例: pwsh -File scripts/run_ulucks_smartlink.ps1 -Url 'https://...'"
+    throw "-Url が空です。次のアクション: ブラウザで開ける ULUCKS smartlink URL を指定して再実行してください。例: pwsh -File scripts/run_ulucks_smartlink.ps1 -Url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com'"
+}
+
+if (($Url -notmatch "[?&]link_id=") -or ($Url -notmatch "[?&]mail=")) {
+    throw "-Url の形式が不正です。`n次のアクション: link_id と mail を含む smartlink URL を単一引用符で指定してください。`n例: -Url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com'"
 }
 
 $resolvedRepoPath = Resolve-RepoPath -RequestedPath $RepoPath
