@@ -652,8 +652,10 @@ def _pick_labeled_value(labeled: dict[str, str], labels: list[str]) -> str | Non
 
 
 def _parse_money(value: str) -> int | None:
-    cleaned = value.replace(",", "").strip()
-    match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*万円", cleaned)
+    cleaned = unicodedata.normalize("NFKC", value).replace(",", "").strip()
+    if not cleaned or cleaned in {"-", "—", "―", "ｰ"}:
+        return None
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*万(?:円)?", cleaned)
     if match:
         return int(float(match.group(1)) * 10000)
     match = re.search(r"([0-9]+)", cleaned)
@@ -663,7 +665,9 @@ def _parse_money(value: str) -> int | None:
 
 
 def _parse_area(value: str) -> float | None:
-    cleaned = value.replace(",", "").strip()
+    cleaned = unicodedata.normalize("NFKC", value).replace(",", "").strip()
+    if not cleaned or cleaned in {"-", "—", "―", "ｰ"}:
+        return None
     match = re.search(r"([0-9]+(?:\.[0-9]+)?)", cleaned)
     if match:
         return float(match.group(1))
@@ -725,7 +729,88 @@ def _extract_listing_fields(source_url: str, html_text: str) -> dict[str, Any]:
         "lat": lat,
         "lon": lon,
         "source_url": source_url,
+}
+
+
+def _extract_listing_from_text(source_url: str, text: str) -> dict[str, Any]:
+    normalized_text = unicodedata.normalize("NFKC", text)
+    lines = [line.strip() for line in normalized_text.splitlines() if line.strip()]
+    joined = "\n".join(lines)
+
+    def _find_labeled_value(labels: list[str]) -> str | None:
+        for label in labels:
+            match = re.search(rf"{re.escape(label)}\s*[:：]?\s*([^\n\t]+)", joined, flags=re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+        return None
+
+    address = _find_labeled_value(["住所", "所在地"])
+    if not address:
+        address_match = re.search(
+            r"((?:東京都|北海道|(?:京都|大阪)府|.{2,3}県).{3,80}?)($|\n)",
+            joined,
+        )
+        if address_match:
+            address = address_match.group(1).strip()
+
+    rent_raw = _find_labeled_value(["賃料", "家賃"])
+    if not rent_raw:
+        rent_match = re.search(r"([0-9]+(?:\.[0-9]+)?\s*万(?:円)?)", joined)
+        rent_raw = rent_match.group(1) if rent_match else None
+
+    fee_raw = _find_labeled_value(["共益費", "管理費", "敷金", "礼金"])
+    area_raw = _find_labeled_value(["面積", "専有面積"])
+    if not area_raw:
+        area_match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*㎡", joined)
+        area_raw = area_match.group(0) if area_match else None
+
+    layout = _find_labeled_value(["間取り"])
+    if not layout:
+        layout_match = re.search(r"\b([1-9][0-9]?(?:R|K|DK|LDK|SLDK|SK|SDK)+)\b", joined)
+        layout = layout_match.group(1) if layout_match else None
+
+    updated = _find_labeled_value(["更新日", "登録日", "最終更新"])
+
+    return {
+        "name": "（名称未設定）",
+        "room_label": None,
+        "address": _normalize_address(address),
+        "rent_yen": _parse_money(rent_raw or ""),
+        "maint_yen": _parse_money(fee_raw or ""),
+        "fee_yen": _parse_money(fee_raw or ""),
+        "area_sqm": _parse_area(area_raw or ""),
+        "layout": _sanitize_public_field(layout),
+        "move_in": _sanitize_public_field(updated),
+        "lat": None,
+        "lon": None,
+        "source_url": source_url,
     }
+
+
+def _extract_listings_from_smartlink_page(page_url: str, html_text: str) -> dict[str, dict[str, Any]]:
+    listings: dict[str, dict[str, Any]] = {}
+    for match in re.finditer(r"<a[^>]+href=['\"]([^'\"]*smartview[^'\"]*)['\"][^>]*>", html_text, flags=re.IGNORECASE):
+        detail_url = urllib.parse.urljoin(page_url, html.unescape(match.group(1)).strip())
+        start = max(0, match.start() - 1200)
+        end = min(len(html_text), match.end() + 1200)
+        snippet = html_text[start:end]
+        snippet_text = re.sub(r"<br\s*/?>", "\n", snippet, flags=re.IGNORECASE)
+        snippet_text = re.sub(r"<[^>]+>", "\n", html.unescape(snippet_text))
+        extracted = _extract_listing_from_text(detail_url, snippet_text)
+        if extracted["rent_yen"] is None and extracted["area_sqm"] is None and not extracted["layout"]:
+            continue
+        listings[detail_url] = extracted
+    return listings
+
+
+def _dump_failed_detail_html(debug_dump_html: str | None, detail_url: str, detail_html: str) -> None:
+    if not debug_dump_html:
+        return
+    base = Path(debug_dump_html).expanduser().resolve()
+    base.parent.mkdir(parents=True, exist_ok=True)
+    detail_id = hashlib.sha256(detail_url.encode("utf-8")).hexdigest()[:12]
+    detail_path = base.parent / f"{base.stem}_detail_{detail_id}.html"
+    detail_path.write_text(detail_html, encoding="utf-8")
 
 
 def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
@@ -1069,6 +1154,7 @@ def ingest_ulucks_smartlink(
             Path(debug_dump_html).expanduser().resolve().write_text(smartlink_html, encoding="utf-8")
 
         detail_urls: list[str] = []
+        listing_hints_by_url: dict[str, dict[str, Any]] = {}
         max_items = limit if limit and limit > 0 else None
         pager_max = _extract_max_page(smartlink_html)
         if pager_max is None:
@@ -1106,8 +1192,10 @@ def ingest_ulucks_smartlink(
             script_links = _extract_script_links(page_url, page_html)
             candidate_links = _dedupe_urls(href_links + regex_links + script_links)
             page_detail_urls = _filter_detail_urls(candidate_links)
+            page_listing_hints = _extract_listings_from_smartlink_page(page_url, page_html)
+            listing_hints_by_url.update(page_listing_hints)
             print(
-                f"Page {page}: href={len(href_links)}, regex={len(regex_links)}, script={len(script_links)}, details={len(page_detail_urls)}"
+                f"Page {page}: href={len(href_links)}, regex={len(regex_links)}, script={len(script_links)}, details={len(page_detail_urls)}, hints={len(page_listing_hints)}"
             )
 
             before_count = len(detail_urls)
@@ -1158,6 +1246,16 @@ def ingest_ulucks_smartlink(
                 content=detail_html,
             )
             extracted = _extract_listing_fields(link, detail_html)
+            hint = listing_hints_by_url.get(link)
+            if hint:
+                extracted["address"] = extracted["address"] or hint.get("address") or ""
+                extracted["rent_yen"] = extracted["rent_yen"] if extracted["rent_yen"] is not None else hint.get("rent_yen")
+                extracted["maint_yen"] = extracted["maint_yen"] if extracted["maint_yen"] is not None else hint.get("maint_yen")
+                extracted["fee_yen"] = extracted["fee_yen"] if extracted["fee_yen"] is not None else hint.get("fee_yen")
+                extracted["area_sqm"] = extracted["area_sqm"] if extracted["area_sqm"] is not None else hint.get("area_sqm")
+                extracted["layout"] = extracted["layout"] or hint.get("layout")
+            if extracted["rent_yen"] is None and extracted["area_sqm"] is None and not extracted["layout"]:
+                _dump_failed_detail_html(debug_dump_html, link, detail_html)
             building_key = _build_building_key(
                 extracted["address"],
                 extracted["name"],
