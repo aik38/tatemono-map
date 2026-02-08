@@ -38,6 +38,33 @@ def test_detects_generic_error_keywords_in_html():
         )
 
 
+
+
+def test_validate_smartlink_allows_error_message_when_smartview_exists():
+    html = """
+    <html><body>
+    <div class='flashMessage'>このリストは存在しません。</div>
+    <a href='https://example.com/view/smartView/abc'>detail</a>
+    </body></html>
+    """
+
+    ulucks_smartlink._validate_smartlink_html_or_raise(  # noqa: SLF001
+        html, "https://example.com/list"
+    )
+
+
+def test_validate_smartlink_raises_when_error_message_and_no_smartview():
+    html = """
+    <html><body>
+    <div class='flashMessage'>このリストは存在しません。</div>
+    </body></html>
+    """
+
+    with pytest.raises(RuntimeError):
+        ulucks_smartlink._validate_smartlink_html_or_raise(  # noqa: SLF001
+            html, "https://example.com/list"
+        )
+
 def test_fail_flag_errors_when_no_listing_upsert(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path = tmp_path / "test.sqlite3"
 

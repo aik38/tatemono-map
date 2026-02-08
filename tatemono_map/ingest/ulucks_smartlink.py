@@ -43,6 +43,21 @@ _ACTIVE_HTTP_SESSION: requests.Session | None = None
 _LAST_FETCH_META: dict[str, Any] | None = None
 
 
+def _build_browser_like_headers(source_url: str | None = None) -> dict[str, str]:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
+    }
+    if source_url:
+        headers["Referer"] = source_url
+    return headers
+
+
 class _LinkExtractor(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
@@ -240,7 +255,6 @@ def _fetch_url_with_meta(
     client = session or _ACTIVE_HTTP_SESSION or requests.Session()
     response = client.get(
         url,
-        headers={"User-Agent": "tatemono-map/ulucks-poc"},
         timeout=30,
         allow_redirects=True,
     )
@@ -583,6 +597,13 @@ def _detect_smartlink_error_reason(html_text: str) -> str | None:
 
 def _validate_smartlink_html_or_raise(html_text: str, source_url: str) -> None:
     reason = _detect_smartlink_error_reason(html_text)
+    smartview_count = len(re.findall(r"/view/smartview", html_text, flags=re.IGNORECASE))
+    if reason is not None and smartview_count > 0:
+        print(
+            "Smartlink warning: error-like message detected but smartView links exist; "
+            f"continuing. reason={reason} smartview_count={smartview_count} url={source_url}"
+        )
+        return
     if reason is None:
         return
     raise RuntimeError(
@@ -1227,6 +1248,7 @@ def ingest_ulucks_smartlink(
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     session = requests.Session()
+    session.headers.update(_build_browser_like_headers(url))
     _ACTIVE_HTTP_SESSION = session
     try:
         conn.execute("PRAGMA foreign_keys=ON")
