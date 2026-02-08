@@ -307,3 +307,22 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) { throw ".venv がありませ�
   - `pytest ...` ではなく `& .\.venv\Scripts\python.exe -m pytest ...` を使用。
 - `ModuleNotFoundError: No module named 'selectolax'`
   - `& .\.venv\Scripts\python.exe -m pip install -r requirements.txt` を再実行。
+
+## Ulucks smartlink 一発実行（MVP一本線）
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run_ulucks_smartlink.ps1 -Url '<smartlink>' -NoServe
+```
+
+このコマンドで `(1)詳細ページ取得 -> (2)パース -> (3)SQLite upsert -> (4)building_summaries集計 -> (5)dist生成` を順に実行します。`SQLITE_DB_PATH` 未設定時は `data/tatemono_map.sqlite3` を使います。
+
+### DoD（最低保証）
+- `dist/index.html` と `dist/b/{building_key}.html` を生成。
+- index には「建物名・住所で絞り込み」を必ず表示。
+- building ページは空室数・家賃レンジ・面積レンジ・間取りタイプ・最終更新を表示。
+- Googleマップリンクは `address` がある場合のみ表示。
+
+### 公開NG（dist に絶対出さない）
+- 号室 / 部屋番号
+- 参照元 URL
+- 会社情報 / 管理会社名
+- PDFリンク

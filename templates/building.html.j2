@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>{{ building.name }}</title></head>
+<body>
+<a href="../index.html">← 戻る</a>
+<h1>{{ building.name }}</h1>
+{% if building.address %}<p>{{ building.address }}</p>{% endif %}
+<ul>
+  <li>空室数: {{ building.vacancy_count }}</li>
+  <li>家賃レンジ: {{ building.rent_yen_min }}円 - {{ building.rent_yen_max }}円</li>
+  <li>面積レンジ: {{ building.area_sqm_min }}㎡ - {{ building.area_sqm_max }}㎡</li>
+  <li>間取りタイプ: {{ building.layout_types | join(', ') }}</li>
+  <li>最終更新日時: {{ building.last_updated }}</li>
+</ul>
+<h2>空室サマリー</h2>
+<table><thead><tr><th>間取り</th><th>件数</th></tr></thead><tbody>
+{% for row in layout_counts %}<tr><td>{{ row.layout }}</td><td>{{ row.count }}</td></tr>{% endfor %}
+</tbody></table>
+{% if maps_url %}<p><a href="{{ maps_url }}" target="_blank" rel="noopener">Googleマップを開く</a></p>{% endif %}
+</body></html>

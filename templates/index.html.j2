@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><title>建物一覧</title></head>
+<body>
+<h1>建物一覧</h1>
+<p>総建物数: <b id="building-count">{{ buildings|length }}</b></p>
+<input id="search" type="search" placeholder="建物名・住所で絞り込み" />
+<ul id="building-list">
+{% for b in buildings %}
+<li data-name="{{ b.name|lower }}" data-address="{{ (b.address or '')|lower }}">
+  <a href="b/{{ b.building_key }}.html">{{ b.name }}</a> {{ b.address }} {{ b.last_updated or '' }}
+</li>
+{% endfor %}
+</ul>
+<script>
+const input = document.getElementById('search');
+const items = Array.from(document.querySelectorAll('#building-list li'));
+const count = document.getElementById('building-count');
+input.addEventListener('input',()=>{
+  const q = input.value.trim().toLowerCase();
+  let visible = 0;
+  for (const item of items) {
+    const hay = `${item.dataset.name} ${item.dataset.address}`;
+    const show = q === '' || hay.includes(q);
+    item.style.display = show ? '' : 'none';
+    if (show) visible += 1;
+  }
+  count.textContent = String(visible);
+});
+</script>
+</body></html>
