@@ -288,6 +288,22 @@ smartlink 一覧ページだけを解析して建物サマリを作る手順は 
 - smartlink には Google Maps リンクが通常含まれず、必要なら Phase B（smartview）で扱います。
 - `mail`・TEL/FAX・担当者などの機微情報はログ/出力に含めない運用です。
 
+### PowerShell one-shot（.venv の python を明示）
+
+`pytest` コマンド未認識の環境でも確実に動かすため、`python -m pytest` と `.venv\Scripts\python.exe` を直接使います。
+
 ```powershell
-python -m tatemono_map.ingest.ulucks_smartlink_phase_a --html tests/fixtures/ulucks/smartlink_phase_a_page_1.html tests/fixtures/ulucks/smartlink_phase_a_page_2.html --out-csv data/ulucks_phase_a_summary.csv
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+Set-Location $REPO
+if (-not (Test-Path ".venv\Scripts\python.exe")) { throw ".venv がありません。scripts/dev_setup.ps1 などで初期化してください。" }
+& .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+& .\.venv\Scripts\python.exe -m pytest -q tests/test_ulucks_smartlink_phase_a.py
+& .\.venv\Scripts\python.exe -m tatemono_map.ingest.ulucks_smartlink_phase_a --html tests/fixtures/ulucks/smartlink_phase_a_page_1.html tests/fixtures/ulucks/smartlink_phase_a_page_2.html --out-csv data/ulucks_phase_a_summary.csv --out-json data/ulucks_phase_a_summary.json
 ```
+
+### トラブルシュート（Phase A）
+
+- `pytest` が未認識
+  - `pytest ...` ではなく `& .\.venv\Scripts\python.exe -m pytest ...` を使用。
+- `ModuleNotFoundError: No module named 'selectolax'`
+  - `& .\.venv\Scripts\python.exe -m pip install -r requirements.txt` を再実行。
