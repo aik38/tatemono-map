@@ -21,3 +21,5 @@ tmp_ulucks_*.html
 /data/_debug_ulucks_*.html
 /data/_debug_ulucks_*/
 *.tmp
+data/_debug_ulucks_phase_a/
+data/_debug_ulucks_*.html

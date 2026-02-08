@@ -49,3 +49,23 @@ python -m tatemono_map.ingest.ulucks_smartlink_phase_a \
 - URL のログは `mail=REDACTED` 化して出力。
 - 生HTMLを保存する場合は `data/_debug_ulucks_*.html` 配下を使用し、`.gitignore` で除外する。
 - テスト fixture は REDACTED のみを保持する。
+
+### Windows PowerShell one-shot（.venv を明示）
+
+`pytest` コマンドを直接呼ばず、`.venv\Scripts\python.exe -m ...` 形式で実行します。
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+Set-Location $REPO
+if (-not (Test-Path ".venv\Scripts\python.exe")) { throw ".venv がありません。scripts/dev_setup.ps1 などで初期化してください。" }
+& .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+& .\.venv\Scripts\python.exe -m pytest -q tests/test_ulucks_smartlink_phase_a.py
+& .\.venv\Scripts\python.exe -m tatemono_map.ingest.ulucks_smartlink_phase_a --html tests/fixtures/ulucks/smartlink_phase_a_page_1.html tests/fixtures/ulucks/smartlink_phase_a_page_2.html --out-csv data/ulucks_phase_a_summary.csv --out-json data/ulucks_phase_a_summary.json
+```
+
+### トラブルシュート
+
+- `pytest` not recognized
+  - `pytest` を直接実行せず、`& .\.venv\Scripts\python.exe -m pytest -q tests/test_ulucks_smartlink_phase_a.py` を使用。
+- `ModuleNotFoundError: No module named 'selectolax'`
+  - `& .\.venv\Scripts\python.exe -m pip install -r requirements.txt` を再実行。
