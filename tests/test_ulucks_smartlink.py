@@ -152,6 +152,25 @@ def test_extract_listings_from_smartlink_page_fixture():
     assert row["address"] == "福岡県北九州市小倉北区1-2-3"
 
 
+def test_extract_listings_from_smartlink_page_prefers_container_row_fixture():
+    fixture = Path(__file__).resolve().parent / "fixtures" / "smartlink_listing_table.html"
+    html = fixture.read_text(encoding="utf-8")
+
+    extracted = ulucks_smartlink._extract_listings_from_smartlink_page(  # noqa: SLF001
+        "https://example.com/view/smartlink?link_id=abc&mail=test%40example.com",
+        html,
+    )
+
+    detail_url = "https://example.com/view/smartview/xyz001"
+    assert detail_url in extracted
+    row = extracted[detail_url]
+    assert row["rent_yen"] == 58000
+    assert row["maint_yen"] == 2000
+    assert row["area_sqm"] == 34.5
+    assert row["layout"] == "1LDK"
+    assert row["address"] == "福岡県北九州市小倉北区浅野1-2-3"
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
@@ -164,6 +183,53 @@ def test_extract_listings_from_smartlink_page_fixture():
 )
 def test_parse_money_man_unit(value: str, expected: int | None):
     assert ulucks_smartlink._parse_money(value) == expected  # noqa: SLF001
+
+
+def test_ingest_smartlink_uses_listing_hints_when_detail_missing_fields(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    db_path = tmp_path / "test.sqlite3"
+    source_url = "https://example.com/view/smartlink?link_id=abc&mail=test%40example.com"
+    list_html = (Path(__file__).resolve().parent / "fixtures" / "smartlink_listing_table.html").read_text(encoding="utf-8")
+    detail_html = """
+    <html><head><title>サンプル物件</title></head><body>
+      <div>建物名: サンプル物件</div>
+    </body></html>
+    """
+
+    def fake_fetch(url: str) -> str:
+        if "smartview" in url:
+            return detail_html
+        return list_html
+
+    monkeypatch.setattr(ulucks_smartlink, "_fetch_url", fake_fetch)
+
+    ulucks_smartlink.ingest_ulucks_smartlink(
+        source_url,
+        limit=10,
+        db_path=db_path,
+    )
+
+    conn = ulucks_smartlink.sqlite3.connect(str(db_path))
+    conn.row_factory = ulucks_smartlink.sqlite3.Row
+    try:
+        row = conn.execute("SELECT rent_yen, area_sqm, layout, address FROM listings").fetchone()
+        assert row is not None
+        assert row["rent_yen"] == 58000
+        assert row["area_sqm"] == 34.5
+        assert row["layout"] == "1LDK"
+        assert row["address"] == "福岡県北九州市小倉北区浅野1-2-3"
+
+        summary = conn.execute(
+            "SELECT address, rent_min, rent_max, area_min, area_max, layout_types_json FROM building_summaries"
+        ).fetchone()
+        assert summary is not None
+        assert summary["address"] == "福岡県北九州市小倉北区浅野1-2-3"
+        assert summary["rent_min"] == 58000
+        assert summary["rent_max"] == 58000
+        assert summary["area_min"] == 34.5
+        assert summary["area_max"] == 34.5
+        assert "1LDK" in summary["layout_types_json"]
+    finally:
+        conn.close()
 
 
 def test_upsert_listing_does_not_overwrite_existing_values_with_empty_or_null(tmp_path: Path):
