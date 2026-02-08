@@ -52,7 +52,7 @@
 - 既知の警告：Pydantic/FastAPI の deprecation warning は「動作影響なし、後でまとめて対応」でOK
 
 ## ローカル検証（pytest → build → dist確認）
-- `pytest`
+- `python -m pytest`
 - `python -m tatemono_map.render.build --output-dir dist`
 - `ls dist dist\\b`
 
