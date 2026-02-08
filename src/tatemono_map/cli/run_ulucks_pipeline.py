@@ -5,6 +5,7 @@ import os
 
 from tatemono_map.ingest.ulucks_smartlink import run as ingest_run
 from tatemono_map.normalize.building_summaries import rebuild
+from tatemono_map.parse.smartlink_page import parse_and_upsert
 from tatemono_map.render.build import build_dist
 
 
@@ -17,6 +18,7 @@ def main() -> None:
     args = parser.parse_args()
 
     ingest_run(args.url, args.db_path, max_items=args.max_items)
+    parse_and_upsert(args.db_path)
     rebuild(args.db_path)
     build_dist(args.db_path, args.output_dir)
     print("pipeline completed")

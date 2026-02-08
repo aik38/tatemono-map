@@ -1,26 +1,19 @@
 from __future__ import annotations
 
 import argparse
-import re
-from datetime import datetime, timezone
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import requests
 from selectolax.parser import HTMLParser
 
-from tatemono_map.db.repo import ListingRecord, connect, insert_raw_source, upsert_listing
-from tatemono_map.parse.ulucks_smartview import parse_smartview_html
+from tatemono_map.db.repo import connect, insert_raw_source
 
 
-def collect_smartview_links(smartlink_html: str, base_url: str) -> list[str]:
-    tree = HTMLParser(smartlink_html)
-    links: list[str] = []
-    for a in tree.css('a[href*="/view/smartview/"]'):
-        href = a.attributes.get("href", "")
-        full = urljoin(base_url, href)
-        if full not in links:
-            links.append(full)
-    return links
+def _with_page(url: str, page: int) -> str:
+    parsed = urlparse(url)
+    qs = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    qs["page"] = str(page)
+    return urlunparse(parsed._replace(query=urlencode(qs)))
 
 
 def fetch_text(url: str, timeout: float = 20.0) -> str:
@@ -29,39 +22,34 @@ def fetch_text(url: str, timeout: float = 20.0) -> str:
     return r.text
 
 
+def _has_listing_cards(html: str) -> bool:
+    tree = HTMLParser(html)
+    if tree.css("article.property-card"):
+        return True
+    return bool(tree.css('dt:contains("所在地")') or tree.css('th:contains("所在地")'))
+
+
 def run(url: str, db_path: str, max_items: int = 200) -> int:
     conn = connect(db_path)
-    fetched_at = datetime.now(timezone.utc).isoformat()
+    seen_bodies: set[str] = set()
+    saved = 0
 
-    smartlink_html = fetch_text(url)
-    insert_raw_source(conn, "ulucks", "smartlink", url, smartlink_html)
-    links = collect_smartview_links(smartlink_html, url)
-    if not links:
-        if re.search(r"flash|error", smartlink_html, re.IGNORECASE):
-            raise RuntimeError("smartlink error page and no smartview links found")
-        raise RuntimeError("no smartview links found")
+    for page in range(1, max_items + 1):
+        page_url = _with_page(url, page)
+        html = fetch_text(page_url)
+        body_sig = html.strip()
+        if body_sig in seen_bodies:
+            break
+        seen_bodies.add(body_sig)
 
-    count = 0
-    for link in links[:max_items]:
-        html = fetch_text(link)
-        insert_raw_source(conn, "ulucks", "smartview", link, html)
-        parsed = parse_smartview_html(html, fetched_at=fetched_at)
-        upsert_listing(
-            conn,
-            ListingRecord(
-                name=parsed.name,
-                address=parsed.address,
-                rent_yen=parsed.rent_yen,
-                area_sqm=parsed.area_sqm,
-                layout=parsed.layout,
-                updated_at=parsed.updated_at,
-                source_kind="ulucks_smartview",
-                source_url=link,
-            ),
-        )
-        count += 1
+        if not _has_listing_cards(html):
+            break
+
+        insert_raw_source(conn, "ulucks", "smartlink_page", page_url, html)
+        saved += 1
+
     conn.close()
-    return count
+    return saved
 
 
 def main() -> None:
@@ -71,7 +59,7 @@ def main() -> None:
     parser.add_argument("--max-items", type=int, default=200)
     args = parser.parse_args()
     n = run(args.url, args.db_path, args.max_items)
-    print(f"ingested listings: {n}")
+    print(f"saved smartlink pages: {n}")
 
 
 if __name__ == "__main__":

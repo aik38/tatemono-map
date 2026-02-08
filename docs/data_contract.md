@@ -2,7 +2,7 @@
 
 ## 取り込み元
 - Gmailで届く「最新空室リンクURL」（承諾済みデータのみ）
-- Ulucks smartlink / smartview の raw HTML（raw_sources に保存）
+- Ulucks smartlink_page の raw HTML（raw_sources に保存）
 
 ## 抽出する最小項目（PoC）
 - 建物名（あれば）

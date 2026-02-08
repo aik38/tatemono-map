@@ -5,6 +5,8 @@
 ---
 
 ## Quick Start（Windows / PowerShell）
+> This project intentionally does NOT use detail pages (smartview).
+
 この章を **正本** とし、次の2手順だけを標準運用とします。どちらも実体パスは **`$env:USERPROFILE\tatemono-map` 固定** です。
 
 - 前提: リポジトリ配置は **`$env:USERPROFILE\tatemono-map` に固定**
@@ -284,8 +286,8 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 smartlink 一覧ページだけを解析して建物サマリを作る手順は `docs/ulucks_phase_a.md` を参照してください。
 
-- smartview（個別ページ）には遷移しません。
-- smartlink には Google Maps リンクが通常含まれず、必要なら Phase B（smartview）で扱います。
+- detail page には遷移しません（一覧ページのみ使用）。
+- smartlink 一覧ページのみをデータソースとして扱います。
 - `mail`・TEL/FAX・担当者などの機微情報はログ/出力に含めない運用です。
 
 ### PowerShell one-shot（.venv の python を明示）
