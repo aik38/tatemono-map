@@ -9,7 +9,13 @@ from tatemono_map.util.text import normalize_text
 
 def rebuild(db_path: str) -> int:
     conn = connect(db_path)
-    rows = conn.execute("SELECT * FROM listings ORDER BY id DESC").fetchall()
+    rows = conn.execute(
+        """
+        SELECT building_key, name, address, rent_yen, area_sqm, layout, updated_at
+        FROM listings
+        ORDER BY id DESC
+        """
+    ).fetchall()
     grouped: dict[str, list] = {}
     for row in rows:
         grouped.setdefault(row["building_key"], []).append(row)

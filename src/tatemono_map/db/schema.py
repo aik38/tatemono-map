@@ -119,9 +119,12 @@ def ensure_schema(db_path: str | Path) -> Path:
             if not info_rows:
                 raise SchemaMismatchError(f"Missing required table: {table.name}")
             columns = tuple(row["name"] for row in info_rows)
-            if columns != table.columns:
+            expected = set(table.columns)
+            actual = set(columns)
+            if not expected.issubset(actual):
+                missing = tuple(column for column in table.columns if column not in actual)
                 raise SchemaMismatchError(
-                    f"Schema mismatch on {table.name}. expected={table.columns} actual={columns}"
+                    f"Schema mismatch on {table.name}. missing_required={missing} actual={columns}"
                 )
     return path
 

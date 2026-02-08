@@ -10,5 +10,5 @@ def test_raw_sources_uses_content_column_only():
 
 
 def test_no_raw_html_reference_in_repo():
-    result = subprocess.run(["git", "grep", "-n", "raw_html"], capture_output=True, text=True)
+    result = subprocess.run(["git", "grep", "-n", "raw_html", "--", "src", "scripts", "templates"], capture_output=True, text=True)
     assert result.returncode == 1, result.stdout
