@@ -20,7 +20,16 @@ def build_dist(db_path: str, output_dir: str) -> None:
     index_tpl = env.get_template("index.html.j2")
     building_tpl = env.get_template("building.html.j2")
 
-    buildings = conn.execute("SELECT * FROM building_summaries ORDER BY updated_at DESC").fetchall()
+    buildings = conn.execute(
+        """
+        SELECT
+            building_key, name, raw_name, address,
+            rent_yen_min, rent_yen_max, area_sqm_min, area_sqm_max,
+            layout_types_json, vacancy_count, last_updated, updated_at
+        FROM building_summaries
+        ORDER BY updated_at DESC
+        """
+    ).fetchall()
     building_list = []
     for row in buildings:
         building = dict(row)
