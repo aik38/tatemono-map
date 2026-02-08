@@ -19,3 +19,24 @@ def test_parse_smartlink_page_creates_listings(tmp_path):
     count = conn.execute("SELECT COUNT(*) AS c FROM listings").fetchone()["c"]
     conn.close()
     assert count >= 1
+
+
+def test_parse_smartlink_page_accepts_bytes_content(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    html = Path("tests/fixtures/ulucks/smartlink_phase_a_page_1.html").read_bytes()
+
+    conn = connect(db)
+    conn.execute(
+        "INSERT INTO raw_sources(provider, source_kind, source_url, content) VALUES(?, ?, ?, ?)",
+        ("ulucks", "smartlink_page", "https://example.test/smartlink?page=1", html),
+    )
+    conn.commit()
+    conn.close()
+
+    parsed = parse_and_upsert(str(db))
+    assert parsed >= 1
+
+    conn = connect(db)
+    count = conn.execute("SELECT COUNT(*) AS c FROM listings").fetchone()["c"]
+    conn.close()
+    assert count >= 1
