@@ -133,6 +133,39 @@ def test_extract_listing_fields_from_smartview_fixtures(fixture_name: str, expec
     assert extracted["maint_yen"] == expected["maint_yen"]
 
 
+def test_extract_listings_from_smartlink_page_fixture():
+    fixture = Path(__file__).resolve().parent / "fixtures" / "smartlink_listing_snippet.html"
+    html = fixture.read_text(encoding="utf-8")
+
+    extracted = ulucks_smartlink._extract_listings_from_smartlink_page(  # noqa: SLF001
+        "https://example.com/view/smartlink?link_id=abc&mail=test%40example.com",
+        html,
+    )
+
+    detail_url = "https://example.com/view/smartview/abc123"
+    assert detail_url in extracted
+    row = extracted[detail_url]
+    assert row["rent_yen"] == 55000
+    assert row["maint_yen"] == 4000
+    assert row["area_sqm"] == 50.0
+    assert row["layout"] == "2LDK"
+    assert row["address"] == "福岡県北九州市小倉北区1-2-3"
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("5.5万", 55000),
+        ("5.1万", 51000),
+        ("0.4万", 4000),
+        ("0万", 0),
+        ("—", None),
+    ],
+)
+def test_parse_money_man_unit(value: str, expected: int | None):
+    assert ulucks_smartlink._parse_money(value) == expected  # noqa: SLF001
+
+
 def test_upsert_listing_does_not_overwrite_existing_values_with_empty_or_null(tmp_path: Path):
     db_path = tmp_path / "listings.sqlite3"
     conn = ulucks_smartlink.sqlite3.connect(str(db_path))
