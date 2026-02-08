@@ -5,7 +5,9 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterator
 
+from tatemono_map.db.schema import ensure_schema, normalize_db_path
 from tatemono_map.util.text import normalize_text
 
 
@@ -36,74 +38,31 @@ def _listing_key(source_url: str, room_label: str | None) -> str:
 
 
 def connect(db_path: str | Path) -> sqlite3.Connection:
-    path = Path(db_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
+    path = ensure_schema(db_path)
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    _ensure_schema(conn)
     return conn
 
 
-def _ensure_schema(conn: sqlite3.Connection) -> None:
+def resolve_db_path(db_path: str | Path) -> Path:
+    return normalize_db_path(db_path)
+
+
+def insert_raw_source(conn: sqlite3.Connection, provider: str, source_kind: str, source_url: str, content: str) -> None:
     conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS raw_sources (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            provider TEXT NOT NULL,
-            source_kind TEXT NOT NULL,
-            source_url TEXT NOT NULL,
-            raw_html TEXT NOT NULL,
-            fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS listings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            listing_key TEXT UNIQUE,
-            building_key TEXT,
-            name TEXT,
-            address TEXT,
-            room_label TEXT,
-            rent_yen INTEGER,
-            maint_yen INTEGER,
-            layout TEXT,
-            area_sqm REAL,
-            updated_at TEXT,
-            source_kind TEXT,
-            source_url TEXT,
-            fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS building_summaries (
-            building_key TEXT PRIMARY KEY,
-            name TEXT,
-            raw_name TEXT,
-            address TEXT,
-            rent_yen_min INTEGER,
-            rent_yen_max INTEGER,
-            area_sqm_min REAL,
-            area_sqm_max REAL,
-            layout_types_json TEXT,
-            vacancy_count INTEGER,
-            last_updated TEXT,
-            updated_at TEXT
-        )
-        """
+        "INSERT INTO raw_sources(provider, source_kind, source_url, content) VALUES(?, ?, ?, ?)",
+        (provider, source_kind, source_url, content),
     )
     conn.commit()
 
 
-def insert_raw_source(conn: sqlite3.Connection, provider: str, source_kind: str, source_url: str, raw_html: str) -> None:
-    conn.execute(
-        "INSERT INTO raw_sources(provider, source_kind, source_url, raw_html) VALUES(?, ?, ?, ?)",
-        (provider, source_kind, source_url, raw_html),
-    )
-    conn.commit()
+def iter_raw_sources(conn: sqlite3.Connection, source_kind: str) -> Iterator[sqlite3.Row]:
+    rows = conn.execute(
+        "SELECT source_url, content, fetched_at FROM raw_sources WHERE source_kind=? ORDER BY id ASC",
+        (source_kind,),
+    ).fetchall()
+    for row in rows:
+        yield row
 
 
 def upsert_listing(conn: sqlite3.Connection, record: ListingRecord) -> None:

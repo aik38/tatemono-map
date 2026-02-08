@@ -4,7 +4,7 @@ import re
 
 from selectolax.parser import HTMLParser
 
-from tatemono_map.db.repo import ListingRecord, connect, upsert_listing
+from tatemono_map.db.repo import ListingRecord, connect, iter_raw_sources, upsert_listing
 from tatemono_map.util.area import parse_area_sqm
 from tatemono_map.util.money import parse_rent_yen
 from tatemono_map.util.text import normalize_text
@@ -47,15 +47,16 @@ def _guess_name_and_room(card, room_label: str | None) -> tuple[str, str | None]
 
 def parse_and_upsert(db_path: str) -> int:
     conn = connect(db_path)
-    rows = conn.execute(
-        "SELECT source_url, raw_html, fetched_at FROM raw_sources WHERE source_kind='smartlink_page' ORDER BY id ASC"
-    ).fetchall()
-
     count = 0
-    for row in rows:
+    source_rows = list(iter_raw_sources(conn, "smartlink_page"))
+    if not source_rows:
+        conn.close()
+        raise RuntimeError("No smartlink_page rows found in raw_sources")
+
+    for row in source_rows:
         source_url = row["source_url"]
         fetched_at = row["fetched_at"]
-        tree = HTMLParser(row["raw_html"])
+        tree = HTMLParser(row["content"])
         cards = tree.css("article.property-card") or tree.css("article, .property-card, .result-item, li")
         for card in cards:
             pairs = _extract_pairs(card)
@@ -84,4 +85,6 @@ def parse_and_upsert(db_path: str) -> int:
             count += 1
 
     conn.close()
+    if count <= 0:
+        raise RuntimeError("smartlink_page parse produced 0 listings")
     return count

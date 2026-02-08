@@ -4,6 +4,21 @@
 
 ---
 
+## 正本（PowerShell 一発手順）
+以下を正本手順とします。`data/tatemono_map.sqlite3` を唯一のSQLite DBとして利用します。
+
+```powershell
+$env:SQLITE_DB_PATH = "data/tatemono_map.sqlite3"
+python -m tatemono_map.cli.ulucks_run --url '<smartlink>' --db $env:SQLITE_DB_PATH --output dist
+```
+
+- 内部で `ingest -> parse -> normalize -> build -> audit` を順次実行します。
+- 監査だけ実行したい場合は以下を使います。
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/ps/doctor.ps1 -DbPath $env:SQLITE_DB_PATH
+```
+
 ## Quick Start（Windows / PowerShell）
 > This project intentionally does NOT use detail pages (smartview).
 
