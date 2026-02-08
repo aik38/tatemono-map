@@ -543,7 +543,7 @@ def _sanitize_public_field(value: str | None) -> str | None:
     if value is None:
         return None
     normalized = value.strip()
-    if not normalized:
+    if not normalized or normalized in {"-", "—", "―", "ｰ", "－"}:
         return None
     for pattern in FORBIDDEN_PUBLIC_PATTERNS:
         if pattern.search(normalized):
@@ -668,7 +668,7 @@ def _parse_area(value: str) -> float | None:
     cleaned = unicodedata.normalize("NFKC", value).replace(",", "").strip()
     if not cleaned or cleaned in {"-", "—", "―", "ｰ"}:
         return None
-    match = re.search(r"([0-9]+(?:\.[0-9]+)?)", cleaned)
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2|m\^2)?", cleaned, flags=re.IGNORECASE)
     if match:
         return float(match.group(1))
     return None
@@ -712,7 +712,7 @@ def _extract_listing_fields(source_url: str, html_text: str) -> dict[str, Any]:
     rent_raw = _pick_labeled_value(labeled_values, ["家賃", "賃料"])
     fee_raw = _pick_labeled_value(labeled_values, ["共益費", "管理費"])
     area_raw = _pick_labeled_value(labeled_values, ["面積", "専有面積"])
-    layout = _pick_labeled_value(labeled_values, ["間取り"])
+    layout = _pick_labeled_value(labeled_values, ["間取り", "間取", "madori"])
     move_in = _pick_labeled_value(labeled_values, ["入居可能日", "入居時期"])
     lat, lon = _parse_lat_lon(lines)
 
@@ -759,12 +759,16 @@ def _extract_listing_from_text(source_url: str, text: str) -> dict[str, Any]:
         rent_raw = rent_match.group(1) if rent_match else None
 
     fee_raw = _find_labeled_value(["共益費", "管理費", "敷金", "礼金"])
+    if not fee_raw:
+        man_values = re.findall(r"([0-9]+(?:\.[0-9]+)?\s*万(?:円)?)", joined)
+        if len(man_values) >= 2:
+            fee_raw = man_values[1]
     area_raw = _find_labeled_value(["面積", "専有面積"])
     if not area_raw:
-        area_match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*㎡", joined)
+        area_match = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2|m\^2)", joined, flags=re.IGNORECASE)
         area_raw = area_match.group(0) if area_match else None
 
-    layout = _find_labeled_value(["間取り"])
+    layout = _find_labeled_value(["間取り", "間取", "madori"])
     if not layout:
         layout_match = re.search(r"\b([1-9][0-9]?(?:R|K|DK|LDK|SLDK|SK|SDK)+)\b", joined)
         layout = layout_match.group(1) if layout_match else None
@@ -788,12 +792,12 @@ def _extract_listing_from_text(source_url: str, text: str) -> dict[str, Any]:
 
 
 def _extract_listings_from_smartlink_page(page_url: str, html_text: str) -> dict[str, dict[str, Any]]:
+    tag_intervals = _build_tag_intervals(html_text)
     listings: dict[str, dict[str, Any]] = {}
     for match in re.finditer(r"<a[^>]+href=['\"]([^'\"]*smartview[^'\"]*)['\"][^>]*>", html_text, flags=re.IGNORECASE):
         detail_url = urllib.parse.urljoin(page_url, html.unescape(match.group(1)).strip())
-        start = max(0, match.start() - 1200)
-        end = min(len(html_text), match.end() + 1200)
-        snippet = html_text[start:end]
+        container_html = _extract_anchor_container_html(html_text, match.start(), tag_intervals)
+        snippet = container_html or html_text[max(0, match.start() - 1200) : min(len(html_text), match.end() + 1200)]
         snippet_text = re.sub(r"<br\s*/?>", "\n", snippet, flags=re.IGNORECASE)
         snippet_text = re.sub(r"<[^>]+>", "\n", html.unescape(snippet_text))
         extracted = _extract_listing_from_text(detail_url, snippet_text)
@@ -801,6 +805,46 @@ def _extract_listings_from_smartlink_page(page_url: str, html_text: str) -> dict
             continue
         listings[detail_url] = extracted
     return listings
+
+
+def _build_tag_intervals(html_text: str) -> list[tuple[str, int, int]]:
+    tag_pattern = re.compile(r"<(/?)([a-zA-Z0-9]+)([^>]*)>", flags=re.DOTALL)
+    stack: list[tuple[str, int]] = []
+    intervals: list[tuple[str, int, int]] = []
+    for match in tag_pattern.finditer(html_text):
+        is_close = bool(match.group(1))
+        tag = match.group(2).lower()
+        attrs = match.group(3) or ""
+        is_self_closing = attrs.strip().endswith("/")
+        if is_close:
+            for i in range(len(stack) - 1, -1, -1):
+                open_tag, start_pos = stack[i]
+                if open_tag != tag:
+                    continue
+                intervals.append((open_tag, start_pos, match.end()))
+                del stack[i]
+                break
+            continue
+        if not is_self_closing and tag not in {"br", "img", "input", "meta", "link", "hr"}:
+            stack.append((tag, match.start()))
+    return intervals
+
+
+def _extract_anchor_container_html(
+    html_text: str,
+    anchor_pos: int,
+    tag_intervals: list[tuple[str, int, int]],
+) -> str | None:
+    preferred_tags = {"tr", "li", "article", "section", "div"}
+    matches = [
+        (tag, start, end)
+        for tag, start, end in tag_intervals
+        if tag in preferred_tags and start <= anchor_pos < end
+    ]
+    if not matches:
+        return None
+    _tag, start, end = min(matches, key=lambda row: row[2] - row[1])
+    return html_text[start:end]
 
 
 def _dump_failed_detail_html(debug_dump_html: str | None, detail_url: str, detail_html: str) -> None:
@@ -836,15 +880,15 @@ def _upsert_listing(conn: sqlite3.Connection, listing: dict[str, Any]) -> None:
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(listing_key) DO UPDATE SET
             building_key=COALESCE(NULLIF(excluded.building_key, ''), listings.building_key),
-            name=COALESCE(NULLIF(excluded.name, ''), listings.name),
-            room_label=COALESCE(NULLIF(excluded.room_label, ''), listings.room_label),
-            address=COALESCE(NULLIF(excluded.address, ''), listings.address),
+            name=COALESCE(NULLIF(NULLIF(NULLIF(NULLIF(TRIM(excluded.name), ''), '-'), '—'), '－'), listings.name),
+            room_label=COALESCE(NULLIF(NULLIF(NULLIF(NULLIF(TRIM(excluded.room_label), ''), '-'), '—'), '－'), listings.room_label),
+            address=COALESCE(NULLIF(NULLIF(NULLIF(NULLIF(TRIM(excluded.address), ''), '-'), '—'), '－'), listings.address),
             rent_yen=COALESCE(excluded.rent_yen, listings.rent_yen),
             maint_yen=COALESCE(excluded.maint_yen, listings.maint_yen),
             fee_yen=COALESCE(excluded.fee_yen, listings.fee_yen),
             area_sqm=COALESCE(excluded.area_sqm, listings.area_sqm),
-            layout=COALESCE(NULLIF(excluded.layout, ''), listings.layout),
-            move_in=COALESCE(NULLIF(excluded.move_in, ''), listings.move_in),
+            layout=COALESCE(NULLIF(NULLIF(NULLIF(NULLIF(TRIM(excluded.layout), ''), '-'), '—'), '－'), listings.layout),
+            move_in=COALESCE(NULLIF(NULLIF(NULLIF(NULLIF(TRIM(excluded.move_in), ''), '-'), '—'), '－'), listings.move_in),
             lat=COALESCE(excluded.lat, listings.lat),
             lon=COALESCE(excluded.lon, listings.lon),
             source_url=COALESCE(NULLIF(excluded.source_url, ''), listings.source_url),
