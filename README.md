@@ -279,3 +279,15 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scr
 ```powershell
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
+
+## Ulucks Phase A（smartlink 一覧のみ）
+
+smartlink 一覧ページだけを解析して建物サマリを作る手順は `docs/ulucks_phase_a.md` を参照してください。
+
+- smartview（個別ページ）には遷移しません。
+- smartlink には Google Maps リンクが通常含まれず、必要なら Phase B（smartview）で扱います。
+- `mail`・TEL/FAX・担当者などの機微情報はログ/出力に含めない運用です。
+
+```powershell
+python -m tatemono_map.ingest.ulucks_smartlink_phase_a --html tests/fixtures/ulucks/smartlink_phase_a_page_1.html tests/fixtures/ulucks/smartlink_phase_a_page_2.html --out-csv data/ulucks_phase_a_summary.csv
+```
