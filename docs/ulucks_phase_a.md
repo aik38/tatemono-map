@@ -1,9 +1,9 @@
 # Ulucks Phase A（smartlink 一覧のみ）
 
 ## 目的
-Phase A は **smartlink 一覧ページのみ** を巡回・解析して、建物サマリ（建物単位の空室集計）を作成します。`/view/smartview/<id>/` のリンクIDは抽出しますが、smartview 個別ページには遷移しません。
+Phase A は **smartlink 一覧ページのみ** を巡回・解析して、建物サマリ（建物単位の空室集計）を作成します。`/view/detail page/<id>/` のリンクIDは抽出しますが、detail page 個別ページには遷移しません。
 
-> 補足: 検証済み smartlink HTML には `google.com/maps` が含まれず、Google Maps リンクは smartview 側に存在する可能性が高いです。
+> 補足: 検証済み smartlink HTML には `google.com/maps` が含まれず、Google Maps リンクは detail page 側に存在する可能性が高いです。
 
 ## CLI
 
@@ -28,7 +28,7 @@ python -m tatemono_map.ingest.ulucks_smartlink_phase_a \
 ```
 
 ## 抽出項目（カード単位）
-- `smartview_id`
+- `detail page_id`
 - `building_title_raw`
 - `building_name`（末尾の号室/室/階を正規化除去）
 - `address`（所在地）
