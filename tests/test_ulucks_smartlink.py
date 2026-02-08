@@ -29,6 +29,15 @@ def test_detects_invalid_smartlink_message():
     assert "ログイン状態で smartlink を再生成" in msg
 
 
+def test_detects_generic_error_keywords_in_html():
+    html = "<html><body><div>認証エラーが発生しました</div></body></html>"
+
+    with pytest.raises(RuntimeError):
+        ulucks_smartlink._validate_smartlink_html_or_raise(  # noqa: SLF001
+            html, "https://example.com/list"
+        )
+
+
 def test_fail_flag_errors_when_no_listing_upsert(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path = tmp_path / "test.sqlite3"
 
@@ -369,6 +378,13 @@ def test_normalize_smartlink_url_accepts_paged_url_and_normalizes_mail():
     assert "mail=u5.inc.orporated.info%40gmail.com" in normalized
 
 
+def test_normalize_smartlink_paging_url_supplements_link_id_and_mail():
+    start_url = "https://example.com/view/smartlink/?link_id=abc&mail=test%40example.com&sort=desc"
+    candidate = "https://example.com/view/smartlink/page:2/"
+    normalized = ulucks_smartlink._normalize_smartlink_paging_url(candidate, start_url)  # noqa: SLF001
+    assert normalized == "https://example.com/view/smartlink/page:2/?link_id=abc&mail=test%40example.com&sort=desc"
+
+
 def test_ingest_smartlink_crawls_all_pages_from_paged_input(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     db_path = tmp_path / "test.sqlite3"
     fixture_dir = Path(__file__).resolve().parent / "fixtures"
@@ -415,3 +431,62 @@ def test_ingest_smartlink_crawls_all_pages_from_paged_input(tmp_path: Path, monk
         assert listing_count == 5
     finally:
         conn.close()
+
+
+def test_ingest_smartlink_fetches_page1_page2_pagelast_same_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    db_path = tmp_path / "test.sqlite3"
+    source_url = "https://example.com/view/smartlink/?link_id=abc&mail=test%40example.com"
+
+    def _list_page(start: int, next_href: str | None) -> str:
+        anchors = "".join(
+            f"<a href='https://example.com/view/smartview/{i}'>d{i}</a>"
+            for i in range(start, start + 12)
+        )
+        pager = f"<a rel='next' href='{next_href}'>next</a>" if next_href else ""
+        return f"<html><body>{anchors}{pager}</body></html>"
+
+    list_1 = _list_page(1, "/view/smartlink/page:2/") + "<a href='/view/smartlink/page:36/'>last</a>"
+    list_2 = _list_page(101, "/view/smartlink/page:36/")
+    list_36 = _list_page(201, None)
+    detail = """
+    <html><head><title>101: テストマンション</title></head><body>
+      <div>建物名: 101: テストマンション</div>
+      <div>住所: 東京都新宿区1-2-3</div>
+      <div>賃料: 5.2万円</div>
+      <div>面積: 20.1㎡</div>
+    </body></html>
+    """
+
+    requested_urls: list[str] = []
+
+    def fake_fetch(url: str) -> str:
+        requested_urls.append(url)
+        if url == source_url:
+            return list_1
+        if url == "https://example.com/view/smartlink/page:2/?link_id=abc&mail=test%40example.com":
+            return list_2
+        if url == "https://example.com/view/smartlink/page:36/?link_id=abc&mail=test%40example.com":
+            return list_36
+        if "smartview" in url:
+            return detail
+        raise AssertionError(url)
+
+    monkeypatch.setattr(ulucks_smartlink, "_fetch_url", fake_fetch)
+
+    ulucks_smartlink.ingest_ulucks_smartlink(
+        source_url,
+        limit=30,
+        db_path=db_path,
+        fail_when_empty=True,
+        max_pages=36,
+    )
+
+    conn = ulucks_smartlink.sqlite3.connect(str(db_path))
+    try:
+        listing_count = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
+        assert listing_count >= 10
+    finally:
+        conn.close()
+
+    assert "https://example.com/view/smartlink/page:2/?link_id=abc&mail=test%40example.com" in requested_urls
+    assert "https://example.com/view/smartlink/page:36/?link_id=abc&mail=test%40example.com" in requested_urls

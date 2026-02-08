@@ -12,11 +12,12 @@ import time
 import unicodedata
 import urllib.error
 import urllib.parse
-import urllib.request
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
+
+import requests
 
 
 FORBIDDEN_PUBLIC_PATTERNS = [
@@ -35,6 +36,11 @@ SMARTLINK_ERROR_HINT = (
     " ブラウザで当該 URL を開いてリストが表示できるか確認してください。"
     " 表示できない場合は、ログイン状態で smartlink を再生成してください。"
 )
+
+SMARTLINK_ERROR_KEYWORDS = ("期限", "無効", "ログイン", "認証", "エラー")
+
+_ACTIVE_HTTP_SESSION: requests.Session | None = None
+_LAST_FETCH_META: dict[str, Any] | None = None
 
 
 class _LinkExtractor(HTMLParser):
@@ -226,14 +232,39 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
             conn.execute(f"ALTER TABLE listings ADD COLUMN {column} {column_type}")
 
 
-def _fetch_url(url: str) -> str:
-    request = urllib.request.Request(
+def _fetch_url_with_meta(
+    url: str,
+    *,
+    session: requests.Session | None = None,
+) -> tuple[str, dict[str, Any]]:
+    client = session or _ACTIVE_HTTP_SESSION or requests.Session()
+    response = client.get(
         url,
         headers={"User-Agent": "tatemono-map/ulucks-poc"},
+        timeout=30,
+        allow_redirects=True,
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        content = response.read()
-    return content.decode("utf-8", errors="replace")
+    response.raise_for_status()
+    meta = {
+        "status_code": response.status_code,
+        "location": response.headers.get("Location"),
+        "response_url": response.url,
+    }
+    return response.text, meta
+
+
+def _fetch_url(url: str) -> str:
+    global _LAST_FETCH_META
+    html_text, _meta = _fetch_url_with_meta(url)
+    _LAST_FETCH_META = _meta
+    return html_text
+
+
+def _consume_last_fetch_meta() -> dict[str, Any] | None:
+    global _LAST_FETCH_META
+    meta = _LAST_FETCH_META
+    _LAST_FETCH_META = None
+    return meta
 
 
 def _save_raw_source(
@@ -364,6 +395,38 @@ def _inherit_query_params(candidate_url: str, source_url: str) -> str:
     return urllib.parse.urlunparse(merged_parts)
 
 
+def _normalize_smartlink_paging_url(candidate_url: str, start_url: str) -> str:
+    candidate_parts = urllib.parse.urlparse(candidate_url)
+    candidate_query = urllib.parse.parse_qsl(candidate_parts.query, keep_blank_values=True)
+    source_parts = urllib.parse.urlparse(start_url)
+    source_query_pairs = urllib.parse.parse_qsl(source_parts.query, keep_blank_values=True)
+    source_query = urllib.parse.parse_qs(source_parts.query, keep_blank_values=True)
+
+    link_id = (source_query.get("link_id") or [""])[0].strip()
+    mail = _normalize_mail_param((source_query.get("mail") or [""])[0])
+    if not link_id or not mail:
+        return _inherit_query_params(candidate_url, start_url)
+
+    merged: list[tuple[str, str]] = list(candidate_query or source_query_pairs)
+    has_link_id = False
+    has_mail = False
+    for idx, (key, value) in enumerate(merged):
+        if key == "link_id":
+            has_link_id = True
+            merged[idx] = ("link_id", link_id)
+            continue
+        if key == "mail":
+            has_mail = True
+            merged[idx] = ("mail", mail)
+    if not has_link_id:
+        merged.append(("link_id", link_id))
+    if not has_mail:
+        merged.append(("mail", mail))
+
+    normalized = candidate_parts._replace(query=urllib.parse.urlencode(merged))
+    return urllib.parse.urlunparse(normalized)
+
+
 def _extract_next_page_url(base_url: str, html_text: str) -> str | None:
     current_page_match = re.search(r"/page:(\d+)", urllib.parse.urlparse(base_url).path, flags=re.IGNORECASE)
     current_page = int(current_page_match.group(1)) if current_page_match else 1
@@ -382,7 +445,7 @@ def _extract_next_page_url(base_url: str, html_text: str) -> str | None:
 
     next_numeric = sorted({(page, url) for page, url in numeric_candidates if page > current_page})
     if next_numeric:
-        return _inherit_query_params(next_numeric[0][1], base_url)
+        return _normalize_smartlink_paging_url(next_numeric[0][1], base_url)
 
     rel_next = re.search(
         r"<a[^>]*rel=[\"'][^\"']*next[^\"']*[\"'][^>]*href=[\"']([^\"']+)[\"'][^>]*>",
@@ -391,7 +454,7 @@ def _extract_next_page_url(base_url: str, html_text: str) -> str | None:
     )
     if rel_next:
         candidate = urllib.parse.urljoin(base_url, rel_next.group(1).strip())
-        return _inherit_query_params(candidate, base_url)
+        return _normalize_smartlink_paging_url(candidate, base_url)
 
     anchor_matches = re.findall(
         r"<a[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>",
@@ -404,7 +467,7 @@ def _extract_next_page_url(base_url: str, html_text: str) -> str | None:
         if label in next_labels:
             candidate = urllib.parse.urljoin(base_url, href.strip())
             if candidate and "smartview" not in candidate:
-                return _inherit_query_params(candidate, base_url)
+                return _normalize_smartlink_paging_url(candidate, base_url)
 
     return None
 
@@ -511,6 +574,10 @@ def _detect_smartlink_error_reason(html_text: str) -> str | None:
         if any(marker in normalized_text for marker in generic_error_text_markers):
             return "flash/error 領域にエラーメッセージ"
 
+    for keyword in SMARTLINK_ERROR_KEYWORDS:
+        if keyword in html_text or keyword.lower() in normalized_text:
+            return f"エラー語句検出: {keyword}"
+
     return None
 
 
@@ -527,10 +594,20 @@ def _validate_smartlink_html_or_raise_with_dump(
     html_text: str,
     source_url: str,
     debug_dump_html: str | None,
+    fetch_meta: dict[str, Any] | None = None,
 ) -> None:
     try:
         _validate_smartlink_html_or_raise(html_text, source_url)
     except RuntimeError as exc:
+        if fetch_meta:
+            preview = re.sub(r"\s+", " ", html_text).strip()[:200]
+            print(
+                "Smartlink validation failed:",
+                f"status={fetch_meta.get('status_code')}",
+                f"location={fetch_meta.get('location')}",
+                f"url={fetch_meta.get('response_url')}",
+                f"head200={preview}",
+            )
         if not debug_dump_html:
             raise
         dump_path = Path(debug_dump_html).expanduser().resolve()
@@ -1145,9 +1222,12 @@ def ingest_ulucks_smartlink(
     sleep_ms: int = 0,
     debug_dump_html: str | None = None,
 ) -> None:
+    global _ACTIVE_HTTP_SESSION
     _ensure_parent_dir(db_path)
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
+    session = requests.Session()
+    _ACTIVE_HTTP_SESSION = session
     try:
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("BEGIN IMMEDIATE")
@@ -1156,6 +1236,7 @@ def ingest_ulucks_smartlink(
         normalized_url = _normalize_smartlink_url(url)
         print(f"Normalized smartlink URL: {normalized_url}")
         smartlink_html = _fetch_url(normalized_url)
+        smartlink_meta = _consume_last_fetch_meta()
         print(f"Fetched smartlink bytes: {len(smartlink_html.encode('utf-8'))}")
         _save_raw_source(
             conn,
@@ -1164,7 +1245,12 @@ def ingest_ulucks_smartlink(
             source_url=normalized_url,
             content=smartlink_html,
         )
-        _validate_smartlink_html_or_raise_with_dump(smartlink_html, normalized_url, debug_dump_html)
+        _validate_smartlink_html_or_raise_with_dump(
+            smartlink_html,
+            normalized_url,
+            debug_dump_html,
+            fetch_meta=smartlink_meta,
+        )
 
         effective_url = normalized_url
         redirect_type: str | None = None
@@ -1180,6 +1266,7 @@ def ingest_ulucks_smartlink(
             effective_url = _normalize_smartlink_url(redirected_url)
             print(f"Detected redirect ({redirect_type}): {redirect_target} -> {effective_url}")
             smartlink_html = _fetch_url(effective_url)
+            smartlink_meta = _consume_last_fetch_meta()
             print(
                 f"Fetched effective smartlink bytes: {len(smartlink_html.encode('utf-8'))}"
             )
@@ -1190,7 +1277,12 @@ def ingest_ulucks_smartlink(
                 source_url=effective_url,
                 content=smartlink_html,
             )
-            _validate_smartlink_html_or_raise_with_dump(smartlink_html, effective_url, debug_dump_html)
+            _validate_smartlink_html_or_raise_with_dump(
+                smartlink_html,
+                effective_url,
+                debug_dump_html,
+                fetch_meta=smartlink_meta,
+            )
         else:
             print("No redirect detected in smartlink HTML.")
 
@@ -1216,8 +1308,14 @@ def ingest_ulucks_smartlink(
         while page <= target_pages and page_url not in visited_page_urls:
             visited_page_urls.add(page_url)
             try:
-                page_html = smartlink_html if page == 1 else _fetch_url(page_url)
-            except urllib.error.URLError:
+                if page == 1:
+                    page_html = smartlink_html
+                    page_meta = smartlink_meta
+                else:
+                    page_url = _normalize_smartlink_paging_url(page_url, normalized_url)
+                    page_html = _fetch_url(page_url)
+                    page_meta = _consume_last_fetch_meta()
+            except (urllib.error.URLError, requests.RequestException):
                 print(f"Failed fetching page:{page} -> {page_url}")
                 page += 1
                 continue
@@ -1229,7 +1327,12 @@ def ingest_ulucks_smartlink(
                 source_url=page_url,
                 content=page_html,
             )
-            _validate_smartlink_html_or_raise_with_dump(page_html, page_url, debug_dump_html)
+            _validate_smartlink_html_or_raise_with_dump(
+                page_html,
+                page_url,
+                debug_dump_html,
+                fetch_meta=page_meta,
+            )
 
             href_links = _extract_anchor_links(page_url, page_html)
             regex_links = _extract_regex_links(page_url, page_html)
@@ -1255,12 +1358,15 @@ def ingest_ulucks_smartlink(
                 break
             next_page_url = _extract_next_page_url(page_url, page_html)
             if next_page_url:
-                page_url = next_page_url
+                page_url = _normalize_smartlink_paging_url(next_page_url, normalized_url)
             else:
                 next_page = page + 1
                 if next_page > target_pages:
                     break
-                page_url = _build_smartlink_page_url(effective_url, next_page)
+                page_url = _normalize_smartlink_paging_url(
+                    _build_smartlink_page_url(effective_url, next_page),
+                    normalized_url,
+                )
             if sleep_ms > 0:
                 time.sleep(sleep_ms / 1000)
             page += 1
@@ -1279,7 +1385,7 @@ def ingest_ulucks_smartlink(
         for link in detail_urls:
             try:
                 detail_html = _fetch_url(link)
-            except urllib.error.URLError:
+            except (urllib.error.URLError, requests.RequestException):
                 continue
             fetched_details += 1
             _save_raw_source(
@@ -1333,6 +1439,8 @@ def ingest_ulucks_smartlink(
             pass
         raise
     finally:
+        _ACTIVE_HTTP_SESSION = None
+        session.close()
         conn.close()
 
 
