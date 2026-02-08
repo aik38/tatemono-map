@@ -104,7 +104,8 @@ def parse_and_upsert(db_path: str) -> int:
     for row in source_rows:
         source_url = row["source_url"]
         fetched_at = row["fetched_at"]
-        html = row["content"]
+        html_raw = row["content"]
+        html = html_raw.decode("utf-8", errors="ignore") if isinstance(html_raw, bytes) else str(html_raw)
         has_keywords = any(keyword in html for keyword in KEYWORD_HINTS)
         LOGGER.debug(
             "smartlink parse input: url=%s html_len=%d has_keywords=%s",
