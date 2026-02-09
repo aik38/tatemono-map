@@ -1,6 +1,10 @@
 # Runbook（運用）
 
 ## Smartlink 一発運用（推奨）
+## Smartlink URL取り扱い注意（重要）
+- smartlink URL は **opaque文字列** として扱い、parse/正規化/再構築をしない（`mail=%40` と `mail=@` の混在を壊さないため）。
+- 次ページは URL を組み立てず、ページ内ページネーションの `a[href]` を抽出して、その href をそのまま辿る。
+
 - リポジトリ実体は **`$env:USERPROFILE\tatemono-map` 固定**（OneDrive 配下は使用しない）。
 - 実行手順とコマンドは README の Quick Start を正本とする（A: build-only / B: ingest）。
 - Smartlink URL は PowerShell で壊れないよう **単一引用符** を使い、`mail=` は `%40` 形式で指定する。

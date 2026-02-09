@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from tatemono_map.db.repo import ListingRecord, connect, upsert_listing
 from tatemono_map.normalize.building_summaries import rebuild
 from tatemono_map.render.build import build_dist
@@ -9,7 +11,10 @@ def test_render_dist_outputs(tmp_path):
     db = tmp_path / "test.sqlite3"
     dist = tmp_path / "dist"
     conn = connect(db)
-    upsert_listing(conn, ListingRecord("Bマンション", "東京都B", 55000, 22.0, "1K", "2026-01-01", "ulucks", "u1"))
+    upsert_listing(
+        conn,
+        ListingRecord("Bマンション", "東京都B", 55000, 22.0, "1K", "2026-01-01", "ulucks", "u1", move_in_date="即入居"),
+    )
     conn.close()
     rebuild(str(db))
     build_dist(str(db), str(dist))
@@ -22,3 +27,18 @@ def test_render_dist_outputs(tmp_path):
     assert "Googleマップを開く" in page
     assert "号室" not in page
     assert "source_url" not in page
+
+
+def test_render_dist_fails_when_forbidden_text_exists(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("管理会社掲載マンション", "東京都B", 55000, 22.0, "1K", "2026-01-01", "ulucks", "u1"),
+    )
+    conn.close()
+    rebuild(str(db))
+
+    with pytest.raises(RuntimeError):
+        build_dist(str(db), str(dist))

@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import hashlib
-import sqlite3
+import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from pathlib import Path
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+from selectolax.parser import HTMLParser
 
 ERROR_MARKERS = (
     "このリストは存在しません",
@@ -15,6 +12,52 @@ ERROR_MARKERS = (
     "セッション",
 )
 VALID_MARKERS = ("家賃", "所在地", "間取り")
+ORIGIN_RE = re.compile(r"^(https?://[^/]+)")
+
+
+def _origin_of(url: str) -> str | None:
+    m = ORIGIN_RE.match(url)
+    return m.group(1) if m else None
+
+
+def _to_absolute_href(current_url: str, href: str) -> str | None:
+    value = href.strip()
+    if not value:
+        return None
+    if value.startswith("http://") or value.startswith("https://"):
+        return value
+    if value.startswith("//"):
+        if current_url.startswith("https://"):
+            return f"https:{value}"
+        if current_url.startswith("http://"):
+            return f"http:{value}"
+        return None
+    if value.startswith("/"):
+        origin = _origin_of(current_url)
+        if not origin:
+            return None
+        return f"{origin}{value}"
+    return None
+
+
+def _extract_pagination_hrefs(current_url: str, html: str) -> list[str]:
+    tree = HTMLParser(html)
+    hrefs: list[str] = []
+    seen: set[str] = set()
+    for anchor in tree.css("a[href]"):
+        raw_href = anchor.attributes.get("href") or ""
+        absolute = _to_absolute_href(current_url, raw_href)
+        if not absolute:
+            continue
+        if "/view/smartlink" not in absolute:
+            continue
+        if absolute == current_url:
+            continue
+        if absolute in seen:
+            continue
+        seen.add(absolute)
+        hrefs.append(absolute)
+    return hrefs
 
 
 @dataclass(frozen=True)
@@ -34,120 +77,36 @@ def is_valid_smartlink_html(content: str) -> tuple[bool, str]:
     return False, "missing_listing_markers"
 
 
-def _page_url(seed_url: str, page: int) -> str:
-    parsed = urlparse(seed_url)
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query["sort"] = "1"
-    query_str = urlencode(query)
-    path = f"/view/smartlink/page:{page}/sort:Rent.modified/direction:desc"
-    return urlunparse(parsed._replace(path=path, query=query_str))
-
-
-def _raw_sources_columns(conn: sqlite3.Connection) -> set[str]:
-    rows = conn.execute("PRAGMA table_info(raw_sources)").fetchall()
-    return {row[1] for row in rows}
-
-
-def upsert_raw_source(
-    conn: sqlite3.Connection,
-    provider: str,
-    source_kind: str,
-    source_url: str,
-    content: str,
-) -> None:
-    now = datetime.now(timezone.utc).isoformat()
-    columns = _raw_sources_columns(conn)
-    provider_col = "provider" if "provider" in columns else "source_system"
-
-    existing = conn.execute(
-        "SELECT id FROM raw_sources WHERE source_kind=? AND source_url=? ORDER BY id DESC LIMIT 1",
-        (source_kind, source_url),
-    ).fetchone()
-
-    if existing:
-        conn.execute(
-            f"UPDATE raw_sources SET {provider_col}=?, content=?, fetched_at=? WHERE id=?",
-            (provider, content, now, existing[0]),
-        )
-    else:
-        conn.execute(
-            f"INSERT INTO raw_sources({provider_col}, source_kind, source_url, content, fetched_at) VALUES (?, ?, ?, ?, ?)",
-            (provider, source_kind, source_url, content, now),
-        )
-    conn.commit()
-
-
-def init_auth_state(auth_file: str) -> None:
-    from playwright.sync_api import sync_playwright
-
-    path = Path(auth_file)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=False)
-        context = browser.new_context()
-        page = context.new_page()
-        page.goto("https://kitakyushu.ulucks.jp/view/smartlink/", wait_until="domcontentloaded")
-        input("ブラウザでログイン後、Enterを押すと storage_state を保存します... ")
-        context.storage_state(path=str(path))
-        context.close()
-        browser.close()
-
-
-def _fetch_page(page, url: str) -> FetchResult:
+def fetch_pages_with_playwright(seed_url: str, max_pages: int = 200) -> list[tuple[str, str]]:
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-
-    try:
-        page.goto(url, wait_until="networkidle", timeout=45_000)
-    except PlaywrightTimeoutError:
-        page.goto(url, wait_until="domcontentloaded", timeout=45_000)
-    content = page.content()
-    valid, reason = is_valid_smartlink_html(content)
-    return FetchResult(url=url, is_valid=valid, reason=reason, content=content)
-
-
-def fetch_seed(seed_url: str, auth_file: str, db_path: str, max_pages: int = 200) -> int:
     from playwright.sync_api import sync_playwright
 
-    auth_path = Path(auth_file)
-    if not auth_path.exists():
-        raise FileNotFoundError(f"auth file not found: {auth_file}")
-
-    db_file = Path(db_path)
-    db_file.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_file)
-    saved = 0
-    seen_hashes: set[str] = set()
-    stagnant = 0
+    pages: list[tuple[str, str]] = []
+    queue = [seed_url]
+    visited: set[str] = set()
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(storage_state=str(auth_path))
+        context = browser.new_context()
         page = context.new_page()
 
-        for index in range(1, max_pages + 1):
-            target_url = _page_url(seed_url, index)
-            result = _fetch_page(page, target_url)
-
-            digest = hashlib.sha1(result.content.encode("utf-8")).hexdigest()
-            if digest in seen_hashes:
-                print(f"stop: repeated_html page={index} url={target_url}")
-                break
-            seen_hashes.add(digest)
-
-            if not result.is_valid:
-                stagnant += 1
-                print(f"skip: page={index} reason={result.reason} url={target_url}")
-                if index == 1 or stagnant >= 2:
-                    break
+        while queue and len(pages) < max_pages:
+            target = queue.pop(0)
+            if target in visited:
                 continue
+            visited.add(target)
 
-            stagnant = 0
-            upsert_raw_source(conn, "ulucks", "smartlink_page", target_url, result.content)
-            saved += 1
-            print(f"saved: page={index} url={target_url}")
+            try:
+                page.goto(target, wait_until="networkidle", timeout=45_000)
+            except PlaywrightTimeoutError:
+                page.goto(target, wait_until="domcontentloaded", timeout=45_000)
+            html = page.content()
+            pages.append((target, html))
+            for href in _extract_pagination_hrefs(target, html):
+                if href not in visited:
+                    queue.append(href)
 
         context.close()
         browser.close()
 
-    conn.close()
-    return saved
+    return pages

@@ -5,8 +5,8 @@ from tatemono_map.normalize.building_summaries import rebuild
 def test_summary_ranges(tmp_path):
     db = tmp_path / "test.sqlite3"
     conn = connect(db)
-    upsert_listing(conn, ListingRecord("Aマンション", "東京都A", 50000, 20.0, "1K", "2026-01-01", "ulucks", "u1"))
-    upsert_listing(conn, ListingRecord("Aマンション", "東京都A", 70000, 30.0, "1LDK", "2026-01-02", "ulucks", "u2"))
+    upsert_listing(conn, ListingRecord("Aマンション", "東京都A", 50000, 20.0, "1K", "2026-01-01", "ulucks", "u1", move_in_date="即入居"))
+    upsert_listing(conn, ListingRecord("Aマンション", "東京都A", 70000, 30.0, "1LDK", "2026-01-02", "ulucks", "u2", move_in_date="2026-02-01"))
     conn.close()
 
     rebuild(str(db))
@@ -18,3 +18,5 @@ def test_summary_ranges(tmp_path):
     assert row["area_sqm_max"] == 30.0
     assert row["layout_types_json"]
     assert row["last_updated"] == "2026-01-02"
+
+    assert "即入居" in row["move_in_dates_json"]

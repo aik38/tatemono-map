@@ -23,6 +23,9 @@ class ListingRecord:
     source_url: str
     room_label: str | None = None
     maint_yen: int | None = None
+    move_in_date: str | None = None
+    management_company: str | None = None
+    management_phone: str | None = None
 
 
 def _hash_key(text: str) -> str:
@@ -30,7 +33,7 @@ def _hash_key(text: str) -> str:
 
 
 def _building_key(name: str, address: str) -> str:
-    return _hash_key(f"{normalize_text(name)}|{normalize_text(address)}")
+    return _hash_key(f"{normalize_text(address)}|{normalize_text(name)}")
 
 
 def _listing_key(source_url: str, room_label: str | None) -> str:
@@ -72,8 +75,9 @@ def upsert_listing(conn: sqlite3.Connection, record: ListingRecord) -> None:
         """
         INSERT INTO listings(
             listing_key, building_key, name, address, room_label,
-            rent_yen, maint_yen, layout, area_sqm, updated_at, source_kind, source_url
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            rent_yen, maint_yen, layout, area_sqm, move_in_date,
+            updated_at, source_kind, source_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(listing_key) DO UPDATE SET
             building_key=excluded.building_key,
             name=excluded.name,
@@ -83,6 +87,7 @@ def upsert_listing(conn: sqlite3.Connection, record: ListingRecord) -> None:
             maint_yen=excluded.maint_yen,
             layout=excluded.layout,
             area_sqm=excluded.area_sqm,
+            move_in_date=excluded.move_in_date,
             updated_at=excluded.updated_at,
             source_kind=excluded.source_kind,
             source_url=excluded.source_url
@@ -97,9 +102,52 @@ def upsert_listing(conn: sqlite3.Connection, record: ListingRecord) -> None:
             record.maint_yen,
             record.layout,
             record.area_sqm,
+            record.move_in_date,
             record.updated_at,
             record.source_kind,
             record.source_url,
+        ),
+    )
+
+    conn.execute(
+        """
+        INSERT INTO raw_units(
+            listing_key, building_key, name, address, room_label,
+            rent_yen, maint_yen, layout, area_sqm, move_in_date,
+            updated_at, source_kind, source_url, management_company, management_phone
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(listing_key) DO UPDATE SET
+            building_key=excluded.building_key,
+            name=excluded.name,
+            address=excluded.address,
+            room_label=excluded.room_label,
+            rent_yen=excluded.rent_yen,
+            maint_yen=excluded.maint_yen,
+            layout=excluded.layout,
+            area_sqm=excluded.area_sqm,
+            move_in_date=excluded.move_in_date,
+            updated_at=excluded.updated_at,
+            source_kind=excluded.source_kind,
+            source_url=excluded.source_url,
+            management_company=excluded.management_company,
+            management_phone=excluded.management_phone
+        """,
+        (
+            listing_key,
+            building_key,
+            record.name,
+            record.address,
+            record.room_label,
+            record.rent_yen,
+            record.maint_yen,
+            record.layout,
+            record.area_sqm,
+            record.move_in_date,
+            record.updated_at,
+            record.source_kind,
+            record.source_url,
+            record.management_company,
+            record.management_phone,
         ),
     )
     conn.commit()
@@ -111,8 +159,8 @@ def replace_building_summary(conn: sqlite3.Connection, row: dict) -> None:
         INSERT INTO building_summaries(
             building_key, name, raw_name, address,
             rent_yen_min, rent_yen_max, area_sqm_min, area_sqm_max,
-            layout_types_json, vacancy_count, last_updated, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            layout_types_json, move_in_dates_json, vacancy_count, last_updated, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(building_key) DO UPDATE SET
             name=excluded.name,
             raw_name=excluded.raw_name,
@@ -122,6 +170,7 @@ def replace_building_summary(conn: sqlite3.Connection, row: dict) -> None:
             area_sqm_min=excluded.area_sqm_min,
             area_sqm_max=excluded.area_sqm_max,
             layout_types_json=excluded.layout_types_json,
+            move_in_dates_json=excluded.move_in_dates_json,
             vacancy_count=excluded.vacancy_count,
             last_updated=excluded.last_updated,
             updated_at=excluded.updated_at
@@ -136,6 +185,7 @@ def replace_building_summary(conn: sqlite3.Connection, row: dict) -> None:
             row.get("area_sqm_min"),
             row.get("area_sqm_max"),
             json.dumps(row.get("layout_types") or [], ensure_ascii=False),
+            json.dumps(row.get("move_in_dates") or [], ensure_ascii=False),
             row.get("vacancy_count"),
             row.get("last_updated"),
             row.get("last_updated"),
