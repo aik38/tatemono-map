@@ -13,7 +13,7 @@ from tatemono_map.util.text import normalize_text
 
 ROOM_RE = re.compile(r"(\d+[A-Za-z]?号室?)")
 LOGGER = logging.getLogger(__name__)
-KEYWORD_HINTS = ("賃料", "家賃", "共益費", "間取り", "専有面積", "所在地")
+KEYWORD_HINTS = ("賃料", "家賃", "共益費", "間取り", "専有面積", "所在地", "入居可能日")
 
 
 def _extract_pairs(card) -> dict[str, str]:
@@ -27,7 +27,7 @@ def _extract_pairs(card) -> dict[str, str]:
             pairs[key] = normalize_text(sib.text(deep=True, separator=" "))
 
     text = normalize_text(card.text(deep=True, separator="\n"))
-    for label in ["所在地", "号室", "家賃", "賃料", "共益費", "間取り", "専有面積"]:
+    for label in ["所在地", "号室", "家賃", "賃料", "共益費", "間取り", "専有面積", "入居可能日", "管理会社", "電話"]:
         if label in pairs:
             continue
         m = re.search(rf"{re.escape(label)}\s*[:：]\s*([^\n]+)", text)
@@ -88,6 +88,9 @@ def _extract_from_embedded_json(html: str) -> list[dict[str, str | int | float |
                     "maint_yen": parse_rent_yen(str(node.get("共益費") or node.get("maintenance") or "")),
                     "layout": normalize_text(str(node.get("間取り") or node.get("layout") or "")) or None,
                     "area_sqm": parse_area_sqm(str(area_raw) if area_raw is not None else None),
+                    "move_in_date": normalize_text(str(node.get("入居可能日") or node.get("move_in_date") or "")) or None,
+                    "management_company": normalize_text(str(node.get("管理会社") or node.get("management_company") or "")) or None,
+                    "management_phone": normalize_text(str(node.get("電話") or node.get("management_phone") or "")) or None,
                 }
             )
     return candidates
@@ -139,6 +142,9 @@ def parse_and_upsert(db_path: str) -> int:
                     updated_at=fetched_at,
                     source_kind="smartlink_page",
                     source_url=source_url,
+                    move_in_date=normalize_text(pairs.get("入居可能日")) or None,
+                    management_company=normalize_text(pairs.get("管理会社")) or None,
+                    management_phone=normalize_text(pairs.get("電話")) or None,
                 ),
             )
             count += 1
@@ -159,6 +165,9 @@ def parse_and_upsert(db_path: str) -> int:
                         updated_at=fetched_at,
                         source_kind="smartlink_page",
                         source_url=source_url,
+                        move_in_date=item.get("move_in_date"),
+                        management_company=item.get("management_company"),
+                        management_phone=item.get("management_phone"),
                     ),
                 )
                 count += 1
@@ -168,3 +177,17 @@ def parse_and_upsert(db_path: str) -> int:
     if count <= 0:
         raise RuntimeError("smartlink_page parse produced 0 listings")
     return count
+
+
+def main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--db-path", default="data/tatemono_map.sqlite3")
+    args = parser.parse_args()
+    parsed = parse_and_upsert(args.db_path)
+    print(f"parsed listings: {parsed}")
+
+
+if __name__ == "__main__":
+    main()

@@ -2,18 +2,38 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+import shutil
 from pathlib import Path
 from urllib.parse import quote_plus
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from tatemono_map.db.repo import connect
-from tatemono_map.normalize.building_summaries import summarize_layout_counts
+
+FORBIDDEN_PATTERNS = (
+    r"mail=",
+    r"link_id=",
+    r"参照元URL",
+    r"管理会社",
+    r"電話",
+    r"号室"
+)
+
+
+def _validate_public_dist(output_dir: Path) -> None:
+    for html_path in output_dir.rglob("*.html"):
+        content = html_path.read_text(encoding="utf-8")
+        for pattern in FORBIDDEN_PATTERNS:
+            if re.search(pattern, content, flags=re.IGNORECASE):
+                raise RuntimeError(f"forbidden data detected in dist: {html_path} pattern={pattern}")
 
 
 def build_dist(db_path: str, output_dir: str) -> None:
     conn = connect(db_path)
     out = Path(output_dir)
+    if out.exists():
+        shutil.rmtree(out)
     (out / "b").mkdir(parents=True, exist_ok=True)
 
     env = Environment(loader=FileSystemLoader("templates"), autoescape=select_autoescape(["html"]))
@@ -25,7 +45,7 @@ def build_dist(db_path: str, output_dir: str) -> None:
         SELECT
             building_key, name, raw_name, address,
             rent_yen_min, rent_yen_max, area_sqm_min, area_sqm_max,
-            layout_types_json, vacancy_count, last_updated, updated_at
+            layout_types_json, move_in_dates_json, vacancy_count, last_updated, updated_at
         FROM building_summaries
         ORDER BY updated_at DESC
         """
@@ -34,19 +54,20 @@ def build_dist(db_path: str, output_dir: str) -> None:
     for row in buildings:
         building = dict(row)
         building["layout_types"] = json.loads(building.get("layout_types_json") or "[]")
+        building["move_in_dates"] = json.loads(building.get("move_in_dates_json") or "[]")
         building_list.append(building)
 
     (out / "index.html").write_text(index_tpl.render(buildings=building_list), encoding="utf-8")
 
     for b in building_list:
-        layout_counts = summarize_layout_counts(conn, b["building_key"])
         maps_url = None
         address = (b.get("address") or "").strip()
         if address:
-            maps_url = f"https://www.google.com/maps/search/?api=1&query={quote_plus(address)}"
-        html = building_tpl.render(building=b, layout_counts=layout_counts, maps_url=maps_url)
+            maps_url = f"https://maps.google.com/?q={quote_plus(address)}"
+        html = building_tpl.render(building=b, maps_url=maps_url)
         (out / "b" / f"{b['building_key']}.html").write_text(html, encoding="utf-8")
 
+    _validate_public_dist(out)
     conn.close()
 
 

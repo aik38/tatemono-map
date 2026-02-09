@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
 
 from tatemono_map.db.repo import connect, replace_building_summary
 from tatemono_map.util.text import normalize_text
@@ -11,7 +10,7 @@ def rebuild(db_path: str) -> int:
     conn = connect(db_path)
     rows = conn.execute(
         """
-        SELECT building_key, name, address, rent_yen, area_sqm, layout, updated_at
+        SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in_date, updated_at
         FROM listings
         ORDER BY id DESC
         """
@@ -26,7 +25,8 @@ def rebuild(db_path: str) -> int:
         rents = [r["rent_yen"] for r in items if r["rent_yen"] is not None]
         areas = [r["area_sqm"] for r in items if r["area_sqm"] is not None]
         layouts = sorted({normalize_text(r["layout"]) for r in items if r["layout"]})
-        latest = next((r["updated_at"] for r in items if r["updated_at"]), None)
+        move_in_dates = sorted({normalize_text(r["move_in_date"]) for r in items if r["move_in_date"]})
+        latest = max((r["updated_at"] for r in items if r["updated_at"]), default=None)
         replace_building_summary(
             conn,
             {
@@ -39,6 +39,7 @@ def rebuild(db_path: str) -> int:
                 "area_sqm_min": min(areas) if areas else None,
                 "area_sqm_max": max(areas) if areas else None,
                 "layout_types": layouts,
+                "move_in_dates": move_in_dates,
                 "vacancy_count": len(items),
                 "last_updated": latest,
             },
@@ -46,12 +47,6 @@ def rebuild(db_path: str) -> int:
         count += 1
     conn.close()
     return count
-
-
-def summarize_layout_counts(conn, building_key: str) -> list[dict[str, int | str]]:
-    rows = conn.execute("SELECT layout FROM listings WHERE building_key=?", (building_key,)).fetchall()
-    counter = Counter([(r["layout"] or "不明") for r in rows])
-    return [{"layout": k, "count": v} for k, v in sorted(counter.items(), key=lambda x: x[0])]
 
 
 def main() -> None:

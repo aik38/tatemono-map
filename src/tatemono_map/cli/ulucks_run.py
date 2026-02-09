@@ -16,7 +16,7 @@ def print_audit(db_path: str) -> None:
     try:
         tables = list_tables(conn)
         print(f"AUDIT tables={','.join(tables)}")
-        for table in ["raw_sources", "listings", "building_summaries"]:
+        for table in ["raw_sources", "listings", "raw_units", "building_summaries"]:
             count = conn.execute(f"SELECT COUNT(*) AS c FROM {table}").fetchone()["c"]
             print(f"AUDIT count[{table}]={count}")
         rows = conn.execute(

@@ -47,6 +47,7 @@ def test_ensure_schema_allows_extra_columns(tmp_path):
                 maint_yen INTEGER,
                 layout TEXT,
                 area_sqm REAL,
+                move_in_date TEXT,
                 updated_at TEXT,
                 source_kind TEXT,
                 source_url TEXT,
@@ -67,6 +68,7 @@ def test_ensure_schema_allows_extra_columns(tmp_path):
                 area_sqm_min REAL,
                 area_sqm_max REAL,
                 layout_types_json TEXT,
+                move_in_dates_json TEXT,
                 vacancy_count INTEGER,
                 last_updated TEXT,
                 updated_at TEXT,
@@ -136,3 +138,4 @@ def test_migrate_to_canonical_moves_source_system_and_recreates_tables(tmp_path)
         summary_cols = [r[1] for r in conn.execute("PRAGMA table_info(building_summaries)")]
         assert "move_in" not in summary_cols
         assert "layout_types_json" in summary_cols
+        assert "move_in_dates_json" in summary_cols

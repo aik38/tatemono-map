@@ -46,6 +46,7 @@ def migrate(db_path: str | Path) -> Path:
         migrate_raw_sources(conn)
         recreate_table(conn, "listings")
         recreate_table(conn, "building_summaries")
+        recreate_table(conn, "raw_units")
         conn.commit()
     return path
 
