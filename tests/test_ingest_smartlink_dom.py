@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from tatemono_map.db.repo import connect
-from tatemono_map.ingest.smartlink_dom import _bulk_upsert, extract_records
+from tatemono_map.ingest.smartlink_dom import _bulk_upsert, extract_records, persist_records
 from tatemono_map.normalize.building_summaries import rebuild
 
 
@@ -38,3 +38,14 @@ def test_bulk_upsert_populates_raw_units_and_building_summaries(tmp_path):
 
     assert listing_count == 3
     assert raw_count == 3
+
+
+def test_persist_records_raises_on_empty_records(tmp_path):
+    db_path = tmp_path / "smartlink_dom_empty.sqlite3"
+
+    try:
+        persist_records(str(db_path), [])
+    except RuntimeError as exc:
+        assert "0 records" in str(exc)
+    else:
+        raise AssertionError("RuntimeError was not raised for empty smartlink_dom records")
