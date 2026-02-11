@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+import traceback
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
@@ -80,12 +81,23 @@ def _to_absolute_href(current_url: str, href: str | None) -> str | None:
         return None
     if value.startswith("http://") or value.startswith("https://"):
         return value
+    if value.startswith("//"):
+        if current_url.startswith("https://"):
+            return f"https:{value}"
+        if current_url.startswith("http://"):
+            return f"http:{value}"
+        return None
     if value.startswith("/"):
         prefix = current_url.split("/", 3)
         if len(prefix) < 3:
             return None
         return f"{prefix[0]}//{prefix[2]}{value}"
-    return None
+    if current_url.endswith("/"):
+        return f"{current_url}{value}"
+    parent = current_url.rsplit("/", 1)
+    if len(parent) != 2:
+        return None
+    return f"{parent[0]}/{value}"
 
 
 def _score_table(table) -> int:
@@ -229,6 +241,46 @@ def _extract_rows_from_table(source_url: str, table) -> list[ListingRecord]:
     return records
 
 
+def _extract_kv_card_from_table(source_url: str, table) -> list[ListingRecord]:
+    rows = table.css("tr")
+    fields: dict[str, str] = {}
+    for row in rows:
+        cells = row.css("th, td")
+        if len(cells) < 2:
+            continue
+        key = normalize_text(cells[0].text(deep=True, separator=" "))
+        value = normalize_text(cells[1].text(deep=True, separator=" "))
+        if not key or not value:
+            continue
+        fields[key] = value
+
+    name = fields.get("物件名/号室") or fields.get("物件名") or fields.get("建物名") or ""
+    address = fields.get("所在地") or ""
+    if not name or not address:
+        return []
+
+    detail_url = None
+    anchor = table.css_first("a[href]")
+    if anchor is not None:
+        detail_url = _to_absolute_href(source_url, anchor.attributes.get("href"))
+
+    return [
+        ListingRecord(
+            name=name,
+            address=address,
+            room_label=fields.get("号室") or None,
+            rent_yen=parse_rent_yen(fields.get("家賃") or fields.get("賃料") or ""),
+            maint_yen=parse_rent_yen(fields.get("管理費") or fields.get("共益費") or ""),
+            layout=fields.get("間取り") or fields.get("間取") or None,
+            area_sqm=parse_area_sqm(fields.get("専有面積") or fields.get("面積") or ""),
+            move_in_date=fields.get("入居可能日") or fields.get("入居") or None,
+            updated_at=fields.get("更新日時") or fields.get("更新日") or None,
+            source_kind="smartlink_dom",
+            source_url=detail_url or source_url,
+        )
+    ]
+
+
 def extract_records(source_url: str, html: str) -> list[ListingRecord]:
     scored: list[tuple[int, Any]] = [(_score_table(table), table) for table in _candidate_tables(html)]
     scored = sorted(scored, key=lambda item: item[0], reverse=True)
@@ -239,6 +291,8 @@ def extract_records(source_url: str, html: str) -> list[ListingRecord]:
         if score <= 0:
             continue
         table_records = _extract_rows_from_table(source_url=source_url, table=table)
+        if not table_records:
+            table_records = _extract_kv_card_from_table(source_url=source_url, table=table)
         for record in table_records:
             rec_key = _listing_key(record.source_url, record.name, record.address, record.layout, record.area_sqm, record.rent_yen)
             if rec_key in seen:
@@ -246,6 +300,22 @@ def extract_records(source_url: str, html: str) -> list[ListingRecord]:
             seen.add(rec_key)
             records.append(record)
     return records
+
+
+def _collect_parse_debug_meta(source_url: str, html: str) -> dict[str, int | str]:
+    tables = _candidate_tables(html)
+    positive_scored = sum(1 for table in tables if _score_table(table) > 0)
+    tree = HTMLParser(html)
+    return {
+        "source_url": source_url,
+        "found_tables": len(tables),
+        "found_positive_scored_tables": positive_scored,
+        "found_update_labels": len(tree.css("*:contains('更新日時')")),
+        "found_name_labels": len(tree.css("*:contains('物件名')")),
+        "found_address_labels": len(tree.css("*:contains('所在地')")),
+        "found_rent_labels": len(tree.css("*:contains('家賃')")),
+        "found_pagination_links": len(tree.css("a[href*='/view/smartlink/page:']")),
+    }
 
 
 def _bulk_upsert(db_path: str, records: list[ListingRecord]) -> int:
@@ -355,7 +425,15 @@ def _snapshot_page(page) -> _DebugPageSnapshot:
     return _DebugPageSnapshot(url=page.url, title=page.title(), html=page.content())
 
 
-def _dump_debug(debug_dir: Path | None, page, page_index: int, stage: str, reason: str | None = None) -> Path | None:
+def _dump_debug(
+    debug_dir: Path | None,
+    page,
+    page_index: int,
+    stage: str,
+    reason: str | None = None,
+    extra_meta: dict[str, Any] | None = None,
+    error_text: str | None = None,
+) -> Path | None:
     if debug_dir is None:
         return None
     snapshot = _snapshot_page(page)
@@ -375,7 +453,11 @@ def _dump_debug(debug_dir: Path | None, page, page_index: int, stage: str, reaso
         "title": snapshot.title,
         "page_index": page_index,
     }
+    if extra_meta:
+        meta.update(extra_meta)
     meta_path.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    if error_text:
+        (page_dir / "error.txt").write_text(error_text, encoding="utf-8")
     return page_dir
 
 
@@ -484,13 +566,27 @@ def ingest(
                 html = page.content()
                 page_records = extract_records(current_url, html)
                 if not page_records:
-                    _dump_debug(debug_root, page, len(visited), "parse_failed", reason="0 records on page")
+                    _dump_debug(
+                        debug_root,
+                        page,
+                        len(visited),
+                        "parse_failed",
+                        reason="0 records on page",
+                        extra_meta=_collect_parse_debug_meta(current_url, html),
+                    )
                 all_records.extend(page_records)
                 for href in _extract_pagination_hrefs(current_url, html):
                     if href not in visited:
                         queue.append(href)
             except Exception as exc:
-                _dump_debug(debug_root, page, len(visited), "parse_failed", reason=str(exc))
+                _dump_debug(
+                    debug_root,
+                    page,
+                    len(visited),
+                    "parse_failed",
+                    reason=str(exc),
+                    error_text=traceback.format_exc(),
+                )
                 raise
 
         context.close()
