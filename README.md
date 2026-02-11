@@ -44,6 +44,23 @@ Start-Process (Join-Path $REPO "dist\index.html")
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com' -NoServe
 ```
 
+### C) manual PDF(CSV) ingest（手動PDF→CSV→DB更新→dist生成→open）
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_manual_pdf.ps1" -NoServe
+```
+
+- CSV保存先は **`tmp/manual/ulucks_pdf_raw.csv` 固定**。
+- DBは **`data/tatemono_map.sqlite3` 固定**（`SQLITE_DB_PATH` で上書き可）。
+- 取り込みCLIを直接実行する場合:
+
+```powershell
+python -m tatemono_map.cli.ulucks_manual_run --csv tmp/manual/ulucks_pdf_raw.csv --db data/tatemono_map.sqlite3 --output dist --no-serve
+```
+
+CSV列名（正本）:
+`building_name,address,layout,rent_man,fee_man,area_sqm,updated_at,structure,age_years`
+
+
 > `C:\dev\tatemono-map` は **非推奨** です。運用は `$env:USERPROFILE\tatemono-map` に統一してください。
 
 ### よくある失敗と原因
@@ -275,6 +292,7 @@ python -m http.server 8080 --directory dist
 - `docs/spec.md`
 - `docs/data_contract.md`
 - `docs/runbook.md`
+- `docs/manual_pdf_ingest.md`
 
 ---
 
