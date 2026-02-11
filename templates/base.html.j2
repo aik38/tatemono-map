@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}tatemono-map{% endblock %}</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --surface-soft: #f3f6fa;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #dce3ec;
+      --brand: #1d4ed8;
+      --brand-strong: #1e40af;
+      --accent: #0f766e;
+      --radius: 14px;
+      --shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+      --max-width: 1040px;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: linear-gradient(180deg, #eef3ff 0%, var(--bg) 240px);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
+      line-height: 1.55;
+    }
+
+    a { color: inherit; }
+
+    .page {
+      width: min(calc(100% - 24px), var(--max-width));
+      margin-inline: auto;
+      padding: 18px 0 40px;
+    }
+
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      backdrop-filter: blur(8px);
+      background: rgba(246, 248, 251, 0.78);
+      border-bottom: 1px solid rgba(220, 227, 236, 0.95);
+    }
+
+    .site-header__inner {
+      width: min(calc(100% - 24px), var(--max-width));
+      margin-inline: auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
+    }
+
+    .brand {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: 0.02em;
+      font-weight: 700;
+      color: #0f172a;
+      text-decoration: none;
+    }
+
+    .muted { color: var(--muted); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: 0;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 700;
+      cursor: pointer;
+      padding: 10px 16px;
+      transition: transform .08s ease, filter .2s ease;
+    }
+
+    .button:hover { filter: brightness(1.03); }
+    .button:active { transform: translateY(1px); }
+
+    .button--primary {
+      color: #fff;
+      background: linear-gradient(135deg, var(--brand) 0%, var(--brand-strong) 100%);
+    }
+
+    .button--line {
+      color: #fff;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    }
+
+    .kpis {
+      margin: 0;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .kpi {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface-soft);
+      padding: 6px 10px;
+      font-size: .9rem;
+      color: #0f172a;
+      white-space: nowrap;
+    }
+
+    .kpi span { color: var(--muted); font-size: .84rem; }
+
+    @media (max-width: 740px) {
+      .page { width: min(calc(100% - 16px), var(--max-width)); padding-top: 14px; }
+      .site-header__inner { width: min(calc(100% - 16px), var(--max-width)); }
+    }
+  </style>
+  {% block extra_head %}{% endblock %}
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="{{ home_href|default('index.html', true) }}">tatemono-map</a>
+      {% block header_meta %}{% endblock %}
+    </div>
+  </header>
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+  {% block extra_body %}{% endblock %}
+</body>
+</html>
