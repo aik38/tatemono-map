@@ -54,6 +54,19 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ulucks_manual_pdf.ps
 - `--no-serve:False` のような誤引数を避けるため、`-NoServe` 指定時だけ `--no-serve` を付ける実装です。
 - 任意指定: `-DbPath`, `-OutputDir`, `-RepoPath`, `-Open`。
 
+補足（誤解防止）:
+- 「60件」は管理画面プルダウンの**表示件数の例**です。PDF件数そのものは管理会社・検索条件で変動し、10〜500件以上になることがあります。
+- 物件別PDFはCSV化しやすく有利ですが、1 PDF が長すぎるとCSV化事故が増えるため、目安として **200〜300件程度で分割**（エリア/条件ごとに複数PDF）を推奨します。
+- CLI は `--csv` で任意パスを受け付けるため、CSVファイル名は何でも構いません。
+- ただし運用上は投入用の固定パス `tmp/manual/ulucks_pdf_raw.csv` を推奨します（上書き運用）。履歴を残す場合は `ulucks_pdf_raw_YYYYMMDD.csv` を保存し、投入前に `ulucks_pdf_raw.csv` へコピーしてください。
+
+運用コマンド例（1ブロック）:
+
+```powershell
+# 任意CSVを指定（-CsvPath）して投入し、HTTPサーバは起動せず（-NoServe）、生成した index.html を開く（-Open）
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ulucks_manual_pdf.ps1 -CsvPath tmp/manual/ulucks_pdf_raw_20260211.csv -NoServe -Open
+```
+
 取り込み CLI を直接実行する場合（Quickstart / サーバ起動なし）は次を正本にします。
 
 ```powershell
@@ -65,7 +78,7 @@ python -m tatemono_map.cli.ulucks_manual_run --csv tmp/manual/ulucks_pdf_raw.csv
 Start-Process dist/index.html
 ```
 
-- CSV保存先は **`tmp/manual/ulucks_pdf_raw.csv` 固定**。
+- CSV保存先は CLI の `--csv` で任意指定可（運用推奨は `tmp/manual/ulucks_pdf_raw.csv`）。
 - DBは **`data/tatemono_map.sqlite3` 固定**（スクリプト実行時は `-DbPath` で上書き可）。
 
 CSV列名（正本）:
@@ -87,6 +100,9 @@ CSV列名（正本）:
 - **`ModuleNotFoundError: tatemono_map`**
   - venv 未有効化、依存未導入、作業ディレクトリ違い。
   - `.venv\Scripts\Activate.ps1` 実行後に `python -m pip install -r requirements.txt` を実施。
+- **`forbidden data detected` / `pattern=号室`**
+  - `building_name` や `address` に号室/部屋番号が混入したまま `dist` 生成に進んでいるのが原因です。
+  - CSV化時点で建物名から `◯◯号室` / `◯◯号` を除去し `room` 列へ寄せてから再実行してください。
 
 ---
 

@@ -5,8 +5,11 @@
 ## 1. 正式ルート（PDF→CSV→DB→dist）
 
 1. 新しい物件 PDF を手動で保存する（`tmp/manual/*.pdf`）。
+   - 「60件」は管理画面プルダウンの**表示件数の例**です。PDF件数そのものは管理会社・検索条件で変動し、10〜500件以上になることがあります。
+   - 物件別PDFはCSV化しやすく有利ですが、1 PDF が長すぎるとCSV化事故が増えるため、目安として **200〜300件程度で分割**（エリア/条件ごとに複数PDF）を推奨します。
 2. PDF の内容を ChatGPT などで CSV 化する。
-3. CSV を `tmp/manual/ulucks_pdf_raw.csv` として保存する。
+3. CSV を保存する（ファイル名は任意）。運用上は投入用の固定パス `tmp/manual/ulucks_pdf_raw.csv` を推奨します。
+   - 履歴を残す場合の例: `ulucks_pdf_raw_YYYYMMDD.csv` として保存し、投入前に `ulucks_pdf_raw.csv` へコピーする。
 4. リポジトリ直下で次を実行する。
 
 ```powershell
@@ -16,6 +19,13 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ulucks_manual_pdf.ps
 - スクリプトはどこから起動しても `scripts` の場所から repo ルートを解決します。
 - `-NoServe` 指定時のみ `--no-serve` を CLI に付けます（`store_true` フラグ事故防止）。
 
+運用コマンド例（1ブロック）:
+
+```powershell
+# 任意CSVを指定（-CsvPath）して投入し、HTTPサーバは起動せず（-NoServe）、生成した index.html を開く（-Open）
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ulucks_manual_pdf.ps1 -CsvPath tmp/manual/ulucks_pdf_raw_20260211.csv -NoServe -Open
+```
+
 ## 2. 直接CLIでの Quickstart（サーバ起動なし）
 
 ```powershell
@@ -23,7 +33,7 @@ $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 Set-Location $REPO
 . .\.venv\Scripts\Activate.ps1
 $env:PYTHONPATH = "src"
-python -m tatemono_map.cli.ulucks_manual_run --csv tmp/manual/ulucks_pdf_raw.csv --db data/tatemono_map.sqlite3 --output dist --no-serve
+python -m tatemono_map.cli.ulucks_manual_run --csv <任意のCSVパス> --db data/tatemono_map.sqlite3 --output dist --no-serve
 Start-Process dist/index.html
 ```
 
@@ -64,3 +74,7 @@ Start-Process dist/index.html
 - **scripts のパス間違い**
   - カレントディレクトリ依存で `scripts/run_ulucks_manual_pdf.ps1` が見つからないことがあります。
   - 対処: repo 直下で `-File .\scripts\run_ulucks_manual_pdf.ps1` を実行するか、フルパス指定で実行。
+
+- **`forbidden data detected` / `pattern=号室`**
+  - 原因: `building_name` や `address` に号室/部屋番号が混入したまま `dist` 生成に進んでいる。
+  - 対策: CSV化時点で建物名から `◯◯号室` / `◯◯号` を除去し、`room` 列へ寄せてから再実行する。
