@@ -22,7 +22,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/ps/doctor.ps1 -DbPath $env
 ## Quick Start（Windows / PowerShell）
 > This project intentionally does NOT use detail pages (smartview).
 
-この章を **正本** とし、次の2手順だけを標準運用とします。どちらも実体パスは **`$env:USERPROFILE\tatemono-map` 固定** です。
+この章を **正本** とし、次の3手順を標準運用とします。いずれも実体パスは **`$env:USERPROFILE\tatemono-map` 固定** です。
 
 - 前提: リポジトリ配置は **`$env:USERPROFILE\tatemono-map` に固定**
 - OneDrive 配下の同名 repo は混在事故の原因になるため使用しない
@@ -44,18 +44,29 @@ Start-Process (Join-Path $REPO "dist\index.html")
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com' -NoServe
 ```
 
-### C) manual PDF(CSV) ingest（手動PDF→CSV→DB更新→dist生成→open）
+### C) Manual PDF（正式ルートC: PDF→CSV→DB→dist）
+PowerShell スクリプト運用の正本（推奨）は次です。
+
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_manual_pdf.ps1" -NoServe
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ulucks_manual_pdf.ps1 -CsvPath tmp/manual/ulucks_pdf_raw.csv -NoServe -Open
+```
+
+- `--no-serve:False` のような誤引数を避けるため、`-NoServe` 指定時だけ `--no-serve` を付ける実装です。
+- 任意指定: `-DbPath`, `-OutputDir`, `-RepoPath`, `-Open`。
+
+取り込み CLI を直接実行する場合（Quickstart / サーバ起動なし）は次を正本にします。
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+Set-Location $REPO
+. .\.venv\Scripts\Activate.ps1
+$env:PYTHONPATH = "src"
+python -m tatemono_map.cli.ulucks_manual_run --csv tmp/manual/ulucks_pdf_raw.csv --db data/tatemono_map.sqlite3 --output dist --no-serve
+Start-Process dist/index.html
 ```
 
 - CSV保存先は **`tmp/manual/ulucks_pdf_raw.csv` 固定**。
-- DBは **`data/tatemono_map.sqlite3` 固定**（`SQLITE_DB_PATH` で上書き可）。
-- 取り込みCLIを直接実行する場合:
-
-```powershell
-python -m tatemono_map.cli.ulucks_manual_run --csv tmp/manual/ulucks_pdf_raw.csv --db data/tatemono_map.sqlite3 --output dist --no-serve
-```
+- DBは **`data/tatemono_map.sqlite3` 固定**（スクリプト実行時は `-DbPath` で上書き可）。
 
 CSV列名（正本）:
 `building_name,address,layout,rent_man,fee_man,area_sqm,updated_at,structure,age_years`

@@ -28,3 +28,8 @@ tmp/*
 *.tmp
 data/_debug_ulucks_phase_a/
 data/_debug_ulucks_*.html
+
+# Local manual-ingest artifacts
+probe_debug.py
+tmp/manual/*.pdf
+tmp/manual/*.csv
