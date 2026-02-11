@@ -4,7 +4,8 @@ param(
   [string]$BuildingKey = "demo",
   [string]$UluSmartlinkUrl = "",
   [switch]$SkipBuild,
-  [switch]$FailIngest
+  [switch]$FailIngest,
+  [ValidateSet("stub","smartlink")][string]$Mode = "stub"
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,30 +25,16 @@ $DbPath = [System.IO.Path]::GetFullPath($DbPath)
 $Py = Join-Path $REPO ".venv\Scripts\python.exe"
 if (!(Test-Path $Py)) { $Py = "python" }
 
-$SmartlinksFile = Join-Path $REPO "secrets\ulucks_smartlinks.txt"
-$smartlinks = @()
-if (-not [string]::IsNullOrWhiteSpace($UluSmartlinkUrl)) {
-  $smartlinks += $UluSmartlinkUrl.Trim()
-} elseif (Test-Path $SmartlinksFile) {
-  $smartlinks += Get-Content $SmartlinksFile | ForEach-Object { $_.Trim() } | Where-Object { $_ -and -not $_.StartsWith("#") }
-}
-
 Write-Host "[ingest] repo=$REPO" -ForegroundColor DarkGray
 Write-Host "[ingest] db=$DbPath key=$BuildingKey" -ForegroundColor Cyan
 
 try {
-  if ($smartlinks.Count -gt 0) {
-    foreach ($url in $smartlinks) {
-      & $Py -m tatemono_map.ingest.ulucks_smartlink --url $url --db $DbPath --limit 200
-      if ($LASTEXITCODE -ne 0) { throw "ulucks ingest exited with code=$LASTEXITCODE" }
-    }
-    & $Py -m tatemono_map.parse.smartlink_page --db-path $DbPath
-    if ($LASTEXITCODE -ne 0) { throw "parse exited with code=$LASTEXITCODE" }
-    & $Py -m tatemono_map.normalize.building_summaries --db-path $DbPath
-    if ($LASTEXITCODE -ne 0) { throw "normalize exited with code=$LASTEXITCODE" }
+  if ($Mode -eq "smartlink") {
+    & $Py -m tatemono_map.ingest.smartlink_from_raw_sources --db $DbPath
+    if ($LASTEXITCODE -ne 0) { throw "smartlink ingest exited with code=$LASTEXITCODE" }
   } else {
     & $Py -m tatemono_map.ingest.stub --db $DbPath --building-key $BuildingKey
-    if ($LASTEXITCODE -ne 0) { throw "fallback ingest exited with code=$LASTEXITCODE" }
+    if ($LASTEXITCODE -ne 0) { throw "stub ingest exited with code=$LASTEXITCODE" }
   }
   Write-Host "[ingest] ok" -ForegroundColor Green
 } catch {
