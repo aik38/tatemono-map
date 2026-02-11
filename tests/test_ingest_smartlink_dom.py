@@ -20,6 +20,17 @@ def test_extract_records_selects_vacancy_table_fixture():
     assert records[0].updated_at == "2026-01-20"
 
 
+def test_extract_records_from_probe_like_fixture_yields_multiple_rows():
+    html = Path("tests/fixtures/ulucks/smartlink_dom_probe2_like.html").read_text(encoding="utf-8")
+
+    records = extract_records("https://example.test/view/smartlink/?page=1", html)
+
+    assert len(records) >= 3
+    assert records[0].name == "サンプルレジデンスA棟"
+    assert records[0].room_label == "101"
+    assert records[0].source_url.endswith("/view/smartlink_page/unit-101/")
+
+
 def test_bulk_upsert_populates_raw_units_and_building_summaries(tmp_path):
     db_path = tmp_path / "smartlink_dom.sqlite3"
     html = Path("tests/fixtures/ulucks/smartlink_dom_table.html").read_text(encoding="utf-8")

@@ -37,6 +37,14 @@
   - `SQLITE_DB_PATH` を指定しない場合は `data\tatemono_map.sqlite3` が使われる
   - `tmp_ulucks_*.html` は smartlink のデバッグ生成物なのでコミット不要（`dist_tmp/` など Git 管理外に出力）
 
+
+## smartlink_dom デバッグ手順（証拠ベース）
+- 実行例（HTML/スクショ保存付き）
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ingest.ps1 -Mode smartlink_dom -StartUrl 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com' -DebugDir tmp/smartlink_dom_debug -Headed`
+- 失敗時は `tmp/smartlink_dom_debug/<timestamp>/<page_index>_*/` に `meta.json` / `page.png` / `page.html` が残る。
+- PowerShell で HTML 内の確認例
+  - `Select-String -Path tmp\smartlink_dom_debug\*\*\page.html -Pattern '検索結果|空室一覧|所在地|家賃|間取り|専有面積|更新'`
+
 ## 静的HTML生成
 - 静的HTML生成CLIを実行し、`dist/index.html` と `dist/b/{building_key}.html` を生成する
 - 実行例（PowerShell）

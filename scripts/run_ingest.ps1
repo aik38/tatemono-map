@@ -6,6 +6,8 @@ param(
   [string]$StartUrl = "",
   [int]$MaxPages = 20,
   [int]$SleepMs = 800,
+  [string]$DebugDir = "",
+  [switch]$Headed,
   [switch]$SkipBuild,
   [switch]$FailIngest,
   [ValidateSet("stub","smartlink","smartlink_dom")][string]$Mode = "stub"
@@ -40,7 +42,14 @@ try {
       if ($UluSmartlinkUrl) { $StartUrl = $UluSmartlinkUrl }
       else { throw "-StartUrl is required when -Mode smartlink_dom" }
     }
-    & $Py -m tatemono_map.ingest.smartlink_dom --db $DbPath --start-url $StartUrl --max-pages $MaxPages --sleep-ms $SleepMs
+    $domArgs = @("-m", "tatemono_map.ingest.smartlink_dom", "--db", $DbPath, "--start-url", $StartUrl, "--max-pages", $MaxPages, "--sleep-ms", $SleepMs)
+    if (-not [string]::IsNullOrWhiteSpace($DebugDir)) {
+      $domArgs += @("--debug-dir", $DebugDir)
+    }
+    if ($Headed) {
+      $domArgs += "--headed"
+    }
+    & $Py @domArgs
     if ($LASTEXITCODE -ne 0) { throw "smartlink_dom ingest exited with code=$LASTEXITCODE" }
   } else {
     & $Py -m tatemono_map.ingest.stub --db $DbPath --building-key $BuildingKey
