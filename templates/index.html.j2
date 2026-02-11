@@ -6,8 +6,8 @@
 <input id="search" type="search" placeholder="建物名・住所で絞り込み" />
 <ul id="building-list">
 {% for b in buildings %}
-<li data-name="{{ b.name|lower }}" data-address="{{ (b.address or '')|lower }}">
-  <a href="b/{{ b.building_key }}.html">{{ b.name }}</a> {{ b.address }} {{ b.last_updated or '' }}
+<li data-name="{{ (b.name or "")|lower }}" data-address="{{ (b.address or '')|lower }}">
+  <a href="b/{{ b.building_key }}.html">{{ b.name or "" }}</a> {{ b.address or "" }} {{ b.last_updated or "" }}
 </li>
 {% endfor %}
 </ul>
