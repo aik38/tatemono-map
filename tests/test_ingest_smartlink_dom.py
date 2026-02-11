@@ -60,3 +60,25 @@ def test_persist_records_raises_on_empty_records(tmp_path):
         assert "0 records" in str(exc)
     else:
         raise AssertionError("RuntimeError was not raised for empty smartlink_dom records")
+
+
+def test_extract_records_from_saved_debug_fixture_returns_records():
+    source_url = "https://kitakyushu.ulucks.jp/view/smartlink/?link_id=seed&mail=user%40example.com"
+    html = Path("tests/fixtures/ulucks/smartlink_page1_before_parse.html").read_text(encoding="utf-8")
+
+    records = extract_records(source_url, html)
+
+    assert len(records) >= 1
+    assert records[0].name
+    assert records[0].address
+
+
+def test_saved_debug_fixture_contains_page2_pagination_href():
+    from tatemono_map.ingest.ulucks_playwright import _extract_pagination_hrefs
+
+    source_url = "https://kitakyushu.ulucks.jp/view/smartlink/?link_id=seed&mail=user%40example.com"
+    html = Path("tests/fixtures/ulucks/smartlink_page1_before_parse.html").read_text(encoding="utf-8")
+
+    hrefs = _extract_pagination_hrefs(source_url, html)
+
+    assert any("page:2" in href for href in hrefs)
