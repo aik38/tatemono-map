@@ -4,12 +4,15 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import traceback
+from collections import Counter
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 
 from selectolax.parser import HTMLParser
 
@@ -20,27 +23,16 @@ from tatemono_map.util.area import parse_area_sqm
 from tatemono_map.util.money import parse_rent_yen
 from tatemono_map.util.text import normalize_text
 
-_HEADER_HINTS = ("家賃", "万円", "間取り", "㎡", "物件", "空室", "所在地", "更新")
-_TABLE_SCOPED_SELECTORS = (
-    "table",
-    "#search_list table",
-    "#search_result table",
-    "#search_list_result table",
+_CARD_FIELD_LABELS = ("物件名", "号室", "所在地", "家賃", "更新日時")
+_CARD_SELECTORS = (
+    "table.listing_card",
+    ".listing_card",
+    ".property-card",
+    ".property_card",
+    ".result-item",
+    ".result_item",
 )
-
-
-@dataclass(frozen=True)
-class _ColumnMap:
-    name_idx: int | None = None
-    room_idx: int | None = None
-    rent_idx: int | None = None
-    maint_idx: int | None = None
-    area_idx: int | None = None
-    layout_idx: int | None = None
-    address_idx: int | None = None
-    move_in_idx: int | None = None
-    updated_idx: int | None = None
-    detail_idx: int | None = None
+_ROOM_SUFFIX_RE = re.compile(r"^(?P<name>.+?)[\s　]+(?P<room>[A-Za-z]?\d{2,4}(?:号室)?)$")
 
 
 @dataclass(frozen=True)
@@ -87,213 +79,267 @@ def _to_absolute_href(current_url: str, href: str | None) -> str | None:
         if current_url.startswith("http://"):
             return f"http:{value}"
         return None
-    if value.startswith("/"):
-        prefix = current_url.split("/", 3)
-        if len(prefix) < 3:
-            return None
-        return f"{prefix[0]}//{prefix[2]}{value}"
-    if current_url.endswith("/"):
-        return f"{current_url}{value}"
-    parent = current_url.rsplit("/", 1)
-    if len(parent) != 2:
-        return None
-    return f"{parent[0]}/{value}"
+    resolved = urljoin(current_url, value)
+    return resolved or None
 
 
-def _score_table(table) -> int:
-    header_texts: list[str] = []
-    for row in table.css("tr")[:5]:
-        for cell in row.css("th, td"):
-            header_texts.append(normalize_text(cell.text()))
-    if not header_texts:
-        return 0
-
-    score = 0
-    for hint in _HEADER_HINTS:
-        if any(hint in text for text in header_texts):
-            score += 3
-    if any("所在地" in text for text in header_texts):
-        score += 4
-    if any("検索結果" in text for text in header_texts):
-        score += 1
-    if any("空室" in text for text in header_texts):
-        score += 2
-    return score
+def _iter_ancestors(node, max_depth: int = 6):
+    depth = 0
+    current = node.parent
+    while current is not None and current.tag != "-undef" and depth < max_depth:
+        yield current
+        current = current.parent
+        depth += 1
 
 
-def _candidate_tables(html: str) -> list[Any]:
-    tree = HTMLParser(html)
-    tables: list[Any] = []
-    seen_ids: set[int] = set()
-    for selector in _TABLE_SCOPED_SELECTORS:
-        for table in tree.css(selector):
-            table_id = id(table)
-            if table_id in seen_ids:
-                continue
-            seen_ids.add(table_id)
-            tables.append(table)
-    return tables
-
-
-def _column_map(header_cells: list[str]) -> _ColumnMap:
-    name_idx = room_idx = rent_idx = maint_idx = area_idx = layout_idx = address_idx = move_in_idx = updated_idx = detail_idx = None
-    for idx, label in enumerate(header_cells):
-        text = normalize_text(label)
-        if ("物件" in text or "建物" in text or "物件名" in text) and name_idx is None:
-            name_idx = idx
-        if ("号室" in text or "部屋" in text) and room_idx is None:
-            room_idx = idx
-        if ("賃料" in text or "家賃" in text or "万円" in text) and rent_idx is None:
-            rent_idx = idx
-        if ("管理費" in text or "共益費" in text) and maint_idx is None:
-            maint_idx = idx
-        if ("間取" in text or "間取り" in text) and layout_idx is None:
-            layout_idx = idx
-        if ("㎡" in text or "m2" in text.lower() or "面積" in text) and area_idx is None:
-            area_idx = idx
-        if "所在" in text and address_idx is None:
-            address_idx = idx
-        if "入居" in text and move_in_idx is None:
-            move_in_idx = idx
-        if ("更新" in text or "掲載" in text) and updated_idx is None:
-            updated_idx = idx
-        if ("詳細" in text or "内見" in text) and detail_idx is None:
-            detail_idx = idx
-    return _ColumnMap(
-        name_idx=name_idx,
-        room_idx=room_idx,
-        rent_idx=rent_idx,
-        maint_idx=maint_idx,
-        area_idx=area_idx,
-        layout_idx=layout_idx,
-        address_idx=address_idx,
-        move_in_idx=move_in_idx,
-        updated_idx=updated_idx,
-        detail_idx=detail_idx,
-    )
-
-
-def _find_header_row(rows: list[Any]) -> tuple[int | None, list[str]]:
-    for idx, row in enumerate(rows):
-        cells = row.css("th, td")
-        labels = [normalize_text(cell.text()) for cell in cells]
-        if labels and any(any(h in label for h in _HEADER_HINTS) for label in labels):
-            return idx, labels
-    return None, []
-
-
-def _extract_rows_from_table(source_url: str, table) -> list[ListingRecord]:
-    rows = table.css("tr")
-    header_row_idx, headers = _find_header_row(rows)
-    if header_row_idx is None:
-        return []
-
-    mapping = _column_map(headers)
-    records: list[ListingRecord] = []
-    for row in rows[header_row_idx + 1 :]:
-        cells = row.css("td")
-        if not cells:
-            continue
-        texts = [normalize_text(cell.text(deep=True, separator=" ")) for cell in cells]
-        if not any(texts):
-            continue
-
-        name = texts[mapping.name_idx] if mapping.name_idx is not None and mapping.name_idx < len(texts) else ""
-        room_name = texts[mapping.room_idx] if mapping.room_idx is not None and mapping.room_idx < len(texts) else ""
-        address = texts[mapping.address_idx] if mapping.address_idx is not None and mapping.address_idx < len(texts) else ""
-        layout = texts[mapping.layout_idx] if mapping.layout_idx is not None and mapping.layout_idx < len(texts) else ""
-        area_raw = texts[mapping.area_idx] if mapping.area_idx is not None and mapping.area_idx < len(texts) else ""
-        rent_raw = texts[mapping.rent_idx] if mapping.rent_idx is not None and mapping.rent_idx < len(texts) else ""
-        maint_raw = texts[mapping.maint_idx] if mapping.maint_idx is not None and mapping.maint_idx < len(texts) else ""
-        move_in = texts[mapping.move_in_idx] if mapping.move_in_idx is not None and mapping.move_in_idx < len(texts) else ""
-        updated = texts[mapping.updated_idx] if mapping.updated_idx is not None and mapping.updated_idx < len(texts) else ""
-
-        detail_url = None
-        if mapping.detail_idx is not None and mapping.detail_idx < len(cells):
-            detail_url = _to_absolute_href(source_url, cells[mapping.detail_idx].attributes.get("href"))
-        if not detail_url:
-            anchor = row.css_first("a[href]")
-            if anchor is not None:
-                detail_url = _to_absolute_href(source_url, anchor.attributes.get("href"))
-
-        if not name or not address:
-            continue
-
-        rent_yen = parse_rent_yen(rent_raw)
-        maint_yen = parse_rent_yen(maint_raw)
-        area_sqm = parse_area_sqm(area_raw)
-        source_value = detail_url or source_url
-        records.append(
-            ListingRecord(
-                name=name,
-                address=address,
-                room_label=room_name or None,
-                rent_yen=rent_yen,
-                maint_yen=maint_yen,
-                layout=layout or None,
-                area_sqm=area_sqm,
-                move_in_date=move_in or None,
-                updated_at=updated or None,
-                source_kind="smartlink_dom",
-                source_url=source_value,
-            )
-        )
-    return records
-
-
-def _extract_kv_card_from_table(source_url: str, table) -> list[ListingRecord]:
-    rows = table.css("tr")
+def _extract_kv_fields(card) -> dict[str, str]:
     fields: dict[str, str] = {}
-    for row in rows:
+    for row in card.css("tr"):
         cells = row.css("th, td")
         if len(cells) < 2:
             continue
         key = normalize_text(cells[0].text(deep=True, separator=" "))
         value = normalize_text(cells[1].text(deep=True, separator=" "))
-        if not key or not value:
+        if key and value:
+            fields[key] = value
+
+    terms = card.css("dt")
+    definitions = card.css("dd")
+    for idx, term in enumerate(terms):
+        if idx >= len(definitions):
+            break
+        key = normalize_text(term.text(deep=True, separator=" "))
+        value = normalize_text(definitions[idx].text(deep=True, separator=" "))
+        if key and value:
+            fields[key] = value
+
+    return fields
+
+
+def _field_from_labels(fields: dict[str, str], *labels: str) -> str:
+    for label in labels:
+        if label in fields and fields[label]:
+            return fields[label]
+    return ""
+
+
+def _split_building_and_room(name_text: str, explicit_room: str | None = None) -> tuple[str, str | None]:
+    name = normalize_text(name_text)
+    room = normalize_text(explicit_room or "") or None
+    if room:
+        name = name.replace(room, "").strip(" /　")
+        return name, room
+
+    matched = _ROOM_SUFFIX_RE.match(name)
+    if matched:
+        return matched.group("name").strip(), matched.group("room").strip()
+    return name, None
+
+
+
+
+def _extract_table_rows_as_cards(soup: HTMLParser) -> list[dict[str, str]]:
+    cards: list[dict[str, str]] = []
+    for table in soup.css("table"):
+        rows = table.css("tr")
+        if len(rows) < 2:
             continue
-        fields[key] = value
+        header_cells = rows[0].css("th, td")
+        headers = [normalize_text(cell.text(deep=True, separator=" ")) for cell in header_cells]
+        joined = " ".join(headers)
+        if "物件" not in joined or "所在地" not in joined or "家賃" not in joined:
+            continue
 
-    name = fields.get("物件名/号室") or fields.get("物件名") or fields.get("建物名") or ""
-    address = fields.get("所在地") or ""
+        header_idx: dict[str, int] = {}
+        for idx, header in enumerate(headers):
+            if ("物件" in header or "建物" in header) and "name" not in header_idx:
+                header_idx["name"] = idx
+            if ("号室" in header or "部屋" in header) and "room" not in header_idx:
+                header_idx["room"] = idx
+            if "所在" in header and "address" not in header_idx:
+                header_idx["address"] = idx
+            if ("家賃" in header or "賃料" in header) and "rent" not in header_idx:
+                header_idx["rent"] = idx
+            if ("間取" in header or "間取り" in header) and "layout" not in header_idx:
+                header_idx["layout"] = idx
+            if ("面積" in header or "㎡" in header) and "area" not in header_idx:
+                header_idx["area"] = idx
+            if "更新" in header and "updated" not in header_idx:
+                header_idx["updated"] = idx
+            if "入居" in header and "move_in" not in header_idx:
+                header_idx["move_in"] = idx
+            if ("管理費" in header or "共益費" in header) and "maint" not in header_idx:
+                header_idx["maint"] = idx
+
+        if "name" not in header_idx or "address" not in header_idx:
+            continue
+
+        for row in rows[1:]:
+            cells = row.css("td")
+            if not cells:
+                continue
+            values = [normalize_text(cell.text(deep=True, separator=" ")) for cell in cells]
+            if not any(values):
+                continue
+            fields: dict[str, str] = {}
+            fields["物件名"] = values[header_idx["name"]] if header_idx["name"] < len(values) else ""
+            fields["所在地"] = values[header_idx["address"]] if header_idx["address"] < len(values) else ""
+            if "room" in header_idx and header_idx["room"] < len(values):
+                fields["号室"] = values[header_idx["room"]]
+            if "rent" in header_idx and header_idx["rent"] < len(values):
+                fields["家賃"] = values[header_idx["rent"]]
+            if "layout" in header_idx and header_idx["layout"] < len(values):
+                fields["間取り"] = values[header_idx["layout"]]
+            if "area" in header_idx and header_idx["area"] < len(values):
+                fields["専有面積"] = values[header_idx["area"]]
+            if "updated" in header_idx and header_idx["updated"] < len(values):
+                fields["更新日時"] = values[header_idx["updated"]]
+            if "move_in" in header_idx and header_idx["move_in"] < len(values):
+                fields["入居可能日"] = values[header_idx["move_in"]]
+            if "maint" in header_idx and header_idx["maint"] < len(values):
+                fields["管理費"] = values[header_idx["maint"]]
+
+            detail_anchor = row.css_first("a[href]")
+            if detail_anchor is not None:
+                fields["__detail_href"] = detail_anchor.attributes.get("href") or ""
+
+            cards.append(fields)
+
+    return cards
+
+def _extract_cards(soup: HTMLParser) -> list[Any]:
+    cards: list[Any] = []
+    seen: set[int] = set()
+
+    def _append(node) -> None:
+        node_id = node.mem_id
+        if node_id in seen:
+            return
+        seen.add(node_id)
+        cards.append(node)
+
+    for selector in _CARD_SELECTORS:
+        for node in soup.css(selector):
+            _append(node)
+
+    for anchor in soup.css("a[href]"):
+        anchor_text = normalize_text(anchor.text(deep=True, separator=" "))
+        href = normalize_text(anchor.attributes.get("href") or "")
+        if "詳細" not in anchor_text and "/view/smartlink" not in href:
+            continue
+        for ancestor in _iter_ancestors(anchor):
+            block_text = normalize_text(ancestor.text(deep=True, separator=" "))
+            score = sum(1 for label in _CARD_FIELD_LABELS if label in block_text)
+            if score >= 3:
+                _append(ancestor)
+                break
+
+    return cards
+
+
+def _parse_card(card, base_url: str) -> ListingRecord | None:
+    fields = _extract_kv_fields(card)
+    name_raw = _field_from_labels(fields, "物件名/号室", "物件名", "建物名")
+    room_raw = _field_from_labels(fields, "号室", "部屋")
+    address = _field_from_labels(fields, "所在地", "住所")
+    rent_raw = _field_from_labels(fields, "家賃", "賃料")
+    maint_raw = _field_from_labels(fields, "管理費", "共益費", "諸費用")
+    layout = _field_from_labels(fields, "間取り", "間取") or None
+    area_raw = _field_from_labels(fields, "専有面積", "面積")
+    move_in = _field_from_labels(fields, "入居可能日", "入居") or None
+    updated = _field_from_labels(fields, "更新日時", "更新日", "掲載日") or None
+
+    if not name_raw:
+        headline = card.css_first("h1, h2, h3, h4, .title, .name")
+        if headline is not None:
+            name_raw = normalize_text(headline.text(deep=True, separator=" "))
+
+    if not address or not rent_raw:
+        card_text = normalize_text(card.text(deep=True, separator=" "))
+        for label in ("所在地", "住所"):
+            if not address and label in card_text:
+                address = card_text.split(label, 1)[1].split("家賃", 1)[0].strip(" ：:")
+        if not rent_raw and "家賃" in card_text:
+            rent_raw = card_text.split("家賃", 1)[1].split("間取り", 1)[0].strip(" ：:")
+
+    name, room_label = _split_building_and_room(name_raw, explicit_room=room_raw)
     if not name or not address:
-        return []
+        return None
 
-    detail_url = None
-    anchor = table.css_first("a[href]")
-    if anchor is not None:
-        detail_url = _to_absolute_href(source_url, anchor.attributes.get("href"))
+    detail_url = _to_absolute_href(base_url, fields.get("__detail_href"))
+    for anchor in card.css("a[href]"):
+        anchor_text = normalize_text(anchor.text(deep=True, separator=" "))
+        href = anchor.attributes.get("href")
+        if "詳細" in anchor_text:
+            detail_url = _to_absolute_href(base_url, href)
+            break
+        if detail_url is None:
+            detail_url = _to_absolute_href(base_url, href)
 
-    return [
-        ListingRecord(
-            name=name,
-            address=address,
-            room_label=fields.get("号室") or None,
-            rent_yen=parse_rent_yen(fields.get("家賃") or fields.get("賃料") or ""),
-            maint_yen=parse_rent_yen(fields.get("管理費") or fields.get("共益費") or ""),
-            layout=fields.get("間取り") or fields.get("間取") or None,
-            area_sqm=parse_area_sqm(fields.get("専有面積") or fields.get("面積") or ""),
-            move_in_date=fields.get("入居可能日") or fields.get("入居") or None,
-            updated_at=fields.get("更新日時") or fields.get("更新日") or None,
-            source_kind="smartlink_dom",
-            source_url=detail_url or source_url,
-        )
-    ]
+    return ListingRecord(
+        name=name,
+        address=address,
+        room_label=room_label,
+        rent_yen=parse_rent_yen(rent_raw),
+        maint_yen=parse_rent_yen(maint_raw),
+        layout=layout,
+        area_sqm=parse_area_sqm(area_raw),
+        move_in_date=move_in,
+        updated_at=updated,
+        source_kind="smartlink_dom",
+        source_url=detail_url or base_url,
+    )
+
+
+def _record_from_fields(fields: dict[str, str], base_url: str) -> ListingRecord | None:
+    name_raw = _field_from_labels(fields, "物件名/号室", "物件名", "建物名")
+    room_raw = _field_from_labels(fields, "号室", "部屋")
+    address = _field_from_labels(fields, "所在地", "住所")
+    name, room_label = _split_building_and_room(name_raw, explicit_room=room_raw)
+    if not name or not address:
+        return None
+
+    detail_url = _to_absolute_href(base_url, fields.get("__detail_href"))
+    return ListingRecord(
+        name=name,
+        address=address,
+        room_label=room_label,
+        rent_yen=parse_rent_yen(_field_from_labels(fields, "家賃", "賃料")),
+        maint_yen=parse_rent_yen(_field_from_labels(fields, "管理費", "共益費", "諸費用")),
+        layout=_field_from_labels(fields, "間取り", "間取") or None,
+        area_sqm=parse_area_sqm(_field_from_labels(fields, "専有面積", "面積")),
+        move_in_date=_field_from_labels(fields, "入居可能日", "入居") or None,
+        updated_at=_field_from_labels(fields, "更新日時", "更新日", "掲載日") or None,
+        source_kind="smartlink_dom",
+        source_url=detail_url or base_url,
+    )
 
 
 def extract_records(source_url: str, html: str) -> list[ListingRecord]:
-    scored: list[tuple[int, Any]] = [(_score_table(table), table) for table in _candidate_tables(html)]
-    scored = sorted(scored, key=lambda item: item[0], reverse=True)
+    soup = HTMLParser(html)
+    primary_cards = _extract_cards(soup)
+    fallback_cards = _extract_table_rows_as_cards(soup)
 
     seen: set[str] = set()
     records: list[ListingRecord] = []
-    for score, table in scored:
-        if score <= 0:
-            continue
-        table_records = _extract_rows_from_table(source_url=source_url, table=table)
-        if not table_records:
-            table_records = _extract_kv_card_from_table(source_url=source_url, table=table)
-        for record in table_records:
+
+    def _consume(cards: list[Any]) -> None:
+        for card in cards:
+            record = _parse_card(card, source_url)
+            if not record:
+                continue
+            rec_key = _listing_key(record.source_url, record.name, record.address, record.layout, record.area_sqm, record.rent_yen)
+            if rec_key in seen:
+                continue
+            seen.add(rec_key)
+            records.append(record)
+
+    _consume(primary_cards)
+    if not records:
+        for field_map in fallback_cards:
+            record = _record_from_fields(field_map, source_url)
+            if not record:
+                continue
             rec_key = _listing_key(record.source_url, record.name, record.address, record.layout, record.area_sqm, record.rent_yen)
             if rec_key in seen:
                 continue
@@ -303,17 +349,43 @@ def extract_records(source_url: str, html: str) -> list[ListingRecord]:
 
 
 def _collect_parse_debug_meta(source_url: str, html: str) -> dict[str, int | str]:
-    tables = _candidate_tables(html)
-    positive_scored = sum(1 for table in tables if _score_table(table) > 0)
     tree = HTMLParser(html)
+    cards = _extract_cards(tree)
+    table_row_cards = _extract_table_rows_as_cards(tree)
+    if not cards:
+        cards = table_row_cards
+    detail_links = 0
+    cards_with_name_label = 0
+    for card in cards:
+        if isinstance(card, dict):
+            text = normalize_text(" ".join(card.values()))
+            if "物件名" in text:
+                cards_with_name_label += 1
+            if card.get("__detail_href"):
+                detail_links += 1
+            continue
+
+        text = normalize_text(card.text(deep=True, separator=" "))
+        if "物件名" in text:
+            cards_with_name_label += 1
+        if any("詳細" in normalize_text(a.text(deep=True, separator=" ")) for a in card.css("a[href]")):
+            detail_links += 1
+
+    label_counter = Counter()
+    body_text = normalize_text(tree.body.text(deep=True, separator=" ")) if tree.body else ""
+    for label in ("更新日時", "物件名", "所在地", "家賃"):
+        label_counter[label] = body_text.count(label)
+
     return {
         "source_url": source_url,
-        "found_tables": len(tables),
-        "found_positive_scored_tables": positive_scored,
-        "found_update_labels": len(tree.css("*:contains('更新日時')")),
-        "found_name_labels": len(tree.css("*:contains('物件名')")),
-        "found_address_labels": len(tree.css("*:contains('所在地')")),
-        "found_rent_labels": len(tree.css("*:contains('家賃')")),
+        "found_cards": len(cards),
+        "found_table_row_cards": len(table_row_cards),
+        "cards_with_name_label": cards_with_name_label,
+        "cards_with_detail_link": detail_links,
+        "found_update_labels": label_counter["更新日時"],
+        "found_name_labels": label_counter["物件名"],
+        "found_address_labels": label_counter["所在地"],
+        "found_rent_labels": label_counter["家賃"],
         "found_pagination_links": len(tree.css("a[href*='/view/smartlink/page:']")),
     }
 
@@ -566,13 +638,15 @@ def ingest(
                 html = page.content()
                 page_records = extract_records(current_url, html)
                 if not page_records:
+                    parse_meta = _collect_parse_debug_meta(current_url, html)
+                    parse_meta["record_count"] = len(page_records)
                     _dump_debug(
                         debug_root,
                         page,
                         len(visited),
                         "parse_failed",
                         reason="0 records on page",
-                        extra_meta=_collect_parse_debug_meta(current_url, html),
+                        extra_meta=parse_meta,
                     )
                 all_records.extend(page_records)
                 for href in _extract_pagination_hrefs(current_url, html):
