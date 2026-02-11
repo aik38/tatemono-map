@@ -21,6 +21,7 @@ _HEADER_HINTS = ("家賃", "万円", "間取り", "㎡", "物件", "空室")
 class _ColumnMap:
     name_idx: int | None = None
     rent_idx: int | None = None
+    maint_idx: int | None = None
     area_idx: int | None = None
     layout_idx: int | None = None
     address_idx: int | None = None
@@ -82,13 +83,15 @@ def _best_table(html: str):
 
 
 def _column_map(header_cells: list[str]) -> _ColumnMap:
-    name_idx = rent_idx = area_idx = layout_idx = address_idx = move_in_idx = updated_idx = None
+    name_idx = rent_idx = maint_idx = area_idx = layout_idx = address_idx = move_in_idx = updated_idx = None
     for idx, label in enumerate(header_cells):
         text = normalize_text(label)
         if ("物件" in text or "建物" in text) and name_idx is None:
             name_idx = idx
         if ("賃料" in text or "家賃" in text or "万円" in text) and rent_idx is None:
             rent_idx = idx
+        if ("管理費" in text or "共益費" in text) and maint_idx is None:
+            maint_idx = idx
         if ("間取" in text or "間取り" in text) and layout_idx is None:
             layout_idx = idx
         if ("㎡" in text or "m2" in text.lower() or "面積" in text) and area_idx is None:
@@ -102,6 +105,7 @@ def _column_map(header_cells: list[str]) -> _ColumnMap:
     return _ColumnMap(
         name_idx=name_idx,
         rent_idx=rent_idx,
+        maint_idx=maint_idx,
         area_idx=area_idx,
         layout_idx=layout_idx,
         address_idx=address_idx,
@@ -136,6 +140,7 @@ def _extract_rows_from_table(source_url: str, table) -> list[ListingRecord]:
         layout = cells[mapping.layout_idx] if mapping.layout_idx is not None and mapping.layout_idx < len(cells) else ""
         area_raw = cells[mapping.area_idx] if mapping.area_idx is not None and mapping.area_idx < len(cells) else ""
         rent_raw = cells[mapping.rent_idx] if mapping.rent_idx is not None and mapping.rent_idx < len(cells) else ""
+        maint_raw = cells[mapping.maint_idx] if mapping.maint_idx is not None and mapping.maint_idx < len(cells) else ""
         move_in = cells[mapping.move_in_idx] if mapping.move_in_idx is not None and mapping.move_in_idx < len(cells) else ""
         updated = cells[mapping.updated_idx] if mapping.updated_idx is not None and mapping.updated_idx < len(cells) else ""
 
@@ -143,6 +148,7 @@ def _extract_rows_from_table(source_url: str, table) -> list[ListingRecord]:
             continue
 
         rent_yen = parse_rent_yen(rent_raw)
+        maint_yen = parse_rent_yen(maint_raw)
         area_sqm = parse_area_sqm(area_raw)
         records.append(
             ListingRecord(
@@ -150,7 +156,7 @@ def _extract_rows_from_table(source_url: str, table) -> list[ListingRecord]:
                 address=address,
                 room_label=None,
                 rent_yen=rent_yen,
-                maint_yen=None,
+                maint_yen=maint_yen,
                 layout=layout or None,
                 area_sqm=area_sqm,
                 move_in_date=move_in or None,
@@ -260,6 +266,14 @@ def _bulk_upsert(db_path: str, records: list[ListingRecord]) -> int:
     return len(payload)
 
 
+def persist_records(db_path: str, records: list[ListingRecord]) -> tuple[int, int]:
+    if not records:
+        raise RuntimeError("smartlink_dom ingest produced 0 records")
+    upserted = _bulk_upsert(db_path=db_path, records=records)
+    summary_count = rebuild(db_path)
+    return upserted, summary_count
+
+
 def ingest(start_url: str, db_path: str, max_pages: int = 20, sleep_ms: int = 800) -> tuple[int, int]:
     from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
     from playwright.sync_api import sync_playwright
@@ -296,9 +310,7 @@ def ingest(start_url: str, db_path: str, max_pages: int = 20, sleep_ms: int = 80
         context.close()
         browser.close()
 
-    upserted = _bulk_upsert(db_path=db_path, records=all_records)
-    summary_count = rebuild(db_path)
-    return upserted, summary_count
+    return persist_records(db_path=db_path, records=all_records)
 
 
 def main() -> None:
