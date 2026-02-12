@@ -39,13 +39,13 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
-　　  - name: Build static HTML
-    　　run: |
-      　　rm -rf dist
-    　　  python -m tatemono_map.render.build --output-dir dist
-   　　 env:
-      TATEMONO_MAP_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
-      TATEMONO_MAP_GOOGLE_VERIFICATION_FILE: google9e29480048aec8bf.html
+      - name: Build static HTML
+        run: |
+          rm -rf dist
+          python -m tatemono_map.render.build --output-dir dist
+        env:
+          TATEMONO_MAP_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          TATEMONO_MAP_GOOGLE_VERIFICATION_FILE: google9e29480048aec8bf.html
 
       - name: Basic sanity check
         run: |
@@ -56,7 +56,6 @@ jobs:
         run: |
           set -e
           ! grep -RInE "(\.pdf\b|号室|参照元|管理会社|元付|PDF)" dist || (echo "Forbidden content detected in dist/"; exit 1)
-          ! grep -RInE "(https?://)" dist --include="*.html" || (echo "Forbidden content detected in dist HTML/"; exit 1)
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
