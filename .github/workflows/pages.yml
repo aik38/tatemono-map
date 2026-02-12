@@ -59,7 +59,6 @@ jobs:
 
       - name: Build dist
         env:
-          SQLITE_DB_PATH: data/public/public.sqlite3
           TATEMONO_MAP_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
           TATEMONO_MAP_GOOGLE_VERIFICATION_FILE: google9e29480048aec8bf.html
         run: |
@@ -77,12 +76,14 @@ jobs:
       - name: Assert building list includes entries
         run: |
           python - <<'PY'
+          import re
           from pathlib import Path
+
           html = Path("dist/index.html").read_text(encoding="utf-8")
-          n = html.count("building-card")
-          print("building-card count in dist/index.html =", n)
+          n = len(re.findall(r'<li[^>]*class="[^"]*building-card[^"]*"', html))
+          print("building-card entries in dist/index.html =", n)
           if n <= 0:
-            raise SystemExit("No building cards in dist/index.html; refusing to deploy")
+              raise SystemExit("No building cards in dist/index.html; refusing to deploy")
           PY
 
       - name: Forbidden content grep check
