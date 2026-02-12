@@ -20,6 +20,23 @@ FORBIDDEN_PATTERNS = (
     r"号室"
 )
 
+ROOM_SUFFIX_RE = re.compile(r"(?:\s|　)*(?:\d+|[0-9０-９]+)\s*号室")
+
+
+def _sanitize_text(value: str) -> str:
+    sanitized = ROOM_SUFFIX_RE.sub("", value)
+    return re.sub(r"\s{2,}", " ", sanitized).strip()
+
+
+def _sanitize_building(building: dict) -> dict:
+    sanitized = dict(building)
+    for key, value in sanitized.items():
+        if isinstance(value, str):
+            sanitized[key] = _sanitize_text(value)
+        elif isinstance(value, list):
+            sanitized[key] = [_sanitize_text(item) if isinstance(item, str) else item for item in value]
+    return sanitized
+
 
 def _validate_public_dist(output_dir: Path) -> None:
     for html_path in output_dir.rglob("*.html"):
@@ -55,7 +72,7 @@ def build_dist(db_path: str, output_dir: str) -> None:
         building = dict(row)
         building["layout_types"] = json.loads(building.get("layout_types_json") or "[]")
         building["move_in_dates"] = json.loads(building.get("move_in_dates_json") or "[]")
-        building_list.append(building)
+        building_list.append(_sanitize_building(building))
 
     (out / "index.html").write_text(index_tpl.render(buildings=building_list), encoding="utf-8")
 
@@ -66,6 +83,8 @@ def build_dist(db_path: str, output_dir: str) -> None:
             maps_url = f"https://maps.google.com/?q={quote_plus(address)}"
         html = building_tpl.render(building=b, maps_url=maps_url)
         (out / "b" / f"{b['building_key']}.html").write_text(html, encoding="utf-8")
+
+    (out / ".nojekyll").touch()
 
     _validate_public_dist(out)
     conn.close()
