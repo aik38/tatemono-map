@@ -64,13 +64,26 @@ jobs:
           TATEMONO_MAP_GOOGLE_VERIFICATION_FILE: google9e29480048aec8bf.html
         run: |
           rm -rf dist
-          python -m tatemono_map.render.build --output-dir dist
+          # ✅ ここが重要：public DBを明示してビルド
+          python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist
           touch dist/.nojekyll
 
       - name: Basic sanity check
         run: |
           test -f dist/index.html
           test -d dist/b
+
+      # ✅ 「PagesのHTMLが0件」を再発させないための最重要チェック
+      - name: Assert building list includes entries
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("dist/index.html").read_text(encoding="utf-8")
+          n = html.count("building-card")
+          print("building-card count in dist/index.html =", n)
+          if n <= 0:
+            raise SystemExit("No building cards in dist/index.html; refusing to deploy")
+          PY
 
       - name: Forbidden content grep check
         run: |
