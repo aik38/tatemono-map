@@ -15,23 +15,25 @@ from pypdf import PdfReader
 
 import pdfplumber
 
-SCHEMA = [
-    "page",
+FINAL_SCHEMA = [
     "category",
     "updated_at",
-    "source_property_name",
     "building_name",
-    "room_no",
+    "room",
     "address",
     "rent_man",
     "fee_man",
-    "floor",
     "layout",
+    "floor",
     "area_sqm",
     "age_years",
     "structure",
-    "raw_blockfile",
+    "file",
+    "page",
+    "raw_block",
 ]
+
+LEGACY_SCHEMA = ["source_property_name", "room_no", "raw_blockfile"]
 
 BAD_BUILDING_TOKENS = ["》", "号", "NEW"]
 DETACHED_HOUSE_KEYWORDS = ["戸建", "一戸建", "貸家", "一軒家"]
@@ -195,13 +197,15 @@ def is_noise_line(line: str) -> bool:
     if not s:
         return True
     patterns = [
-        r"^TEL[:：]",
-        r"^FAX[:：]",
+        r"TEL[:：]",
+        r"FAX[:：]",
         r"^\d+/\d+頁$",
         r"^\d+/\d+ページ$",
+        r"^\d+/\d+$",
         r"空室一覧表",
         r"^\d{4}[/-]\d{1,2}[/-]\d{1,2}",
         r"^\d{1,2}:\d{2}",
+        r"北九州市.*区$",
     ]
     return any(re.search(p, s, flags=re.IGNORECASE) for p in patterns)
 
@@ -271,6 +275,8 @@ class UlucksParser:
                                 "area_sqm": parse_area_sqm(r[idx.get("面積", "")]),
                                 "age_years": float("nan"),
                                 "structure": nfkc(r[idx.get("構造", "")]),
+                                "file": pdf_path.name,
+                                "raw_block": raw,
                                 "raw_blockfile": raw,
                             }
                         )
@@ -289,6 +295,28 @@ class RealproParser:
                 score += 1
         return DetectResult(kind="realpro" if score >= 3 else "non_vacancy", reason=f"realpro_score={score}")
 
+    def _extract_contexts(self, lines: List[str]) -> List[Tuple[str, str, str, float]]:
+        contexts: List[Tuple[str, str, str, float]] = []
+        for i, line in enumerate(lines[:-1]):
+            if is_noise_line(line):
+                continue
+            next_line = lines[i + 1]
+            if not looks_like_address(next_line):
+                continue
+            nearby = " ".join(lines[i : min(i + 5, len(lines))])
+            if not looks_like_structure_or_age(nearby):
+                continue
+            structure = ""
+            age = float("nan")
+            sm = re.search(r"(RC|SRC|S造|木造|鉄骨造|鉄筋コンクリート造)", nearby)
+            if sm:
+                structure = sm.group(1)
+            am = re.search(r"築\s*(\d+)\s*年", nearby)
+            if am:
+                age = float(am.group(1))
+            contexts.append((line, next_line, structure, age))
+        return contexts
+
     def parse(self, pdf_path: Path) -> ParseResult:
         rows: List[Dict[str, Any]] = []
         warns: List[str] = []
@@ -298,29 +326,15 @@ class RealproParser:
                 lines = [nfkc(l) for l in text.splitlines() if nfkc(l)]
                 updated = parse_updated_at(text)
 
-                contexts: List[Tuple[str, str, str, float]] = []
-                for i, line in enumerate(lines[:-1]):
-                    if is_noise_line(line):
-                        continue
-                    next_line = lines[i + 1]
-                    if looks_like_address(next_line):
-                        nearby = " ".join(lines[i : min(i + 5, len(lines))])
-                        if looks_like_structure_or_age(nearby):
-                            structure = ""
-                            age = float("nan")
-                            sm = re.search(r"(RC|SRC|S造|木造|鉄骨造|鉄筋コンクリート造)", nearby)
-                            if sm:
-                                structure = sm.group(1)
-                            am = re.search(r"築\s*(\d+)\s*年", nearby)
-                            if am:
-                                age = float(am.group(1))
-                            contexts.append((line, next_line, structure, age))
+                contexts = self._extract_contexts(lines)
 
                 if not contexts:
                     warns.append(f"p{pi}:building_context_not_found")
 
                 tables = page.extract_tables() or []
                 current_idx = 0
+                last_context: Tuple[str, str, str, float] = ('', '', '', float('nan'))
+                backtrack_blocks = 3
                 for tb in tables:
                     if not tb or len(tb) < 2:
                         continue
@@ -335,10 +349,19 @@ class RealproParser:
                     if header_row is None:
                         continue
                     idx = {h: header.index(h) for h in header if h}
-                    if current_idx >= len(contexts):
-                        context = ("", "", "", float("nan"))
-                    else:
-                        context = contexts[current_idx]
+                    context = contexts[current_idx] if current_idx < len(contexts) else ("", "", "", float("nan"))
+                    if context[0] == "" and contexts:
+                        start = max(0, min(current_idx, len(contexts) - 1) - backtrack_blocks)
+                        for bi in range(min(current_idx, len(contexts) - 1), start - 1, -1):
+                            cand = contexts[bi]
+                            if cand[0] and not is_noise_line(cand[0]):
+                                context = cand
+                                warns.append(f"p{pi}:context_backtracked")
+                                break
+                    if context[0] == "" and last_context[0]:
+                        context = last_context
+                    if context[0]:
+                        last_context = context
                     current_idx += 1
 
                     for r in tb[header_row + 1 :]:
@@ -368,6 +391,7 @@ class RealproParser:
                                 "page": pi,
                                 "category": "realpro",
                                 "updated_at": updated,
+                                "file": pdf_path.name,
                                 "building_name": context[0],
                                 "room": room,
                                 "address": context[1],
@@ -378,6 +402,7 @@ class RealproParser:
                                 "area_sqm": area,
                                 "age_years": context[3],
                                 "structure": context[2],
+                                "raw_block": raw,
                                 "raw_blockfile": raw,
                             }
                         )
@@ -415,7 +440,7 @@ def detect_pdf_kind(path: Path) -> DetectResult:
 
 def dedupe(df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
     before = len(df)
-    key_cols = ["category", "building_name", "address", "room_no", "rent_man", "fee_man", "floor", "layout", "area_sqm"]
+    key_cols = ["category", "building_name", "address", "room", "rent_man", "fee_man", "floor", "layout", "area_sqm"]
     df2 = df.drop_duplicates(subset=key_cols, keep="first")
     return df2, before - len(df2)
 
@@ -445,10 +470,16 @@ def qc_check(df: pd.DataFrame, category: str) -> List[str]:
         reasons.append("address_empty")
 
     if category in {"ulucks", "realpro"}:
-        room = df["room_no"].fillna("").astype(str).map(nfkc)
+        room = df["room"].fillna("").astype(str).map(nfkc)
         empty_ratio = float((room == "").mean())
         if empty_ratio >= 0.50:
             reasons.append(f"room_empty_ratio={empty_ratio:.2f}")
+
+    if category == "realpro":
+        has_room = df["room"].fillna("").astype(str).map(nfkc) != ""
+        empty_name = df["building_name"].fillna("").astype(str).map(nfkc) == ""
+        if (has_room & empty_name).any():
+            reasons.append("building_name_missing_with_room")
 
     return reasons
 
@@ -457,16 +488,17 @@ def should_stop_on_qc_failures(qc_mode: str, failures: int) -> bool:
     return qc_mode == "strict" and failures > 0
 
 
-def write_csv(df: pd.DataFrame, path: Path) -> None:
+def write_csv(df: pd.DataFrame, path: Path, *, legacy_columns: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    df = df.reindex(columns=SCHEMA)
+    schema = FINAL_SCHEMA + (LEGACY_SCHEMA if legacy_columns else [])
+    df = df.reindex(columns=schema)
     df.to_csv(path, index=False, encoding="utf-8-sig", lineterminator="\r\n", quoting=csv.QUOTE_ALL, na_rep="")
 
 
 def _extract_with_parser(kind: str, path: Path) -> ParseResult:
     parser = next((p for p in PARSERS if p.name == kind), None)
     if parser is None:
-        return ParseResult(df=pd.DataFrame([], columns=SCHEMA), warnings=["unsupported_kind"], drop_reasons={})
+        return ParseResult(df=pd.DataFrame([], columns=FINAL_SCHEMA + LEGACY_SCHEMA), warnings=["unsupported_kind"], drop_reasons={})
     return parser.parse(path)
 
 
@@ -476,6 +508,7 @@ def main() -> int:
     ap.add_argument("--realpro-dir", required=False, default="")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--qc-mode", choices=["strict", "warn", "off"], default="warn")
+    ap.add_argument("--legacy-columns", action="store_true")
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -533,7 +566,7 @@ def main() -> int:
         df, dropped_rows, drop_reasons = apply_name_and_row_filters(df)
         df, dup_removed = dedupe(df)
         per_path = per_pdf_dir / f"{sha}.csv"
-        write_csv(df, per_path)
+        write_csv(df, per_path, legacy_columns=args.legacy_columns)
 
         reasons: List[str] = []
         status = "SKIP" if args.qc_mode == "off" else "OK"
@@ -577,9 +610,9 @@ def main() -> int:
         print(f"[STOP] QC warnings treated as failures: {failures}", file=sys.stderr)
         return 2
 
-    merged = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame([], columns=SCHEMA)
+    merged = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame([], columns=FINAL_SCHEMA + LEGACY_SCHEMA)
     merged, _ = dedupe(merged)
-    write_csv(merged, out_dir / "final.csv")
+    write_csv(merged, out_dir / "final.csv", legacy_columns=args.legacy_columns)
     print(f"[OK] final.csv rows={len(merged)} -> {out_dir / 'final.csv'}")
     return 0
 

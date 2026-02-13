@@ -14,11 +14,11 @@
 - 前提は PowerShell 7.x。実行コマンドは README の「Quick Start D) PDF batch pipeline」を正本とする。
 - 出力先は `tmp/pdf_pipeline/out/YYYYMMDD_HHMMSS`、中間生成物は `tmp/pdf_pipeline/work/YYYYMMDD_HHMMSS`。
 - 用語定義:
-  - `source_property_name`: PDF掲載名（入力原文）
   - `building_name`: 正規化後の建物名
-  - `room_no`: 建物名から自動分離した号室
+  - `room`: 部屋番号/号室
+  - 互換モード（`--legacy-columns`）では `source_property_name` / `room_no` を併記
 - 例: `ACハイム小倉Ⅰ号棟` は棟表記として `building_name` に保持し、QCで誤検知しない。
-- 例: `グランフォーレ小倉シティタワー302` は `building_name=グランフォーレ小倉シティタワー` / `room_no=302` に自動分離。
+- 例: `グランフォーレ小倉シティタワー302号室` は `building_name=グランフォーレ小倉シティタワー` / `room=302` に正規化。
 - 戸建（戸建/一戸建/貸家/一軒家）は PDF 全体を失敗扱いにせず **行単位で除外** する。
 - QC モード（既定 `warn`）:
   - `warn`: FAILがあっても継続（warn-by-default）
