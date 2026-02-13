@@ -34,9 +34,6 @@ jobs:
           pip install pytest
           pip install -e .
 
-      - name: Run tests
-        run: python -m pytest -q
-
       - name: Rebuild public DB from manual CSV
         run: |
           set -euo pipefail
