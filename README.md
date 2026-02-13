@@ -81,6 +81,28 @@ Start-Process dist/index.html
 - CSV保存先は CLI の `--csv` で任意指定可（運用推奨は `tmp/manual/ulucks_pdf_raw.csv`）。
 - DBは **`data/tatemono_map.sqlite3` 固定**（スクリプト実行時は `-DbPath` で上書き可）。
 
+### C-2) 本番（GitHub Pages）更新手順（manual CSV）
+`main` ブランチに `tmp/manual/ulucks_pdf_raw.csv` を push すると、GitHub Actions（`Deploy static site to GitHub Pages`）が次を自動実行します。
+
+1. `tmp/manual/ulucks_pdf_raw.csv` から `data/public/public.sqlite3` を再生成
+2. その公開DBから `dist/` を再ビルド
+3. GitHub Pages へデプロイ
+
+運用フロー（人手）は次の4ステップです。
+
+```powershell
+# 1) CSVを差し替え
+#    tmp/manual/ulucks_pdf_raw.csv
+
+# 2) commit/push
+git add tmp/manual/ulucks_pdf_raw.csv
+git commit -m "Update manual ulucks CSV"
+git push origin main
+
+# 3) GitHub Actions の "Deploy static site to GitHub Pages" 完了を待つ
+# 4) Repository > Environments > github-pages で Last deployed 更新を確認
+```
+
 ### D) PDF batch pipeline（Quickstart）
 - 本パイプラインは **Ulucks + Realpro の空室一覧専用**（Orientは対象外）です。
 
