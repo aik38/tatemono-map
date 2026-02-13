@@ -37,6 +37,28 @@ jobs:
       - name: Run tests
         run: python -m pytest -q
 
+      - name: Rebuild public DB from manual CSV
+        run: |
+          set -euo pipefail
+          test -f tmp/manual/ulucks_pdf_raw.csv
+          ls -lah tmp/manual
+          wc -l tmp/manual/ulucks_pdf_raw.csv
+          head -n 1 tmp/manual/ulucks_pdf_raw.csv
+
+          rm -f data/public/public.sqlite3
+
+          python - <<'PY'
+          from tatemono_map.ingest.manual_ulucks_pdf import import_ulucks_pdf_csv
+
+          imported = import_ulucks_pdf_csv(
+              db_path="data/public/public.sqlite3",
+              csv_path="tmp/manual/ulucks_pdf_raw.csv",
+              source_kind="ulucks_pdf",
+              source_url="manual_pdf",
+          )
+          print(f"imported_listings={imported}")
+          PY
+
       - name: Verify public DB is present and non-empty
         run: |
           test -f data/public/public.sqlite3
