@@ -39,6 +39,9 @@ BAD_BUILDING_TOKENS = ["》", "号", "NEW"]
 DETACHED_HOUSE_KEYWORDS = ["戸建", "一戸建", "貸家", "一軒家"]
 WARD_NAMES = ["門司区", "小倉北区", "小倉南区", "戸畑区", "八幡東区", "八幡西区", "若松区"]
 WARD_RE = "|".join(WARD_NAMES)
+REALPRO_CONTEXT_INNER_BAND_PX = 60.0
+
+REALPRO_TABLE_HEADER_TOKENS = ["号室名", "賃料", "共益費", "間取", "面積", "敷金", "礼金", "管理費"]
 
 
 @dataclass
@@ -242,8 +245,27 @@ def is_noise_line(line: str) -> bool:
         r"^\d{4}[/-]\d{1,2}[/-]\d{1,2}",
         r"^\d{1,2}:\d{2}",
         r"北九州市.*区$",
+        r"号室名をクリック",
+        r"リアプロにログイン",
+        r"詳細情報のウェブページ",
     ]
     return any(re.search(p, s, flags=re.IGNORECASE) for p in patterns)
+
+
+def is_table_header_like_line(line: str) -> bool:
+    s = nfkc(line)
+    if not s:
+        return False
+    return any(tok in s for tok in REALPRO_TABLE_HEADER_TOKENS)
+
+
+def clean_realpro_address_line(line: str) -> str:
+    s = nfkc(line)
+    if "/" in s:
+        s = s.split("/", 1)[0]
+    if "／" in s:
+        s = s.split("／", 1)[0]
+    return nfkc(s)
 
 
 def looks_like_address(line: str) -> bool:
@@ -363,10 +385,13 @@ class RealproParser:
     def _extract_context_from_lines(self, lines: List[str], ward_hint: str = "") -> Tuple[str, str, str, float]:
         if not lines:
             return "", "", "", float("nan")
+        local_ward_hint = extract_ward_hint(" ".join(lines)) or ward_hint
         building = ""
         for line in lines:
             s = nfkc(line)
             if not s or is_noise_line(s):
+                continue
+            if is_table_header_like_line(s):
                 continue
             if looks_like_address(s):
                 continue
@@ -381,7 +406,7 @@ class RealproParser:
         for line in lines:
             s = nfkc(line)
             if looks_like_address(s):
-                address = complement_address_with_ward(s, ward_hint)
+                address = complement_address_with_ward(clean_realpro_address_line(s), local_ward_hint)
                 break
 
         nearby = " ".join(lines)
@@ -413,10 +438,16 @@ class RealproParser:
 
     def _extract_context_for_table(self, page: Any, table_bbox: Tuple[float, float, float, float], prev_bottom: float, ward_hint: str) -> Tuple[str, str, str, float]:
         top = float(table_bbox[1]) if table_bbox else 0.0
-        if top <= prev_bottom:
+        bottom = float(table_bbox[3]) if table_bbox else top
+        context_bottom = min(top + REALPRO_CONTEXT_INNER_BAND_PX, bottom)
+        if context_bottom <= prev_bottom:
             return "", "", "", float("nan")
         words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
-        block_words = [w for w in words if prev_bottom <= float(w.get("top", 0.0)) <= top and float(w.get("top", 0.0)) >= 50.0]
+        block_words = [
+            w
+            for w in words
+            if prev_bottom <= float(w.get("top", 0.0)) <= context_bottom and float(w.get("top", 0.0)) >= 50.0
+        ]
         lines = self._words_to_lines(block_words)
         return self._extract_context_from_lines(lines, ward_hint)
 
