@@ -37,6 +37,8 @@ LEGACY_SCHEMA = ["source_property_name", "room_no", "raw_blockfile"]
 
 BAD_BUILDING_TOKENS = ["》", "号", "NEW"]
 DETACHED_HOUSE_KEYWORDS = ["戸建", "一戸建", "貸家", "一軒家"]
+WARD_NAMES = ["門司区", "小倉北区", "小倉南区", "戸畑区", "八幡東区", "八幡西区", "若松区"]
+WARD_RE = "|".join(WARD_NAMES)
 
 
 @dataclass
@@ -74,6 +76,20 @@ def nfkc(s: Any) -> str:
     return s.strip()
 
 
+def is_mojibake(text: Any) -> bool:
+    src = "" if text is None else str(text)
+    if not src:
+        return False
+    n = len(src)
+    jp = len(re.findall(r"[ぁ-んァ-ン一-龥]", src))
+    rep = src.count("�")
+    mojisig = len(re.findall(r"[ãÃÂ¢€œ]", src))
+    jp_ratio = jp / n if n else 0.0
+    rep_ratio = rep / n if n else 0.0
+    mojisig_ratio = mojisig / n if n else 0.0
+    return jp_ratio < 0.01 or rep_ratio >= 0.01 or mojisig_ratio >= 0.03
+
+
 def restore_latin1_cp932_mojibake(text: Any) -> str:
     src = "" if text is None else str(text)
     if not src:
@@ -88,7 +104,10 @@ def restore_latin1_cp932_mojibake(text: Any) -> str:
 
 
 def normalize_pdf_text(text: Any) -> str:
-    return nfkc(restore_latin1_cp932_mojibake(text))
+    src = "" if text is None else str(text)
+    if is_mojibake(src):
+        src = restore_latin1_cp932_mojibake(src)
+    return nfkc(src)
 
 
 def sha256_file(path: Path) -> str:
@@ -237,6 +256,28 @@ def looks_like_structure_or_age(line: str) -> bool:
     return bool(re.search(r"(RC|SRC|S造|木造|鉄骨|鉄筋|築\d+年|築年)", s))
 
 
+def extract_ward_hint(text: str) -> str:
+    s = nfkc(text)
+    m = re.search(rf"({WARD_RE})", s)
+    return m.group(1) if m else ""
+
+
+def complement_address_with_ward(address: str, ward_hint: str) -> str:
+    addr = nfkc(address)
+    ward = nfkc(ward_hint)
+    if not addr:
+        return addr
+    if re.search(rf"北九州市(?:{WARD_RE})", addr):
+        return addr
+    if not ward:
+        return addr
+    if addr.startswith("北九州市") and ward in addr:
+        return addr
+    if addr.startswith(ward):
+        return f"北九州市{addr}"
+    return f"北九州市{ward}{addr}"
+
+
 class UlucksParser:
     name = "ulucks"
 
@@ -259,6 +300,7 @@ class UlucksParser:
                 text = page.extract_text() or ""
                 text = normalize_pdf_text(text)
                 updated = parse_updated_at(text)
+                ward_hint = extract_ward_hint(text)
                 tables = page.extract_tables() or []
                 for tb in tables:
                     if not tb or len(tb) < 2:
@@ -273,6 +315,7 @@ class UlucksParser:
                         r = list(r) + [None] * (len(header) - len(r))
                         building = normalize_pdf_text(r[idx.get("物件名", "")])
                         address = normalize_pdf_text(r[idx.get("所在地", "")])
+                        address = complement_address_with_ward(address, ward_hint)
                         room = normalize_pdf_text(r[idx.get("号室", "")])
                         room = re.sub(r"\s*《.*?》\s*", "", room).strip()
                         layout_detail = normalize_pdf_text(r[idx.get("間取詳細", "")])
@@ -314,26 +357,68 @@ class RealproParser:
         return DetectResult(kind="realpro" if score >= 3 else "non_vacancy", reason=f"realpro_score={score}")
 
     def _extract_contexts(self, lines: List[str]) -> List[Tuple[str, str, str, float]]:
-        contexts: List[Tuple[str, str, str, float]] = []
-        for i, line in enumerate(lines[:-1]):
-            if is_noise_line(line):
+        context = self._extract_context_from_lines(lines, extract_ward_hint(" ".join(lines)))
+        return [context] if context[0] else []
+
+    def _extract_context_from_lines(self, lines: List[str], ward_hint: str = "") -> Tuple[str, str, str, float]:
+        if not lines:
+            return "", "", "", float("nan")
+        building = ""
+        for line in lines:
+            s = nfkc(line)
+            if not s or is_noise_line(s):
                 continue
-            next_line = lines[i + 1]
-            if not looks_like_address(next_line):
+            if looks_like_address(s):
                 continue
-            nearby = " ".join(lines[i : min(i + 5, len(lines))])
-            if not looks_like_structure_or_age(nearby):
+            if looks_like_structure_or_age(s):
                 continue
-            structure = ""
-            age = float("nan")
-            sm = re.search(r"(RC|SRC|S造|木造|鉄骨造|鉄筋コンクリート造)", nearby)
-            if sm:
-                structure = sm.group(1)
-            am = re.search(r"築\s*(\d+)\s*年", nearby)
-            if am:
-                age = float(am.group(1))
-            contexts.append((line, next_line, structure, age))
-        return contexts
+            if "空室" in s or "一覧" in s:
+                continue
+            building = s
+            break
+
+        address = ""
+        for line in lines:
+            s = nfkc(line)
+            if looks_like_address(s):
+                address = complement_address_with_ward(s, ward_hint)
+                break
+
+        nearby = " ".join(lines)
+        structure = ""
+        age = float("nan")
+        sm = re.search(r"(RC|SRC|S造|木造|鉄骨造|鉄筋コンクリート造)", nearby)
+        if sm:
+            structure = sm.group(1)
+        am = re.search(r"(?:築\s*(\d+)\s*年|(\d{4})年\s*(\d{1,2})月\s*築)", nearby)
+        if am and am.group(1):
+            age = float(am.group(1))
+        return building, address, structure, age
+
+    def _words_to_lines(self, words: List[Dict[str, Any]]) -> List[str]:
+        if not words:
+            return []
+        rows: Dict[int, List[Dict[str, Any]]] = {}
+        for w in words:
+            top = float(w.get("top", 0.0))
+            key = int(round(top / 4.0))
+            rows.setdefault(key, []).append(w)
+        out: List[str] = []
+        for key in sorted(rows.keys()):
+            row_words = sorted(rows[key], key=lambda x: float(x.get("x0", 0.0)))
+            line = nfkc(" ".join(nfkc(w.get("text", "")) for w in row_words if nfkc(w.get("text", ""))))
+            if line:
+                out.append(line)
+        return out
+
+    def _extract_context_for_table(self, page: Any, table_bbox: Tuple[float, float, float, float], prev_bottom: float, ward_hint: str) -> Tuple[str, str, str, float]:
+        top = float(table_bbox[1]) if table_bbox else 0.0
+        if top <= prev_bottom:
+            return "", "", "", float("nan")
+        words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
+        block_words = [w for w in words if prev_bottom <= float(w.get("top", 0.0)) <= top and float(w.get("top", 0.0)) >= 50.0]
+        lines = self._words_to_lines(block_words)
+        return self._extract_context_from_lines(lines, ward_hint)
 
     def parse(self, pdf_path: Path) -> ParseResult:
         rows: List[Dict[str, Any]] = []
@@ -342,20 +427,26 @@ class RealproParser:
             for pi, page in enumerate(pdf.pages, start=1):
                 text = page.extract_text() or ""
                 text = normalize_pdf_text(text)
-                lines = [normalize_pdf_text(l) for l in text.splitlines() if normalize_pdf_text(l)]
                 updated = parse_updated_at(text)
+                ward_hint = extract_ward_hint(text)
 
-                contexts = self._extract_contexts(lines)
+                page_tables = page.find_tables() or []
+                if not page_tables:
+                    for tb in page.extract_tables() or []:
+                        class _T:
+                            def __init__(self, t):
+                                self._t = t
+                                self.bbox = (0.0, 0.0, 0.0, 10000.0)
+                            def extract(self):
+                                return self._t
+                        page_tables.append(_T(tb))
 
-                if not contexts:
-                    warns.append(f"p{pi}:building_context_not_found")
-
-                tables = page.extract_tables() or []
-                current_idx = 0
-                last_context: Tuple[str, str, str, float] = ('', '', '', float('nan'))
-                backtrack_blocks = 3
-                for tb in tables:
+                prev_bottom = 0.0
+                last_context: Tuple[str, str, str, float] = ("", "", "", float("nan"))
+                for t in sorted(page_tables, key=lambda x: float(x.bbox[1]) if getattr(x, "bbox", None) else 0.0):
+                    tb = t.extract() or []
                     if not tb or len(tb) < 2:
+                        prev_bottom = float(t.bbox[3]) if getattr(t, "bbox", None) else prev_bottom
                         continue
                     header_row = None
                     header = []
@@ -366,22 +457,18 @@ class RealproParser:
                             header = [normalize_pdf_text(c) for c in tb[hi]]
                             break
                     if header_row is None:
+                        prev_bottom = float(t.bbox[3]) if getattr(t, "bbox", None) else prev_bottom
                         continue
                     idx = {h: header.index(h) for h in header if h}
-                    context = contexts[current_idx] if current_idx < len(contexts) else ("", "", "", float("nan"))
-                    if context[0] == "" and contexts:
-                        start = max(0, min(current_idx, len(contexts) - 1) - backtrack_blocks)
-                        for bi in range(min(current_idx, len(contexts) - 1), start - 1, -1):
-                            cand = contexts[bi]
-                            if cand[0] and not is_noise_line(cand[0]):
-                                context = cand
-                                warns.append(f"p{pi}:context_backtracked")
-                                break
-                    if context[0] == "" and last_context[0]:
+
+                    bbox = t.bbox if getattr(t, "bbox", None) else (0.0, prev_bottom, 0.0, prev_bottom)
+                    context = self._extract_context_for_table(page, bbox, prev_bottom, ward_hint)
+                    if not context[0] and last_context[0]:
                         context = last_context
+                    if not context[0]:
+                        warns.append(f"p{pi}:building_context_not_found")
                     if context[0]:
                         last_context = context
-                    current_idx += 1
 
                     for r in tb[header_row + 1 :]:
                         if not r or all(normalize_pdf_text(c) == "" for c in r):
@@ -425,6 +512,7 @@ class RealproParser:
                                 "raw_blockfile": raw,
                             }
                         )
+                    prev_bottom = float(t.bbox[3]) if getattr(t, "bbox", None) else prev_bottom
 
         df = pd.DataFrame(rows)
         bad_mask = df.get("building_name", pd.Series(dtype=str)).fillna("").map(

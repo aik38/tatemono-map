@@ -8,6 +8,7 @@ from tatemono_map.cli.pdf_batch_run import (
     apply_name_and_row_filters,
     classify_detached_house,
     detect_pdf_kind,
+    is_mojibake,
     is_noise_line,
     normalize_pdf_text,
     restore_latin1_cp932_mojibake,
@@ -139,6 +140,12 @@ def test_restore_latin1_cp932_mojibake_fixture():
     assert restored == expected
 
 
+def test_is_mojibake_detection():
+    assert is_mojibake("正常な日本語の文章です。") is False
+    assert is_mojibake("ã‚¢ã‚¤") is True
+    assert is_mojibake("����") is True
+
+
 def test_realpro_detect_kind_works_after_mojibake_normalization():
     parser = RealproParser()
     mojibake = _fixture("realpro_mojibake_pypdf.txt")
@@ -196,3 +203,84 @@ def test_realpro_parse_with_fixture_text_extracts_rows_from_table_like_content(t
         mod.pdfplumber.open = original_open
 
     assert len(result.df) > 0
+
+
+def test_realpro_table_bbox_context_fixture_extracts_building_name_and_address(tmp_path: Path):
+    from tatemono_map.cli import pdf_batch_run as mod
+
+    context = _fixture("realpro_context_block.txt")
+
+    class _Table:
+        bbox = (0.0, 220.0, 500.0, 700.0)
+
+        def extract(self):
+            return [
+                ["号室名", "賃料", "共益費", "間取・面積"],
+                ["101", "6.2万", "0.3万", "1K 25.0㎡"],
+            ]
+
+    class _Page:
+        def extract_text(self):
+            return "空室一覧表"
+
+        def find_tables(self):
+            return [_Table()]
+
+        def extract_words(self, **_kwargs):
+            lines = context.splitlines()
+            out = []
+            for i, line in enumerate(lines):
+                out.append({"text": line, "x0": 10.0, "top": 120.0 + i * 16, "x1": 480.0, "bottom": 132.0 + i * 16})
+            return out
+
+    class _Pdf:
+        pages = [_Page()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    original_open = mod.pdfplumber.open
+    mod.pdfplumber.open = lambda _path: _Pdf()
+    try:
+        result = RealproParser().parse(tmp_path / "dummy.pdf")
+    finally:
+        mod.pdfplumber.open = original_open
+
+    assert len(result.df) == 1
+    assert result.df.iloc[0]["building_name"] == "LEGEND鍛冶町"
+    assert "北九州市小倉北区" in result.df.iloc[0]["address"]
+
+
+def test_ulucks_address_complements_city_ward_from_ward_hint(tmp_path: Path):
+    from tatemono_map.cli import pdf_batch_run as mod
+
+    class _Page:
+        def extract_text(self):
+            return "小倉北区 空室一覧"
+
+        def extract_tables(self):
+            return [[
+                ["物件名", "所在地", "号室", "賃料", "共益費", "間取詳細", "面積", "構造"],
+                ["LEGEND鍛冶町", "鍛冶町２丁目3-5", "101", "6.2万", "0.3万", "1K:詳細", "25.0㎡", "RC"],
+            ]]
+
+    class _Pdf:
+        pages = [_Page()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    original_open = mod.pdfplumber.open
+    mod.pdfplumber.open = lambda _path: _Pdf()
+    try:
+        result = UlucksParser().parse(tmp_path / "dummy.pdf")
+    finally:
+        mod.pdfplumber.open = original_open
+
+    assert "北九州市小倉北区" in result.df.iloc[0]["address"]
