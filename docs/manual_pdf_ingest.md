@@ -77,4 +77,4 @@ Start-Process dist/index.html
 
 - **`forbidden data detected` / `pattern=号室`**
   - 原因: `building_name` や `address` に号室/部屋番号が混入したまま `dist` 生成に進んでいる。
-  - 対策: CSV化時点で建物名から `◯◯号室` / `◯◯号` を除去し、`room` 列へ寄せてから再実行する。
+  - 対策: PDF batch pipeline なら自動分離を利用し、manual CSV 運用時は建物名と号室を分離して再投入する。
