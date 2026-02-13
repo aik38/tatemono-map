@@ -79,6 +79,8 @@ def test_realpro_detect_and_noise_line_filtering_fixture():
     assert is_noise_line("TEL:093-000-0000")
     assert is_noise_line("2/19頁")
     assert is_noise_line("093-000-0000 TEL:093-000-0000")
+    assert is_noise_line("号室名をクリックすると詳細情報のウェブページへアクセスできます")
+    assert is_noise_line("リアプロにログインしてください")
 
 
 def test_realpro_multi_blocks_fixture_has_multiple_context_candidates():
@@ -252,6 +254,53 @@ def test_realpro_table_bbox_context_fixture_extracts_building_name_and_address(t
     assert len(result.df) == 1
     assert result.df.iloc[0]["building_name"] == "LEGEND鍛冶町"
     assert "北九州市小倉北区" in result.df.iloc[0]["address"]
+
+
+def test_realpro_context_includes_lines_inside_table_top_band_and_cleans_address(tmp_path: Path):
+    from tatemono_map.cli import pdf_batch_run as mod
+
+    class _Table:
+        bbox = (0.0, 113.0, 500.0, 450.0)
+
+        def extract(self):
+            return [
+                ["号室名", "賃料", "共益費", "間取・面積"],
+                ["101", "6.2万", "0.3万", "1K 25.0㎡"],
+            ]
+
+    class _Page:
+        def extract_text(self):
+            return "空室一覧表"
+
+        def find_tables(self):
+            return [_Table()]
+
+        def extract_words(self, **_kwargs):
+            return [
+                {"text": "LEGEND鍛冶町", "x0": 10.0, "top": 118.0, "x1": 150.0, "bottom": 128.0},
+                {"text": "北九州市小倉北区鍛冶町2-3-5／路線情報", "x0": 10.0, "top": 126.0, "x1": 300.0, "bottom": 136.0},
+                {"text": "号室名", "x0": 10.0, "top": 170.0, "x1": 80.0, "bottom": 180.0},
+            ]
+
+    class _Pdf:
+        pages = [_Page()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    original_open = mod.pdfplumber.open
+    mod.pdfplumber.open = lambda _path: _Pdf()
+    try:
+        result = RealproParser().parse(tmp_path / "dummy.pdf")
+    finally:
+        mod.pdfplumber.open = original_open
+
+    assert len(result.df) == 1
+    assert result.df.iloc[0]["building_name"] == "LEGEND鍛冶町"
+    assert result.df.iloc[0]["address"] == "北九州市小倉北区鍛冶町2-3-5"
 
 
 def test_ulucks_address_complements_city_ward_from_ward_hint(tmp_path: Path):
