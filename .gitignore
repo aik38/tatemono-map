@@ -35,3 +35,6 @@ data/_debug_ulucks_*.html
 
 # Local manual-ingest artifacts
 probe_debug.py
+
+!tmp/manual/ulucks_pdf_raw.csv
+
