@@ -82,29 +82,98 @@ Start-Process dist/index.html
 - DBは **`data/tatemono_map.sqlite3` 固定**（スクリプト実行時は `-DbPath` で上書き可）。
 
 ### D) PDF batch pipeline（Quickstart）
-- 前提: **PowerShell 7.x** / repo 直下で実行（本パイプラインは **Ulucks + Realpro の空室一覧専用**、Orientは対象外）。
-- 入力は Downloads から最新 ZIP を自動選択します（`ウラックス-*.zip` / `リアプロ-*.zip`）。
+- 本パイプラインは **Ulucks + Realpro の空室一覧専用**（Orientは対象外）です。
+
+#### 1) 前提
+- OS/シェル: **Windows 11 + PowerShell 7.5.x**
+- repo の実体パス: **`%USERPROFILE%\tatemono-map` 固定**
+- Python は必ず **`<repo>\.venv\Scripts\python.exe` のフルパス**を使います。
+  - `./.venv/...` は「repo 直下にいる時だけ」正しいため、運用手順では使いません。
+
+#### 2) 入力ファイル（ユーザー操作）
+- `Downloads` に以下2種類の ZIP を置きます（複数ある場合は最新を自動採用）。
+  - `リアプロ-*.zip`
+  - `ウラックス-*.zip`
+
+#### 3) 出力先（固定）
+- 作業用（展開/集約）: `tmp\pdf_pipeline\work\<timestamp>`
+  - `extract_realpro`, `extract_ulucks`
+  - `realpro_pdfs`, `ulucks_pdfs`（PDF集約先）
+- 成果物: `tmp\pdf_pipeline\out\<timestamp>`
+  - `final.csv`
+  - `stats.csv`
+  - `todo_realpro_missing_address.csv`（後述QCで作成）
+
+#### 4) PowerShell “一発”コマンド（コピペ実行）
+以下をそのまま実行してください（PowerShell 7 互換）。
 
 ```powershell
-Set-Location "$env:USERPROFILE\tatemono-map"
+$ErrorActionPreference="Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+Set-Location $REPO
+$PY = Join-Path $REPO ".venv\Scripts\python.exe"
 $DL = Join-Path $env:USERPROFILE "Downloads"
-
-$UL = Get-ChildItem -Path $DL -File -Filter "ウラックス-*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-$RP = Get-ChildItem -Path $DL -File -Filter "リアプロ-*.zip"   | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $UL -or -not $RP) { throw "Downloads に必要ファイル（ウラックス/リアプロ）が見つかりません。" }
-
-& .\scripts\run_pdf_batch_pipeline.ps1 `
-  -UlucksZip $UL.FullName `
-  -RealproZip $RP.FullName `
-  -QcMode warn
-
-$OUT = Get-ChildItem -Path .\tmp\pdf_pipeline\out -Directory | Sort-Object Name -Descending | Select-Object -First 1
-ii $OUT.FullName
+$ZIPR = Get-ChildItem $DL -File | ? Name -like "リアプロ-*.zip"   | Sort LastWriteTime -Desc | Select -First 1
+$ZIPU = Get-ChildItem $DL -File | ? Name -like "ウラックス-*.zip" | Sort LastWriteTime -Desc | Select -First 1
+if(!$ZIPR){throw "Downloads に リアプロ-*.zip が見つかりません"}
+if(!$ZIPU){throw "Downloads に ウラックス-*.zip が見つかりません"}
+$TS=(Get-Date).ToString("yyyyMMdd_HHmmss")
+$WORK=Join-Path $REPO "tmp\pdf_pipeline\work\$TS"
+$OUT =Join-Path $REPO "tmp\pdf_pipeline\out\$TS"
+$EXR=Join-Path $WORK "extract_realpro"
+$EXU=Join-Path $WORK "extract_ulucks"
+$RDIR=Join-Path $WORK "realpro_pdfs"
+$UDIR=Join-Path $WORK "ulucks_pdfs"
+New-Item -ItemType Directory -Force $EXR,$EXU,$RDIR,$UDIR,$OUT | Out-Null
+Expand-Archive -Force $ZIPR.FullName $EXR
+Expand-Archive -Force $ZIPU.FullName $EXU
+Get-ChildItem $EXR -Recurse -File -Filter *.pdf | Copy-Item -Destination $RDIR -Force
+Get-ChildItem $EXU -Recurse -File -Filter *.pdf | Copy-Item -Destination $UDIR -Force
+& $PY -m tatemono_map.cli.pdf_batch_run --realpro-dir $RDIR --ulucks-dir $UDIR --out-dir $OUT --qc-mode warn
+"OUT=$OUT"
 ```
 
-- 事故防止:
-  - `$REPO` 未定義のまま `"$REPO\scripts\..."` を使うと `\scripts\...` になり失敗します。repo 直下で `& .\scripts\...` を推奨します。
-  - `pwsh` セッション内からさらに `pwsh -File ...` を多重起動すると引数解釈でハマることがあるため、既存セッションでは `&` 実行を推奨します。
+#### 5) QC（住所欠損チェック）と手動補完の最小運用
+MVP優先では、Realproの住所欠損は **欠損抽出 → 手動補完** で先に進みます（欠損が特定PDFに集中している場合は特に有効）。
+- 現状観測では Realpro の住所欠損 109/987（約11%）のうち、108件が `レオパレスセンター小倉.pdf` に集中しています。
+
+Realpro の `address_empty` 率を表示:
+
+```powershell
+$FINAL = Join-Path $OUT "final.csv"
+$rows = Import-Csv $FINAL | ? category -eq "realpro"
+$total = $rows.Count
+$empty = ($rows | ? { [string]::IsNullOrWhiteSpace($_.address) }).Count
+"{0}/{1} empty ({2}%)" -f $empty,$total,[math]::Round($empty/$total*100,1)
+```
+
+欠損行を `todo_realpro_missing_address.csv` に書き出し:
+
+```powershell
+Import-Csv $FINAL |
+  ? { $_.category -eq "realpro" -and [string]::IsNullOrWhiteSpace($_.address) } |
+  Select file,page,building_name,room,layout,floor,area_sqm,rent_man,fee_man |
+  Export-Csv (Join-Path $OUT "todo_realpro_missing_address.csv") -NoTypeInformation -Encoding UTF8
+```
+
+欠損がどのPDFに集中しているか確認:
+
+```powershell
+Import-Csv $FINAL |
+  ? { $_.category -eq "realpro" -and [string]::IsNullOrWhiteSpace($_.address) } |
+  Group-Object file |
+  Sort-Object Count -Descending |
+  Select -First 10 Name,Count |
+  Format-Table -Auto
+```
+
+#### 6) よくあるエラーと対処（PDF pipeline）
+- `fatal: not a git repository`
+  - repo 外で実行しています。`Set-Location (Join-Path $env:USERPROFILE "tatemono-map")` してから再実行してください。
+- `No module named pdfplumber`
+  - repo の `.venv` ではない Python を使っています。`$PY = Join-Path $REPO ".venv\Scripts\python.exe"` を使って実行してください。
+- `Join-Path ... is null`
+  - 別 PowerShell セッションで `$RDIR` などが消えています。`tmp\pdf_pipeline\work\<timestamp>` から対象フォルダを再設定して再実行してください。
 
 - 実行結果は `tmp/pdf_pipeline/out/YYYYMMDD_HHMMSS` に出力されます。
 - `tmp/pdf_pipeline/work/YYYYMMDD_HHMMSS` は展開・抽出の中間生成物です（最終成果物ではありません）。
