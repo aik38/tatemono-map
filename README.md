@@ -85,8 +85,8 @@ Start-Process dist/index.html
 `main` ブランチに `tmp/manual/ulucks_pdf_raw.csv` を push すると、GitHub Actions（`Deploy static site to GitHub Pages`）が次を自動実行します。
 
 - **責務分離**:
-  - Pages workflow は公開用の build/deploy（CSV → public DB 再生成 → dist 生成 → sanity check → deploy）のみを担当します。
-  - テスト（`pytest`）は `ci` workflow 側で実行します。
+  - **Pages = build & deploy only**（CSV → public DB 再生成 → dist 生成 → sanity check → deploy）。
+  - **CI = test only**（`pull_request` を契機に `python -m pytest -q` を実行）。
 
 1. `tmp/manual/ulucks_pdf_raw.csv` から `data/public/public.sqlite3` を再生成
 2. その公開DBから `dist/` を再ビルド
