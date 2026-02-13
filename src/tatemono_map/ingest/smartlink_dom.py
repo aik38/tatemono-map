@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -16,6 +15,7 @@ from urllib.parse import urljoin
 
 from selectolax.parser import HTMLParser
 
+from tatemono_map.db.keys import make_building_key, make_listing_key_for_smartlink
 from tatemono_map.db.repo import ListingRecord, connect
 from tatemono_map.ingest.ulucks_playwright import _extract_pagination_hrefs
 from tatemono_map.normalize.building_summaries import rebuild
@@ -42,26 +42,18 @@ class _DebugPageSnapshot:
     html: str
 
 
-def _sha1(value: str) -> str:
-    return hashlib.sha1(value.encode("utf-8")).hexdigest()
 
 
-def _building_key(name: str, address: str) -> str:
-    return _sha1(f"{normalize_text(address)}|{normalize_text(name)}")
-
-
-def _listing_key(source_url: str, name: str, address: str, layout: str | None, area_sqm: float | None, rent_yen: int | None) -> str:
-    return _sha1(
-        "|".join(
-            [
-                normalize_text(source_url),
-                normalize_text(name),
-                normalize_text(address),
-                normalize_text(layout or ""),
-                str(area_sqm or ""),
-                str(rent_yen or ""),
-            ]
-        )
+def _room_label_for_key(record: ListingRecord) -> str | None:
+    if record.room_label:
+        return record.room_label
+    return "|".join(
+        [
+            normalize_text(record.name),
+            normalize_text(record.layout or ""),
+            str(record.area_sqm or ""),
+            str(record.rent_yen or ""),
+        ]
     )
 
 
@@ -328,7 +320,7 @@ def extract_records(source_url: str, html: str) -> list[ListingRecord]:
             record = _parse_card(card, source_url)
             if not record:
                 continue
-            rec_key = _listing_key(record.source_url, record.name, record.address, record.layout, record.area_sqm, record.rent_yen)
+            rec_key = make_listing_key_for_smartlink(record.source_url, _room_label_for_key(record))
             if rec_key in seen:
                 continue
             seen.add(rec_key)
@@ -340,7 +332,7 @@ def extract_records(source_url: str, html: str) -> list[ListingRecord]:
             record = _record_from_fields(field_map, source_url)
             if not record:
                 continue
-            rec_key = _listing_key(record.source_url, record.name, record.address, record.layout, record.area_sqm, record.rent_yen)
+            rec_key = make_listing_key_for_smartlink(record.source_url, _room_label_for_key(record))
             if rec_key in seen:
                 continue
             seen.add(rec_key)
@@ -394,15 +386,8 @@ def _bulk_upsert(db_path: str, records: list[ListingRecord]) -> int:
     conn = connect(db_path)
     payload = []
     for record in records:
-        building_key = _building_key(record.name, record.address)
-        listing_key = _listing_key(
-            source_url=record.source_url,
-            name=record.name,
-            address=record.address,
-            layout=record.layout,
-            area_sqm=record.area_sqm,
-            rent_yen=record.rent_yen,
-        )
+        building_key = make_building_key(record.name, record.address)
+        listing_key = make_listing_key_for_smartlink(record.source_url, _room_label_for_key(record))
         payload.append(
             (
                 listing_key,

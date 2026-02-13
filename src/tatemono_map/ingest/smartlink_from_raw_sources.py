@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 from typing import Iterable
@@ -9,6 +8,7 @@ from urllib.parse import urljoin
 
 from selectolax.parser import HTMLParser
 
+from tatemono_map.db.keys import make_building_key, make_listing_key_for_smartlink
 from tatemono_map.db.repo import ListingRecord, connect, iter_raw_sources
 from tatemono_map.normalize.building_summaries import rebuild
 from tatemono_map.util.area import parse_area_sqm
@@ -17,18 +17,6 @@ from tatemono_map.util.text import normalize_text
 
 ROOM_RE = re.compile(r"(\d+[A-Za-z]?号室?)")
 KEYWORD_HINTS = ("賃料", "家賃", "共益費", "間取り", "専有面積", "所在地", "入居可能日")
-
-
-def _hash_key(text: str) -> str:
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
-
-
-def _building_key(name: str, address: str) -> str:
-    return _hash_key(f"{normalize_text(address)}|{normalize_text(name)}")
-
-
-def _listing_key(source_url: str, room_label: str | None) -> str:
-    return _hash_key(f"{source_url}|{normalize_text(room_label or '')}")
 
 
 def _extract_pairs(card) -> dict[str, str]:
@@ -168,8 +156,8 @@ def _parse_records(source_url: str, fetched_at: str | None, content: str | bytes
 def _bulk_upsert(conn, records: Iterable[ListingRecord]) -> int:
     payload = []
     for record in records:
-        building_key = _building_key(record.name, record.address)
-        listing_key = _listing_key(record.source_url, record.room_label)
+        building_key = make_building_key(record.name, record.address)
+        listing_key = make_listing_key_for_smartlink(record.source_url, record.room_label)
         payload.append(
             (
                 listing_key,
