@@ -1,17 +1,27 @@
+from pathlib import Path
+
 import pandas as pd
 
 from tatemono_map.cli.pdf_batch_run import (
+    RealproParser,
+    UlucksParser,
     apply_name_and_row_filters,
     classify_detached_house,
+    detect_pdf_kind,
+    is_noise_line,
     should_stop_on_qc_failures,
     split_building_and_room,
 )
 
 
-def test_split_building_and_room_numeric_suffix():
+def _fixture(name: str) -> str:
+    return (Path("tests/fixtures") / name).read_text(encoding="utf-8")
+
+
+def test_split_building_and_room_numeric_suffix_needs_delimiter_or_marker():
     b, r = split_building_and_room("グランフォーレ小倉シティタワー302")
-    assert b == "グランフォーレ小倉シティタワー"
-    assert r == "302"
+    assert b == "グランフォーレ小倉シティタワー302"
+    assert r == ""
 
 
 def test_split_building_and_room_keeps_building_block_suffix():
@@ -56,3 +66,39 @@ def test_qc_mode_warn_does_not_stop():
 
 def test_qc_mode_strict_stops_on_failures():
     assert should_stop_on_qc_failures("strict", failures=1) is True
+
+
+def test_realpro_detect_and_noise_line_filtering_fixture():
+    text = _fixture("realpro_page1.txt")
+    parser = RealproParser()
+    detected = parser.detect_kind(text, {})
+    assert detected.kind == "realpro"
+    assert is_noise_line("TEL:093-000-0000")
+    assert is_noise_line("2/19頁")
+
+
+def test_realpro_multi_blocks_fixture_has_multiple_context_candidates():
+    text = _fixture("realpro_page_multi_blocks.txt")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    building_like = [line for idx, line in enumerate(lines[:-1]) if "マンション" in line and "北九州市" in lines[idx + 1]]
+    assert len(building_like) >= 2
+
+
+def test_ulucks_suffix_number_fixture_keeps_building_number():
+    text = _fixture("ulucks_suffix_number.txt")
+    parser = UlucksParser()
+    detected = parser.detect_kind(text, {})
+    assert detected.kind == "ulucks"
+
+    b, r = split_building_and_room("フェルト127")
+    assert b == "フェルト127"
+    assert r == ""
+
+
+def test_non_vacancy_detection_fixture(tmp_path: Path):
+    pdf = tmp_path / "non_vacancy.pdf"
+    pdf.write_bytes(b"%PDF-1.4\n%mock")
+
+    # detect_pdf_kind handles parser sniff errors as non_vacancy
+    out = detect_pdf_kind(pdf)
+    assert out.kind == "non_vacancy"
