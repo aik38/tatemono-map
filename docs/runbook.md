@@ -9,6 +9,22 @@
 - 実行手順とコマンドは README の Quick Start を正本とする（A: build-only / B: ingest）。
 - Smartlink URL は PowerShell で壊れないよう **単一引用符** を使い、`mail=` は `%40` 形式で指定する。
 
+
+## PDF batch pipeline（運用）
+- 前提は PowerShell 7.x。実行コマンドは README の「Quick Start D) PDF batch pipeline」を正本とする。
+- 出力先は `tmp/pdf_pipeline/out/YYYYMMDD_HHMMSS`、中間生成物は `tmp/pdf_pipeline/work/YYYYMMDD_HHMMSS`。
+- 用語定義:
+  - `source_property_name`: PDF掲載名（入力原文）
+  - `building_name`: 正規化後の建物名
+  - `room_no`: 建物名から自動分離した号室
+- 例: `ACハイム小倉Ⅰ号棟` は棟表記として `building_name` に保持し、QCで誤検知しない。
+- 例: `グランフォーレ小倉シティタワー302` は `building_name=グランフォーレ小倉シティタワー` / `room_no=302` に自動分離。
+- 戸建（戸建/一戸建/貸家/一軒家）は PDF 全体を失敗扱いにせず **行単位で除外** する。
+- QC モード（既定 `warn`）:
+  - `warn`: FAILがあっても継続（warn-by-default）
+  - `strict`: FAILがあれば停止（STOP）
+  - `off`: QCを実施しない
+
 ## UI確認（build-only）
 - 実行手順とコマンドは README の Quick Start A を参照（この runbook では重複掲載しない）。
 - `SQLITE_DB_PATH` を未指定で運用する場合は `data\tatemono_map.sqlite3` が使われる。

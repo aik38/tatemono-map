@@ -81,8 +81,52 @@ Start-Process dist/index.html
 - CSV保存先は CLI の `--csv` で任意指定可（運用推奨は `tmp/manual/ulucks_pdf_raw.csv`）。
 - DBは **`data/tatemono_map.sqlite3` 固定**（スクリプト実行時は `-DbPath` で上書き可）。
 
+### D) PDF batch pipeline（Quickstart）
+- 前提: **PowerShell 7.x** / リポジトリ実体は `$env:USERPROFILE\tatemono-map`。
+- 入力は Downloads から最新ファイルを自動選択します（`ウラックス-*.zip` / `リアプロ-*.zip` / `オリエント*.pdf`）。
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$DL   = Join-Path $env:USERPROFILE "Downloads"
+
+$UL = Get-ChildItem -Path $DL -File -Filter "ウラックス-*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$RP = Get-ChildItem -Path $DL -File -Filter "リアプロ-*.zip"   | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$OR = Get-ChildItem -Path $DL -File -Filter "オリエント*.pdf"   | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $UL -or -not $RP -or -not $OR) { throw "Downloads に必要ファイル（ウラックス/リアプロ/オリエント）が見つかりません。" }
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_pdf_batch_pipeline.ps1" `
+  -UlucksZip $UL.FullName `
+  -RealproZip $RP.FullName `
+  -OrientPdf $OR.FullName `
+  -QcMode warn
+
+$OUT = Get-ChildItem -Path (Join-Path $REPO "tmp\pdf_pipeline\out") -Directory | Sort-Object Name -Descending | Select-Object -First 1
+ii $OUT.FullName
+```
+
+- 実行結果は `tmp/pdf_pipeline/out/YYYYMMDD_HHMMSS` に出力されます。
+- `tmp/pdf_pipeline/work/YYYYMMDD_HHMMSS` は展開・抽出の中間生成物です（最終成果物ではありません）。
+- `out` 配下の主な成果物:
+  - `manifest.csv`: PDFごとの入力一覧（ファイル名、SHA256、ページ数など）
+  - `stats.csv`: PDFごとの件数統計（抽出件数、QC結果、除外件数など）
+  - `qc_report.txt`: QC詳細（FAIL理由や除外件数）
+  - `per_pdf/*.csv`: PDF単位の抽出CSV
+  - `fixtures/`: QC失敗時の調査用スナップショット
+  - `final.csv`: マージ済み最終CSV
+- `-QcMode` の意味（既定: `warn`）:
+  - `warn`: QC失敗があっても処理継続（警告のみ）
+  - `strict`: QC失敗が1件でもあれば停止（非0終了）
+  - `off`: QC自体をスキップ
+- `FontBBox` 警告は pdfminer 由来のノイズが多く、通常は抽出結果に致命影響ありません（内容異常がないかは `qc_report.txt` / `stats.csv` で判断）。
+
 CSV列名（正本）:
 `building_name,address,layout,rent_man,fee_man,area_sqm,updated_at,structure,age_years`
+
+用語（PDF batch / manual CSV 共通）:
+- `source_property_name`: 入力PDF掲載名（原文を保持）
+- `building_name`: 正規化後の建物名（DB連携対象）
+- `room_no`: 建物名から自動分離した号室（例: `グランフォーレ小倉302` → `building_name=グランフォーレ小倉`, `room_no=302`）
+- 戸建（`戸建`/`一戸建`/`貸家`/`一軒家`）は **行単位で除外** し、PDF全体は落としません。
 
 
 > `C:\dev\tatemono-map` は **非推奨** です。運用は `$env:USERPROFILE\tatemono-map` に統一してください。
@@ -102,7 +146,7 @@ CSV列名（正本）:
   - `.venv\Scripts\Activate.ps1` 実行後に `python -m pip install -r requirements.txt` を実施。
 - **`forbidden data detected` / `pattern=号室`**
   - `building_name` や `address` に号室/部屋番号が混入したまま `dist` 生成に進んでいるのが原因です。
-  - CSV化時点で建物名から `◯◯号室` / `◯◯号` を除去し `room` 列へ寄せてから再実行してください。
+  - PDF batch pipeline では `source_property_name` から `building_name` と `room_no` を自動分離します。manual CSV 運用では従来どおり、建物名と号室を分離して入力してください。
 
 ---
 

@@ -32,3 +32,15 @@ G) 最終更新日時
 - 禁止情報（URL/PDF/号室/参照元/管理会社等）が dist に混入しないチェックを継続し、各ページに「最終更新日時」を必須表示
 - `python -m ...` が repo 直下から動く（PYTHONPATH 追加不要の方向へ寄せた）
 - 既知の警告：Pydantic/FastAPI の deprecation warning は「動作影響なし、後でまとめて対応」でOK
+
+
+## PDF batch 用語・QC運用（合意反映）
+- `source_property_name` は掲載名（入力原文）として保持する。
+- `building_name` は DB 連携用の正規化建物名。
+- 建物名末尾の号室（例: `302`）は `room_no` へ自動分離する。
+- `A棟`/`B棟`/`◯号棟` などの棟表記は通常ケースとして `building_name` に保持し、異常扱いしない。
+- 戸建（戸建/一戸建/貸家/一軒家）は PDF 単位で落とさず、対象行のみ除外する。
+- QC は warn-by-default（既定 `warn`）。
+  - `warn`: 継続
+  - `strict`: FAIL時に停止
+  - `off`: QCスキップ
