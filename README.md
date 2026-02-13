@@ -81,31 +81,73 @@ Start-Process dist/index.html
 - CSV保存先は CLI の `--csv` で任意指定可（運用推奨は `tmp/manual/ulucks_pdf_raw.csv`）。
 - DBは **`data/tatemono_map.sqlite3` 固定**（スクリプト実行時は `-DbPath` で上書き可）。
 
-### C-2) 本番（GitHub Pages）更新手順（manual CSV）
-`main` ブランチに `tmp/manual/ulucks_pdf_raw.csv` を push すると、GitHub Actions（`Deploy static site to GitHub Pages`）が次を自動実行します。
+### C-2) Manual CSV → public DB 取り込み（ulucks_pdf_raw.csv）
+`tmp/manual/ulucks_pdf_raw.csv` を `data/public/public.sqlite3` に取り込み、最終的に `dist/index.html` まで確認する正本手順です。
 
-- **責務分離**:
-  - **Pages = build & deploy only**（CSV → public DB 再生成 → dist 生成 → sanity check → deploy）。
-  - **CI = test only**（`pull_request` を契機に `python -m pytest -q` を実行）。
+- 実装の呼び出し先は `tatemono_map.ingest.manual_ulucks_pdf.import_ulucks_pdf_csv`（Pages workflow と同一）です。
+- Pages 側は `main` への push をトリガーに **CSV → public DB再生成 → dist build → deploy** を自動実行します。
 
-1. `tmp/manual/ulucks_pdf_raw.csv` から `data/public/public.sqlite3` を再生成
-2. その公開DBから `dist/` を再ビルド
-3. GitHub Pages へデプロイ
+#### A) ローカル手順（PowerShell 7 / リポ指定ワンライナー）
+```powershell
+$ErrorActionPreference = "Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+Set-Location $REPO
+$PY = Join-Path $REPO ".venv\Scripts\python.exe"
+if (-not (Test-Path $PY)) { throw ".venv の python が見つかりません: $PY" }
+$CSV = "tmp/manual/ulucks_pdf_raw.csv"
+if (-not (Test-Path $CSV)) { throw "CSV が見つかりません: $CSV" }
+$DB = "data/public/public.sqlite3"
+if (Test-Path $DB) { Remove-Item $DB -Force }
 
-運用フロー（人手）は次の4ステップです。
+$code = @'
+from tatemono_map.ingest.manual_ulucks_pdf import import_ulucks_pdf_csv
+imported = import_ulucks_pdf_csv(
+    db_path="data/public/public.sqlite3",
+    csv_path="tmp/manual/ulucks_pdf_raw.csv",
+    source_kind="ulucks_pdf",
+    source_url="manual_pdf",
+)
+print(f"imported_listings={imported}")
+'@
+& $PY -c $code
+
+$count = (& $PY -c "import sqlite3; conn=sqlite3.connect('data/public/public.sqlite3'); print(conn.execute('SELECT COUNT(*) FROM building_summaries').fetchone()[0]); conn.close()").Trim()
+"building_summaries_count=$count"
+if ([int]$count -le 0) { throw "building_summaries が 0 件です（取り込み失敗）" }
+
+& $PY -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist
+if (-not (Test-Path "dist/index.html")) { throw "dist/index.html が生成されていません" }
+"OK: dist/index.html generated"
+```
+
+#### B) GitHub 本番反映（PowerShell 7 / リポ指定ワンライナー）
+`tmp/manual/ulucks_pdf_raw.csv` が `HEAD` と同一なら push は不要です。改行コード差異（CRLF/LF）の誤判定を避けるため、`sha256` ではなく **git blob hash** を使います。
 
 ```powershell
-# 1) CSVを差し替え
-#    tmp/manual/ulucks_pdf_raw.csv
+$ErrorActionPreference = "Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+Set-Location $REPO
+$CSV = "tmp/manual/ulucks_pdf_raw.csv"
+if (-not (Test-Path $CSV)) { throw "CSV が見つかりません: $CSV" }
 
-# 2) commit/push
-git add tmp/manual/ulucks_pdf_raw.csv
-git commit -m "Update manual ulucks CSV"
-git push origin main
+$work = (git hash-object -- "$CSV").Trim()
+$head = ""
+try { $head = (git rev-parse "HEAD:$CSV").Trim() } catch { $head = "" }
 
-# 3) GitHub Actions の "Deploy static site to GitHub Pages" 完了を待つ
-# 4) Repository > Environments > github-pages で Last deployed 更新を確認
+if ($work -eq $head) {
+  "CSV は HEAD と同一です。commit/push は不要です。"
+} else {
+  git add -- "$CSV"
+  git commit -m "Update manual ulucks CSV"
+  git push origin main
+  "Push 完了。GitHub Actions の 'Deploy static site to GitHub Pages' が Success になることを確認してください。"
+}
 ```
+
+#### C) よくあるハマりどころ
+- ローカルの `dist` は本番と別物です。本番反映には Pages workflow（Actions）の build/deploy 成功が必要です。
+- Pages workflow が失敗した場合、本番サイトは更新されず前回の成功デプロイが残ります。
+- CSV差分確認は `sha256` ではなく `git hash-object` / `git rev-parse HEAD:<path>` を使ってください（改行変換の誤判定回避）。
 
 ### D) PDF batch pipeline（Quickstart）
 - 本パイプラインは **Ulucks + Realpro の空室一覧専用**（Orientは対象外）です。
