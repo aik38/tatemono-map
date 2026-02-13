@@ -8,6 +8,29 @@ from tatemono_map.util.text import normalize_text
 
 def rebuild(db_path: str) -> int:
     conn = connect(db_path)
+
+    conn.execute(
+        """
+        UPDATE building_summaries
+        SET
+            rent_yen_min=NULL,
+            rent_yen_max=NULL,
+            area_sqm_min=NULL,
+            area_sqm_max=NULL,
+            layout_types_json=NULL,
+            move_in_dates_json=NULL,
+            vacancy_count=0,
+            last_updated=NULL,
+            updated_at=CURRENT_TIMESTAMP
+        """
+    )
+
+    existing = {
+        row["building_key"]: row
+        for row in conn.execute(
+            "SELECT building_key, name, raw_name, address FROM building_summaries"
+        ).fetchall()
+    }
     rows = conn.execute(
         """
         SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in_date, updated_at
@@ -19,7 +42,6 @@ def rebuild(db_path: str) -> int:
     for row in rows:
         grouped.setdefault(row["building_key"], []).append(row)
 
-    conn.execute("DELETE FROM building_summaries")
     count = 0
     for building_key, items in grouped.items():
         rents = [r["rent_yen"] for r in items if r["rent_yen"] is not None]
@@ -27,13 +49,18 @@ def rebuild(db_path: str) -> int:
         layouts = sorted({normalize_text(r["layout"]) for r in items if r["layout"]})
         move_in_dates = sorted({normalize_text(r["move_in_date"]) for r in items if r["move_in_date"]})
         latest = max((r["updated_at"] for r in items if r["updated_at"]), default=None)
+        existing_row = existing.get(building_key)
+        summary_name = items[0]["name"] or (existing_row["name"] if existing_row else "")
+        summary_address = items[0]["address"] or (existing_row["address"] if existing_row else "")
+        summary_raw_name = (existing_row["raw_name"] if existing_row and existing_row["raw_name"] else summary_name)
+
         replace_building_summary(
             conn,
             {
                 "building_key": building_key,
-                "name": items[0]["name"],
-                "raw_name": items[0]["name"],
-                "address": items[0]["address"] or "",
+                "name": summary_name,
+                "raw_name": summary_raw_name,
+                "address": summary_address,
                 "rent_yen_min": min(rents) if rents else None,
                 "rent_yen_max": max(rents) if rents else None,
                 "area_sqm_min": min(areas) if areas else None,
@@ -45,6 +72,8 @@ def rebuild(db_path: str) -> int:
             },
         )
         count += 1
+
+    conn.commit()
     conn.close()
     return count
 

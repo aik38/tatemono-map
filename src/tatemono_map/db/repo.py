@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
 
+from tatemono_map.db.keys import make_building_key, make_listing_key_for_smartlink
 from tatemono_map.db.schema import ensure_schema, normalize_db_path
-from tatemono_map.util.text import normalize_text
 
 
 @dataclass
@@ -26,18 +25,6 @@ class ListingRecord:
     move_in_date: str | None = None
     management_company: str | None = None
     management_phone: str | None = None
-
-
-def _hash_key(text: str) -> str:
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:16]
-
-
-def _building_key(name: str, address: str) -> str:
-    return _hash_key(f"{normalize_text(address)}|{normalize_text(name)}")
-
-
-def _listing_key(source_url: str, room_label: str | None) -> str:
-    return _hash_key(f"{source_url}|{normalize_text(room_label or '')}")
 
 
 def connect(db_path: str | Path) -> sqlite3.Connection:
@@ -69,8 +56,8 @@ def iter_raw_sources(conn: sqlite3.Connection, source_kind: str) -> Iterator[sql
 
 
 def upsert_listing(conn: sqlite3.Connection, record: ListingRecord) -> None:
-    building_key = _building_key(record.name, record.address)
-    listing_key = _listing_key(record.source_url, record.room_label)
+    building_key = make_building_key(record.name, record.address)
+    listing_key = make_listing_key_for_smartlink(record.source_url, record.room_label)
     conn.execute(
         """
         INSERT INTO listings(

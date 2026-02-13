@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 from pathlib import Path
 
+from tatemono_map.db.keys import make_building_key, make_listing_key_for_master
 from tatemono_map.db.repo import connect
 from tatemono_map.normalize.building_summaries import rebuild
-from tatemono_map.util.text import normalize_text
 
 CANONICAL_COLUMNS = (
     "building_name",
@@ -19,10 +18,6 @@ CANONICAL_COLUMNS = (
     "structure",
     "age_years",
 )
-
-
-def _hash_key(value: str) -> str:
-    return hashlib.sha1(value.encode("utf-8")).hexdigest()[:16]
 
 
 def _clean_text(value: str | None) -> str | None:
@@ -47,39 +42,11 @@ def _parse_float(value: str | None) -> float | None:
     return float(cleaned)
 
 
-def _building_key(name: str, address: str, structure: str | None, age_years: str | None) -> str:
-    payload = "|".join(
-        [
-            normalize_text(name),
-            normalize_text(address),
-            normalize_text(structure or ""),
-            normalize_text(age_years or ""),
-        ]
-    )
-    return _hash_key(payload)
 
 
-def _listing_key(
-    building_key: str,
-    layout: str | None,
-    rent_yen: int | None,
-    area_sqm: float | None,
-    updated_at: str | None,
-    source_kind: str,
-    source_url: str,
-) -> str:
-    payload = "|".join(
-        [
-            building_key,
-            normalize_text(layout or ""),
-            str(rent_yen) if rent_yen is not None else "",
-            str(area_sqm) if area_sqm is not None else "",
-            normalize_text(updated_at or ""),
-            source_kind,
-            source_url,
-        ]
-    )
-    return _hash_key(payload)
+def _listing_key_for_manual_row(row: dict[str, str | None]) -> str:
+    raw_block = "\n".join(f"{column}:{_clean_text(row.get(column)) or ''}" for column in CANONICAL_COLUMNS)
+    return make_listing_key_for_master(raw_block)
 
 
 def import_ulucks_pdf_csv(
@@ -108,8 +75,8 @@ def import_ulucks_pdf_csv(
             maint_yen = _parse_man_to_yen(row.get("fee_man"))
             area_sqm = _parse_float(row.get("area_sqm"))
 
-            building_key = _building_key(name, address, structure, age_years)
-            listing_key = _listing_key(building_key, layout, rent_yen, area_sqm, updated_at, source_kind, source_url)
+            building_key = make_building_key(name, address)
+            listing_key = _listing_key_for_manual_row(row)
 
             conn.execute(
                 """
