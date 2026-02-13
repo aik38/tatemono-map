@@ -1,32 +1,64 @@
-# src/tatemono_map/cli/pdf_batch_run.py
 from __future__ import annotations
 
 import argparse
 import csv
 import hashlib
-import os
 import re
 import sys
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
 import pandas as pd
-import numpy as np
-
-# PDF libs
-import pdfplumber
 from pypdf import PdfReader
 
+import pdfplumber
+
 SCHEMA = [
-    "page","category","updated_at","source_property_name","building_name","room_no","room","address",
-    "rent_man","fee_man","floor","layout","area_sqm","age_years","structure",
-    "raw_block","file",
+    "page",
+    "category",
+    "updated_at",
+    "source_property_name",
+    "building_name",
+    "room_no",
+    "address",
+    "rent_man",
+    "fee_man",
+    "floor",
+    "layout",
+    "area_sqm",
+    "age_years",
+    "structure",
+    "raw_blockfile",
 ]
 
 BAD_BUILDING_TOKENS = ["》", "号", "NEW"]
 DETACHED_HOUSE_KEYWORDS = ["戸建", "一戸建", "貸家", "一軒家"]
+
+
+@dataclass
+class DetectResult:
+    kind: str
+    reason: str
+
+
+@dataclass
+class ParseResult:
+    df: pd.DataFrame
+    warnings: List[str]
+    drop_reasons: Dict[str, int]
+
+
+class VacancyParser(Protocol):
+    name: str
+
+    def detect_kind(self, first_page_text: str, metadata: Dict[str, Any]) -> DetectResult:
+        ...
+
+    def parse(self, pdf_path: Path) -> ParseResult:
+        ...
+
 
 def nfkc(s: Any) -> str:
     if s is None:
@@ -35,11 +67,10 @@ def nfkc(s: Any) -> str:
     s = unicodedata.normalize("NFKC", s)
     s = s.replace("\u3000", " ")
     s = re.sub(r"\s+", " ", s)
-    # hyphens -> "-"
     s = re.sub(r"[‐-–—−－]", "-", s)
-    # brackets
-    s = s.replace("（","(").replace("）",")").replace("【","[").replace("】","]")
+    s = s.replace("（", "(").replace("）", ")").replace("【", "[").replace("】", "]")
     return s.strip()
+
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
@@ -48,9 +79,11 @@ def sha256_file(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+
 def page_count_fast(path: Path) -> int:
     r = PdfReader(str(path))
     return len(r.pages)
+
 
 def parse_updated_at(text: str) -> str:
     if not text:
@@ -63,61 +96,73 @@ def parse_updated_at(text: str) -> str:
         return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
     return ""
 
+
 def parse_money_to_man(x: Any) -> float:
     s = nfkc(x)
-    if s == "" or s in {"-","—","–","無","なし"}:
+    if s == "" or s in {"-", "—", "–", "無", "なし"}:
         return float("nan")
-    s = s.replace("税込","").replace("税別","")
+    s = s.replace("税込", "").replace("税別", "")
     m = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*万", s)
     if m:
         return float(m.group(1))
-    s = s.replace("円","")
+    s = s.replace("円", "")
     s = re.sub(r"[^\d.,]", "", s).replace(",", "")
     if s == "":
         return float("nan")
     try:
         return float(s) / 10000.0
-    except:
+    except Exception:
         return float("nan")
 
+
 def parse_area_sqm(x: Any) -> float:
-    s = nfkc(x).replace("㎡","").replace("m2","")
+    s = nfkc(x).replace("㎡", "").replace("m2", "")
     s = re.sub(r"[^\d.]", "", s)
     if s == "":
         return float("nan")
     try:
         return float(s)
-    except:
+    except Exception:
         return float("nan")
 
-def split_building_and_room(name: str) -> Tuple[str, str]:
-    src = nfkc(name)
-    if not src:
-        return "", ""
-
-    # Keep building block notation as building name (A棟 / Ⅰ号棟 / 東棟 etc.)
-    if re.search(r"([A-ZＡ-Ｚ]|[IVXⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]|\d+)\s*号?棟$|[東西南北]\s*棟$", src):
-        return src, ""
-
-    patterns = [
-        r"^(.*?)[\s\-]+(\d{2,4})\s*号室$",
-        r"^(.*?)[\s\-]+(\d{2,4})$",
-        r"^(.*?)(\d{3,4})$",
-        r"^(.*?)[\s\-]+(\d\-\d{2})$",
-    ]
-    for pat in patterns:
-        m = re.match(pat, src)
-        if not m:
-            continue
-        building = nfkc(m.group(1))
-        room = nfkc(m.group(2)).replace("-", "")
-        if building and room:
-            return building, room
-    return src, ""
 
 def classify_detached_house(name: str) -> bool:
     s = nfkc(name)
     return any(k in s for k in DETACHED_HOUSE_KEYWORDS)
+
+
+def split_building_and_room(name: str, room: str = "") -> Tuple[str, str]:
+    src = nfkc(name)
+    room_existing = nfkc(room)
+    if not src:
+        return "", room_existing
+    if room_existing:
+        return src, room_existing
+
+    if re.search(r"([A-ZＡ-Ｚ]|[IVXⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]|\d+)\s*号?棟$|[東西南北]\s*棟$", src):
+        return src, ""
+
+    explicit_patterns = [
+        r"^(.*?)[\s\-]+(\d{2,4})\s*号室$",
+        r"^(.*?)[\s\-]+(\d{2,4})\s*号$",
+        r"^(.*?)[\s\-]+(\d\-\d{2})$",
+        r"^(.*?)\((\d{2,4})\)$",
+    ]
+    for pat in explicit_patterns:
+        m = re.match(pat, src)
+        if m:
+            b = nfkc(m.group(1))
+            r = nfkc(m.group(2)).replace("-", "")
+            if b and r:
+                return b, r
+
+    if re.search(r"[\s\-]\d{2,4}$", src):
+        m = re.match(r"^(.*?)[\s\-](\d{2,4})$", src)
+        if m:
+            return nfkc(m.group(1)), nfkc(m.group(2))
+
+    return src, ""
+
 
 def apply_name_and_row_filters(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, Dict[str, int]]:
     if len(df) == 0:
@@ -128,301 +173,258 @@ def apply_name_and_row_filters(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, Dic
 
     out = df.copy()
     out["source_property_name"] = out["building_name"].fillna("").astype(str).map(nfkc)
+    out["room"] = out.get("room", "").fillna("").astype(str).map(nfkc)
 
-    split_pairs = out["source_property_name"].map(split_building_and_room)
-    out["building_name"] = split_pairs.map(lambda t: t[0])
-    out["room_no"] = split_pairs.map(lambda t: t[1])
+    split_pairs = [split_building_and_room(n, r) for n, r in zip(out["source_property_name"], out["room"])]
+    out["building_name"] = [t[0] for t in split_pairs]
+    out["room_no"] = [t[1] for t in split_pairs]
 
     detached_mask = out["source_property_name"].map(classify_detached_house)
     dropped = int(detached_mask.sum())
     out = out.loc[~detached_mask].copy()
     return out, dropped, {"detached_house": dropped}
 
+
 def looks_like_money(s: str) -> bool:
     s = nfkc(s)
     return bool(re.search(r"\d{1,3}(,\d{3})+", s)) or ("円" in s) or ("万" in s)
 
-def classify_pdf(path: Path) -> Tuple[str,str]:
-    name = path.name
-    if "オリエント" in name or "ORIENT" in name.upper():
-        return "orient", "filename"
-    # lightweight sniff
+
+def is_noise_line(line: str) -> bool:
+    s = nfkc(line)
+    if not s:
+        return True
+    patterns = [
+        r"^TEL[:：]",
+        r"^FAX[:：]",
+        r"^\d+/\d+頁$",
+        r"^\d+/\d+ページ$",
+        r"空室一覧表",
+        r"^\d{4}[/-]\d{1,2}[/-]\d{1,2}",
+        r"^\d{1,2}:\d{2}",
+    ]
+    return any(re.search(p, s, flags=re.IGNORECASE) for p in patterns)
+
+
+def looks_like_address(line: str) -> bool:
+    s = nfkc(line)
+    return bool(re.search(r"(都|道|府|県|市|区|町|村).*(丁目|番地|番|号|\d+-\d+)", s))
+
+
+def looks_like_structure_or_age(line: str) -> bool:
+    s = nfkc(line)
+    return bool(re.search(r"(RC|SRC|S造|木造|鉄骨|鉄筋|築\d+年|築年)", s))
+
+
+class UlucksParser:
+    name = "ulucks"
+
+    def detect_kind(self, first_page_text: str, metadata: Dict[str, Any]) -> DetectResult:
+        score = 0
+        t = nfkc(first_page_text)
+        if "ウラックス" in t:
+            score += 2
+        if "空室一覧" in t:
+            score += 2
+        for tok in ["物件名", "号室", "賃料", "間取", "㎡"]:
+            if tok in t:
+                score += 1
+        return DetectResult(kind="ulucks" if score >= 4 else "non_vacancy", reason=f"ulucks_score={score}")
+
+    def parse(self, pdf_path: Path) -> ParseResult:
+        rows: List[Dict[str, Any]] = []
+        with pdfplumber.open(str(pdf_path)) as pdf:
+            for pi, page in enumerate(pdf.pages, start=1):
+                text = page.extract_text() or ""
+                updated = parse_updated_at(text)
+                tables = page.extract_tables() or []
+                for tb in tables:
+                    if not tb or len(tb) < 2:
+                        continue
+                    header = [nfkc(c) for c in tb[0]]
+                    if not ("物件名" in header and "号室" in header and "賃料" in header):
+                        continue
+                    idx = {h: header.index(h) for h in header if h}
+                    for r in tb[1:]:
+                        if not r or all(nfkc(c) == "" for c in r):
+                            continue
+                        r = list(r) + [None] * (len(header) - len(r))
+                        building = nfkc(r[idx.get("物件名", "")])
+                        address = nfkc(r[idx.get("所在地", "")])
+                        room = nfkc(r[idx.get("号室", "")])
+                        room = re.sub(r"\s*《.*?》\s*", "", room).strip()
+                        layout_detail = nfkc(r[idx.get("間取詳細", "")])
+                        layout = nfkc(layout_detail.split(":")[0]) if layout_detail else ""
+                        raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(nfkc(c) for c in r if nfkc(c) != "")
+                        rows.append(
+                            {
+                                "page": pi,
+                                "category": "ulucks",
+                                "updated_at": updated,
+                                "building_name": building,
+                                "room": room,
+                                "address": address,
+                                "rent_man": parse_money_to_man(r[idx.get("賃料", "")]),
+                                "fee_man": parse_money_to_man(r[idx.get("共益費", "")]),
+                                "floor": "",
+                                "layout": layout,
+                                "area_sqm": parse_area_sqm(r[idx.get("面積", "")]),
+                                "age_years": float("nan"),
+                                "structure": nfkc(r[idx.get("構造", "")]),
+                                "raw_blockfile": raw,
+                            }
+                        )
+        df = pd.DataFrame(rows)
+        return ParseResult(df=df, warnings=[], drop_reasons={})
+
+
+class RealproParser:
+    name = "realpro"
+
+    def detect_kind(self, first_page_text: str, metadata: Dict[str, Any]) -> DetectResult:
+        score = 0
+        t = nfkc(first_page_text)
+        for tok in ["リアプロ", "空室一覧表", "号室名", "賃料", "管理費"]:
+            if tok in t:
+                score += 1
+        return DetectResult(kind="realpro" if score >= 3 else "non_vacancy", reason=f"realpro_score={score}")
+
+    def parse(self, pdf_path: Path) -> ParseResult:
+        rows: List[Dict[str, Any]] = []
+        warns: List[str] = []
+        with pdfplumber.open(str(pdf_path)) as pdf:
+            for pi, page in enumerate(pdf.pages, start=1):
+                text = page.extract_text() or ""
+                lines = [nfkc(l) for l in text.splitlines() if nfkc(l)]
+                updated = parse_updated_at(text)
+
+                contexts: List[Tuple[str, str, str, float]] = []
+                for i, line in enumerate(lines[:-1]):
+                    if is_noise_line(line):
+                        continue
+                    next_line = lines[i + 1]
+                    if looks_like_address(next_line):
+                        nearby = " ".join(lines[i : min(i + 5, len(lines))])
+                        if looks_like_structure_or_age(nearby):
+                            structure = ""
+                            age = float("nan")
+                            sm = re.search(r"(RC|SRC|S造|木造|鉄骨造|鉄筋コンクリート造)", nearby)
+                            if sm:
+                                structure = sm.group(1)
+                            am = re.search(r"築\s*(\d+)\s*年", nearby)
+                            if am:
+                                age = float(am.group(1))
+                            contexts.append((line, next_line, structure, age))
+
+                if not contexts:
+                    warns.append(f"p{pi}:building_context_not_found")
+
+                tables = page.extract_tables() or []
+                current_idx = 0
+                for tb in tables:
+                    if not tb or len(tb) < 2:
+                        continue
+                    header_row = None
+                    header = []
+                    for hi in range(min(3, len(tb))):
+                        row = [nfkc(c) for c in tb[hi] if c is not None]
+                        if "号室名" in row and "賃料" in row:
+                            header_row = hi
+                            header = [nfkc(c) for c in tb[hi]]
+                            break
+                    if header_row is None:
+                        continue
+                    idx = {h: header.index(h) for h in header if h}
+                    if current_idx >= len(contexts):
+                        context = ("", "", "", float("nan"))
+                    else:
+                        context = contexts[current_idx]
+                    current_idx += 1
+
+                    for r in tb[header_row + 1 :]:
+                        if not r or all(nfkc(c) == "" for c in r):
+                            continue
+                        r = list(r) + [None] * (len(header) - len(r))
+                        roomcell = nfkc(r[idx.get("号室名", "")])
+                        rentcell = nfkc(r[idx.get("賃料", "")])
+                        if roomcell == "" and rentcell == "":
+                            continue
+                        room_m = re.search(r"(\d{2,4})", roomcell)
+                        room = room_m.group(1) if room_m else roomcell
+                        floor_m = re.search(r"(\d+)\s*階", roomcell)
+                        floor = floor_m.group(1) if floor_m else ""
+                        la = nfkc(r[idx.get("間取・面積", "")])
+                        layout = ""
+                        area = float("nan")
+                        lm = re.search(r"(\d+[A-Z]*LDK|\d+DK|\d+K|1R)", la)
+                        if lm:
+                            layout = lm.group(1)
+                        am = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2)", la)
+                        if am:
+                            area = float(am.group(1))
+                        raw = f"[source=realpro file={pdf_path.name} page={pi}] " + "|".join(nfkc(c) for c in r if nfkc(c) != "")
+                        rows.append(
+                            {
+                                "page": pi,
+                                "category": "realpro",
+                                "updated_at": updated,
+                                "building_name": context[0],
+                                "room": room,
+                                "address": context[1],
+                                "rent_man": parse_money_to_man(r[idx.get("賃料", "")]),
+                                "fee_man": parse_money_to_man(r[idx.get("共益費", "")]),
+                                "floor": floor,
+                                "layout": layout,
+                                "area_sqm": area,
+                                "age_years": context[3],
+                                "structure": context[2],
+                                "raw_blockfile": raw,
+                            }
+                        )
+
+        df = pd.DataFrame(rows)
+        bad_mask = df.get("building_name", pd.Series(dtype=str)).fillna("").map(
+            lambda s: bool(re.search(r"TEL|FAX|^\d+/\d+頁$", nfkc(s)))
+        )
+        if len(df) and bad_mask.any():
+            warns.append(f"building_name_noise_rows={int(bad_mask.sum())}")
+        if len(df) and (df["address"].fillna("") == "").any():
+            warns.append("address_empty_rows")
+        return ParseResult(df=df, warnings=warns, drop_reasons={})
+
+
+PARSERS: Sequence[VacancyParser] = [UlucksParser(), RealproParser()]
+
+
+def detect_pdf_kind(path: Path) -> DetectResult:
     try:
         with pdfplumber.open(str(path)) as pdf:
-            p = pdf.pages[0]
-            text = p.extract_text() or ""
-            t = nfkc(text)
-            if "空室一覧表" in t and "号室名" in t:
-                return "realpro", "text:空室一覧表/号室名"
-            if "CLUB ORIENT" in t or "ORIENT BLD" in t:
-                return "orient", "text:ORIENT"
-            # ulucks often has "物件名/号室/賃料" in table header
-            tables = p.extract_tables() or []
-            for tb in tables:
-                if not tb or len(tb) < 2:
-                    continue
-                header = [nfkc(c) for c in tb[0]]
-                if "物件名" in header and "号室" in header and "賃料" in header:
-                    return "ulucks", "table:物件名/号室/賃料"
+            first = pdf.pages[0].extract_text() or ""
     except Exception as e:
-        return "unknown", f"sniff_error:{type(e).__name__}"
-    return "unknown", "no_match"
+        return DetectResult("non_vacancy", f"sniff_error:{type(e).__name__}")
 
-def ulucks_extract(path: Path) -> pd.DataFrame:
-    rows: List[Dict[str, Any]] = []
-    with pdfplumber.open(str(path)) as pdf:
-        for pi, page in enumerate(pdf.pages, start=1):
-            try:
-                text = page.extract_text() or ""
-            except Exception:
-                text = ""
-            updated = parse_updated_at(text)
-            try:
-                tables = page.extract_tables() or []
-            except Exception as e:
-                # if table extraction fails, treat as 0 rows -> QC fail later
-                tables = []
+    meta = {"filename": path.name}
+    results = [p.detect_kind(first, meta) for p in PARSERS]
+    matched = [r for r in results if r.kind != "non_vacancy"]
+    if len(matched) == 1:
+        return matched[0]
+    if len(matched) > 1:
+        return DetectResult("non_vacancy", "ambiguous_kind")
+    return DetectResult("non_vacancy", ";".join(r.reason for r in results))
 
-            for tb in tables:
-                if not tb or len(tb) < 2:
-                    continue
-                header = [nfkc(c) for c in tb[0]]
-                if not ("物件名" in header and "号室" in header and "賃料" in header):
-                    continue
-                idx = {h: header.index(h) for h in header if h}
 
-                for r in tb[1:]:
-                    if not r or all(nfkc(c) == "" for c in r):
-                        continue
-                    r = list(r) + [None] * (len(header) - len(r))
-                    building = nfkc(r[idx.get("物件名","")])
-                    address  = nfkc(r[idx.get("所在地","")])
-                    room     = nfkc(r[idx.get("号室","")])
-                    room     = re.sub(r"\s*《.*?》\s*", "", room).strip()
+def dedupe(df: pd.DataFrame) -> Tuple[pd.DataFrame, int]:
+    before = len(df)
+    key_cols = ["category", "building_name", "address", "room_no", "rent_man", "fee_man", "floor", "layout", "area_sqm"]
+    df2 = df.drop_duplicates(subset=key_cols, keep="first")
+    return df2, before - len(df2)
 
-                    layout_detail = nfkc(r[idx.get("間取詳細","")])
-                    layout = nfkc(layout_detail.split(":")[0]) if layout_detail else ""
-
-                    rent = parse_money_to_man(r[idx.get("賃料","")])
-                    fee  = parse_money_to_man(r[idx.get("共益費","")])
-                    area = parse_area_sqm(r[idx.get("面積","")])
-
-                    structure = nfkc(r[idx.get("構造","")])
-                    age_years = float("nan")
-                    age_cell = nfkc(r[idx.get("築年","")])
-                    m = re.search(r"\((\d+)\s*年\)", age_cell)
-                    if m:
-                        age_years = float(m.group(1))
-
-                    raw = f"[source=ulucks file={path.name} page={pi}] " + "|".join(nfkc(c) for c in r if nfkc(c) != "")
-                    rows.append({
-                        "page": pi,
-                        "category": "ulucks",
-                        "updated_at": updated,
-                        "building_name": building,
-                        "room": room,
-                        "address": address,
-                        "rent_man": rent,
-                        "fee_man": fee,
-                        "floor": "",
-                        "layout": layout,
-                        "area_sqm": area,
-                        "age_years": age_years,
-                        "structure": structure,
-                        "raw_block": raw,
-                        "file": path.name,
-                    })
-    return pd.DataFrame(rows, columns=SCHEMA)
-
-def realpro_extract(path: Path) -> pd.DataFrame:
-    rows: List[Dict[str, Any]] = []
-    with pdfplumber.open(str(path)) as pdf:
-        for pi, page in enumerate(pdf.pages, start=1):
-            try:
-                text = page.extract_text() or ""
-            except Exception:
-                text = ""
-            lines = [nfkc(l) for l in text.splitlines() if nfkc(l)]
-            updated = parse_updated_at(text)
-
-            # building header (北九州市... line)
-            bname, addr = "", ""
-            addr_idx = None
-            for i, l in enumerate(lines):
-                if "北九州市" in l and ("区" in l) and ("／" in l or "/" in l):
-                    addr_idx = i
-                    break
-            if addr_idx is not None and addr_idx > 0:
-                bname = lines[addr_idx - 1]
-                addr = lines[addr_idx].split("／")[0].strip()
-
-            structure = ""
-            age_years = float("nan")
-            for l in lines:
-                if "造" in l and "築" in l:
-                    m = re.search(r"(.+?造)", l)
-                    if m:
-                        structure = m.group(1)
-                    # age_years is optional; keep blank unless you really want to compute
-                    break
-
-            tables = []
-            try:
-                tables = page.extract_tables() or []
-            except Exception:
-                tables = []
-
-            for tb in tables:
-                if not tb or len(tb) < 3:
-                    continue
-                header_row = None
-                header = []
-                for hi in range(min(3, len(tb))):
-                    row = [nfkc(c) for c in tb[hi] if c is not None]
-                    if "号室名" in row and "賃料" in row:
-                        header_row = hi
-                        header = [nfkc(c) for c in tb[hi]]
-                        break
-                if header_row is None:
-                    continue
-                idx = {h: header.index(h) for h in header if h}
-
-                last: Optional[Dict[str, Any]] = None
-                for r in tb[header_row + 1:]:
-                    if not r or all(nfkc(c) == "" for c in r):
-                        continue
-                    r = list(r) + [None] * (len(header) - len(r))
-
-                    roomcell = nfkc(r[idx.get("号室名","")])
-                    rentcell = nfkc(r[idx.get("賃料","")])
-
-                    # continuation rows (room/rent empty)
-                    if roomcell == "" and rentcell == "" and last is not None:
-                        cont = "|".join(nfkc(c) for c in r if nfkc(c) != "")
-                        last["raw_block"] += " || " + cont
-                        continue
-
-                    m = re.search(r"(\d{2,4})", roomcell)
-                    room = m.group(1) if m else roomcell
-                    fm = re.search(r"(\d+)\s*階", roomcell)
-                    floor = fm.group(1) if fm else ""
-
-                    la = nfkc(r[idx.get("間取・面積","")])
-                    layout = ""
-                    area = float("nan")
-                    lm = re.search(r"(\d+[A-Z]*LDK|\d+DK|\d+K|1R)", la)
-                    if lm:
-                        layout = lm.group(1)
-                    am = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2)", la)
-                    if am:
-                        area = float(am.group(1))
-
-                    rent = parse_money_to_man(r[idx.get("賃料","")])
-                    fee  = parse_money_to_man(r[idx.get("共益費","")])
-
-                    raw = f"[source=realpro file={path.name} page={pi}] " + "|".join(nfkc(c) for c in r if nfkc(c) != "")
-                    last = {
-                        "page": pi,
-                        "category": "realpro",
-                        "updated_at": updated,
-                        "building_name": nfkc(bname),
-                        "room": room,
-                        "address": nfkc(addr),
-                        "rent_man": rent,
-                        "fee_man": fee,
-                        "floor": floor,
-                        "layout": layout,
-                        "area_sqm": area,
-                        "age_years": age_years,
-                        "structure": nfkc(structure),
-                        "raw_block": raw,
-                        "file": path.name,
-                    }
-                    rows.append(last)
-
-    return pd.DataFrame(rows, columns=SCHEMA)
-
-def orient_extract(path: Path) -> pd.DataFrame:
-    rows: List[Dict[str, Any]] = []
-    bname_pat = re.compile(r"(CLUB ORIENT No\.\d+\s+[^\n]+|ORIENT BLD No\.\d+\s+[^\n]+)")
-    with pdfplumber.open(str(path)) as pdf:
-        for pi, page in enumerate(pdf.pages, start=1):
-            try:
-                text = page.extract_text() or ""
-            except Exception:
-                text = ""
-            updated = parse_updated_at(text)
-            norm = "\n".join(nfkc(l) for l in text.splitlines())
-
-            matches = list(bname_pat.finditer(norm))
-            for i, m in enumerate(matches):
-                start = m.start()
-                end = matches[i + 1].start() if i + 1 < len(matches) else len(norm)
-                chunk = norm[start:end]
-
-                bname = nfkc(m.group(1))
-                am = re.search(r"(北九州市[^\n]+)", chunk)
-                addr = nfkc(am.group(1)) if am else ""
-
-                # choose the “big” parentheses (not (株))
-                infos = re.findall(r"\((.*?)\)", chunk, flags=re.S)
-                best = ""
-                for inner in infos:
-                    inner_nf = nfkc(inner)
-                    if any(k in inner_nf for k in ["HRC","SRC","RC","鉄","木","免震","階","戶","戸"]):
-                        if len(inner_nf) > len(best):
-                            best = inner_nf
-
-                structure = ""
-                layouts: List[str] = []
-                if best:
-                    sm = re.search(r"\b(HRC|SRC|RC|S)\s*\d+階", best)
-                    if sm:
-                        structure = sm.group(0).replace(" ", "")
-                    for lay in re.findall(r"\b\d+[A-Z]*LDK\b|\b\d+DK\b|\b\d+K\b|\b1R\b", best):
-                        layouts.append(lay)
-
-                raw = f"[source=orient file={path.name} page={pi}] " + chunk.replace("\n", " ")
-                if bname and addr:
-                    rows.append({
-                        "page": pi,
-                        "category": "orient",
-                        "updated_at": updated,
-                        "building_name": bname,
-                        "room": "",
-                        "address": addr,
-                        "rent_man": float("nan"),
-                        "fee_man": float("nan"),
-                        "floor": "",
-                        "layout": "/".join(sorted(set(layouts))),
-                        "area_sqm": float("nan"),
-                        "age_years": float("nan"),
-                        "structure": structure,
-                        "raw_block": raw,
-                        "file": path.name,
-                    })
-
-    return pd.DataFrame(rows, columns=SCHEMA)
-
-def write_csv(df: pd.DataFrame, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # enforce schema & order
-    df = df.reindex(columns=SCHEMA)
-    df.to_csv(
-        path,
-        index=False,
-        encoding="utf-8-sig",
-        line_terminator="\r\n",
-        quoting=csv.QUOTE_ALL,
-        na_rep="",
-    )
 
 def qc_check(df: pd.DataFrame, category: str) -> List[str]:
     reasons: List[str] = []
     if len(df) == 0:
         return ["extracted_rows=0"]
 
-    # building_name garbage ratio
     bn = df["building_name"].fillna("").astype(str).map(nfkc)
     bad = bn.map(
         lambda s: (len(s) <= 2)
@@ -433,34 +435,45 @@ def qc_check(df: pd.DataFrame, category: str) -> List[str]:
     if bad_ratio >= 0.20:
         reasons.append(f"building_name_bad_ratio={bad_ratio:.2f}")
 
-    # address looks like money
+    if category == "realpro" and bn.map(lambda s: bool(re.search(r"TEL|FAX|^\d+/\d+頁$", s))).any():
+        reasons.append("building_name_contains_noise")
+
     addr = df["address"].fillna("").astype(str)
     if addr.map(looks_like_money).any():
         reasons.append("address_looks_like_money")
+    if (addr.map(nfkc) == "").any():
+        reasons.append("address_empty")
 
-    # room mostly empty (ulucks/realpro only)
-    if category in {"ulucks","realpro"}:
-        room = df["room"].fillna("").astype(str).map(nfkc)
+    if category in {"ulucks", "realpro"}:
+        room = df["room_no"].fillna("").astype(str).map(nfkc)
         empty_ratio = float((room == "").mean())
         if empty_ratio >= 0.50:
             reasons.append(f"room_empty_ratio={empty_ratio:.2f}")
 
     return reasons
 
+
 def should_stop_on_qc_failures(qc_mode: str, failures: int) -> bool:
     return qc_mode == "strict" and failures > 0
 
-def dedupe(df: pd.DataFrame) -> Tuple[pd.DataFrame,int]:
-    before = len(df)
-    key_cols = ["file","building_name","address","room","rent_man","fee_man","floor","layout","area_sqm"]
-    df2 = df.drop_duplicates(subset=key_cols, keep="first")
-    return df2, before - len(df2)
+
+def write_csv(df: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df = df.reindex(columns=SCHEMA)
+    df.to_csv(path, index=False, encoding="utf-8-sig", lineterminator="\r\n", quoting=csv.QUOTE_ALL, na_rep="")
+
+
+def _extract_with_parser(kind: str, path: Path) -> ParseResult:
+    parser = next((p for p in PARSERS if p.name == kind), None)
+    if parser is None:
+        return ParseResult(df=pd.DataFrame([], columns=SCHEMA), warnings=["unsupported_kind"], drop_reasons={})
+    return parser.parse(path)
+
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ulucks-dir", required=False, default="")
     ap.add_argument("--realpro-dir", required=False, default="")
-    ap.add_argument("--orient-pdf", required=False, default="")
     ap.add_argument("--out-dir", required=True)
     ap.add_argument("--qc-mode", choices=["strict", "warn", "off"], default="warn")
     args = ap.parse_args()
@@ -472,7 +485,6 @@ def main() -> int:
     per_pdf_dir = out_dir / "per_pdf"
     stats_rows = []
     qc_lines: List[str] = []
-
     all_dfs: List[pd.DataFrame] = []
     failures = 0
 
@@ -482,112 +494,95 @@ def main() -> int:
         pages = 0
         try:
             pages = page_count_fast(path)
-        except Exception as e:
+        except Exception:
             pages = 0
 
-        category, reason = classify_pdf(path)
-        manifest_rows.append({
-            "file": path.name,
-            "sha256": sha,
-            "bytes": path.stat().st_size,
-            "pages": pages,
-            "category": category,
-            "classify_reason": reason,
-        })
+        detect = detect_pdf_kind(path)
+        kind = detect.kind
+        manifest_rows.append(
+            {
+                "file": path.name,
+                "sha256": sha,
+                "bytes": path.stat().st_size,
+                "pages": pages,
+                "kind": kind,
+                "classify_reason": detect.reason,
+            }
+        )
 
-        if category == "ulucks":
-            df = ulucks_extract(path)
-        elif category == "realpro":
-            df = realpro_extract(path)
-        elif category == "orient":
-            df = orient_extract(path)
-        else:
-            df = pd.DataFrame([], columns=SCHEMA)
+        if kind == "non_vacancy":
+            qc_lines.append(f"[WARN] {path.name} kind=non_vacancy reason={detect.reason}")
+            stats_rows.append(
+                {
+                    "file": path.name,
+                    "sha256": sha,
+                    "pages": pages,
+                    "kind": kind,
+                    "extracted_rows": 0,
+                    "drop_reasons": "",
+                    "warning_count": 1,
+                    "status": "WARN",
+                    "reasons": detect.reason,
+                }
+            )
+            return
 
+        parsed = _extract_with_parser(kind, path)
+        df = parsed.df
         extracted_row_count = len(df)
         df, dropped_rows, drop_reasons = apply_name_and_row_filters(df)
-        kept_row_count = len(df)
-
         df, dup_removed = dedupe(df)
-
         per_path = per_pdf_dir / f"{sha}.csv"
         write_csv(df, per_path)
 
         reasons: List[str] = []
         status = "SKIP" if args.qc_mode == "off" else "OK"
         if args.qc_mode != "off":
-            reasons = qc_check(df, category)
-            status = "OK" if not reasons else "FAIL"
+            reasons = qc_check(df, kind)
+            reasons.extend(parsed.warnings)
+            status = "OK" if not reasons else "WARN"
 
-        if status == "FAIL":
+        if reasons:
+            qc_lines.append(f"[WARN] {path.name} kind={kind} reasons={';'.join(reasons)}")
+        if should_stop_on_qc_failures(args.qc_mode, 1 if reasons else 0):
             failures += 1
-            qc_lines.append(f"[FAIL] {path.name} sha256={sha} category={category} reasons={';'.join(reasons)}")
-            # dump minimal fixture for debugging (text + first-page tables)
-            fx = out_dir / "fixtures" / sha
-            fx.mkdir(parents=True, exist_ok=True)
-            try:
-                with pdfplumber.open(str(path)) as pdf:
-                    p0 = pdf.pages[0]
-                    (fx / "page1.txt").write_text(p0.extract_text() or "", encoding="utf-8")
-                    tables = p0.extract_tables() or []
-                    (fx / "page1_tables.txt").write_text(str(tables)[:20000], encoding="utf-8")
-            except Exception as e:
-                (fx / "fixture_error.txt").write_text(repr(e), encoding="utf-8")
 
-        if dropped_rows:
-            qc_lines.append(
-                f"[DROP] {path.name} sha256={sha} dropped_rows={dropped_rows} reason=detached_house"
-            )
-
-        buildings = df["building_name"].fillna("").astype(str).map(nfkc)
-        rooms = df["room"].fillna("").astype(str).map(nfkc)
-
-        stats_rows.append({
-            "file": path.name,
-            "sha256": sha,
-            "pages": pages,
-            "category": category,
-            "extracted_row_count": extracted_row_count,
-            "extracted_rows": len(df),
-            "drop_count": dropped_rows,
-            "kept_row_count": kept_row_count,
-            "drop_reasons": ";".join(f"{k}:{v}" for k, v in drop_reasons.items() if v),
-            "buildings": int((buildings != "").sum()) and int(buildings.nunique()) or 0,
-            "vacancies": int((rooms != "").sum()),
-            "dedupe_removed": int(dup_removed),
-            "status": status,
-            "reasons": ";".join(reasons),
-        })
-
+        stats_rows.append(
+            {
+                "file": path.name,
+                "sha256": sha,
+                "pages": pages,
+                "kind": kind,
+                "extracted_rows": len(df),
+                "drop_reasons": ";".join(f"{k}:{v}" for k, v in drop_reasons.items() if v),
+                "warning_count": len(reasons),
+                "status": status,
+                "dedupe_removed": dup_removed,
+                "source_extracted_rows": extracted_row_count,
+                "reasons": ";".join(reasons),
+            }
+        )
         all_dfs.append(df)
 
-    # collect inputs
-    if args.ulucks_dir:
-        for p in sorted(Path(args.ulucks_dir).rglob("*.pdf")):
-            handle_pdf(p)
-    if args.realpro_dir:
-        for p in sorted(Path(args.realpro_dir).rglob("*.pdf")):
-            handle_pdf(p)
-    if args.orient_pdf:
-        handle_pdf(Path(args.orient_pdf))
+    for root in [args.ulucks_dir, args.realpro_dir]:
+        if root:
+            for p in sorted(Path(root).rglob("*.pdf")):
+                handle_pdf(p)
 
-    # write manifest / stats / qc
-    pd.DataFrame(manifest_rows).to_csv(out_dir / "manifest.csv", index=False, encoding="utf-8-sig", line_terminator="\r\n", quoting=csv.QUOTE_ALL)
-    pd.DataFrame(stats_rows).to_csv(out_dir / "stats.csv", index=False, encoding="utf-8-sig", line_terminator="\r\n", quoting=csv.QUOTE_ALL)
+    pd.DataFrame(manifest_rows).to_csv(out_dir / "manifest.csv", index=False, encoding="utf-8-sig", lineterminator="\r\n", quoting=csv.QUOTE_ALL)
+    pd.DataFrame(stats_rows).to_csv(out_dir / "stats.csv", index=False, encoding="utf-8-sig", lineterminator="\r\n", quoting=csv.QUOTE_ALL)
     (out_dir / "qc_report.txt").write_text("\r\n".join(qc_lines) + ("\r\n" if qc_lines else ""), encoding="utf-8-sig")
 
     if should_stop_on_qc_failures(args.qc_mode, failures):
-        print(f"[STOP] QC failed: {failures} pdf(s). See: {out_dir/'qc_report.txt'}", file=sys.stderr)
+        print(f"[STOP] QC warnings treated as failures: {failures}", file=sys.stderr)
         return 2
-    if failures and args.qc_mode == "warn":
-        print(f"[WARN] QC failed: {failures} pdf(s). Continue by --qc-mode warn.")
 
-    # merge
     merged = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame([], columns=SCHEMA)
-    merged, dup_removed = dedupe(merged)
+    merged, _ = dedupe(merged)
     write_csv(merged, out_dir / "final.csv")
-    print(f"[OK] final.csv rows={len(merged)} (dup_removed={dup_removed}) -> {out_dir/'final.csv'}")
+    print(f"[OK] final.csv rows={len(merged)} -> {out_dir / 'final.csv'}")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
