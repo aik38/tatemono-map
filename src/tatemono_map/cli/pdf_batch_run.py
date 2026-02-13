@@ -74,6 +74,23 @@ def nfkc(s: Any) -> str:
     return s.strip()
 
 
+def restore_latin1_cp932_mojibake(text: Any) -> str:
+    src = "" if text is None else str(text)
+    if not src:
+        return ""
+    try:
+        fixed = src.encode("latin1").decode("cp932")
+    except Exception:
+        return src
+    src_jp = len(re.findall(r"[ぁ-んァ-ン一-龥]", src))
+    fixed_jp = len(re.findall(r"[ぁ-んァ-ン一-龥]", fixed))
+    return fixed if fixed_jp > src_jp else src
+
+
+def normalize_pdf_text(text: Any) -> str:
+    return nfkc(restore_latin1_cp932_mojibake(text))
+
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -225,7 +242,7 @@ class UlucksParser:
 
     def detect_kind(self, first_page_text: str, metadata: Dict[str, Any]) -> DetectResult:
         score = 0
-        t = nfkc(first_page_text)
+        t = normalize_pdf_text(first_page_text)
         if "ウラックス" in t:
             score += 2
         if "空室一覧" in t:
@@ -240,26 +257,27 @@ class UlucksParser:
         with pdfplumber.open(str(pdf_path)) as pdf:
             for pi, page in enumerate(pdf.pages, start=1):
                 text = page.extract_text() or ""
+                text = normalize_pdf_text(text)
                 updated = parse_updated_at(text)
                 tables = page.extract_tables() or []
                 for tb in tables:
                     if not tb or len(tb) < 2:
                         continue
-                    header = [nfkc(c) for c in tb[0]]
+                    header = [normalize_pdf_text(c) for c in tb[0]]
                     if not ("物件名" in header and "号室" in header and "賃料" in header):
                         continue
                     idx = {h: header.index(h) for h in header if h}
                     for r in tb[1:]:
-                        if not r or all(nfkc(c) == "" for c in r):
+                        if not r or all(normalize_pdf_text(c) == "" for c in r):
                             continue
                         r = list(r) + [None] * (len(header) - len(r))
-                        building = nfkc(r[idx.get("物件名", "")])
-                        address = nfkc(r[idx.get("所在地", "")])
-                        room = nfkc(r[idx.get("号室", "")])
+                        building = normalize_pdf_text(r[idx.get("物件名", "")])
+                        address = normalize_pdf_text(r[idx.get("所在地", "")])
+                        room = normalize_pdf_text(r[idx.get("号室", "")])
                         room = re.sub(r"\s*《.*?》\s*", "", room).strip()
-                        layout_detail = nfkc(r[idx.get("間取詳細", "")])
+                        layout_detail = normalize_pdf_text(r[idx.get("間取詳細", "")])
                         layout = nfkc(layout_detail.split(":")[0]) if layout_detail else ""
-                        raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(nfkc(c) for c in r if nfkc(c) != "")
+                        raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")
                         rows.append(
                             {
                                 "page": pi,
@@ -274,7 +292,7 @@ class UlucksParser:
                                 "layout": layout,
                                 "area_sqm": parse_area_sqm(r[idx.get("面積", "")]),
                                 "age_years": float("nan"),
-                                "structure": nfkc(r[idx.get("構造", "")]),
+                                "structure": normalize_pdf_text(r[idx.get("構造", "")]),
                                 "file": pdf_path.name,
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
@@ -289,7 +307,7 @@ class RealproParser:
 
     def detect_kind(self, first_page_text: str, metadata: Dict[str, Any]) -> DetectResult:
         score = 0
-        t = nfkc(first_page_text)
+        t = normalize_pdf_text(first_page_text)
         for tok in ["リアプロ", "空室一覧表", "号室名", "賃料", "管理費"]:
             if tok in t:
                 score += 1
@@ -323,7 +341,8 @@ class RealproParser:
         with pdfplumber.open(str(pdf_path)) as pdf:
             for pi, page in enumerate(pdf.pages, start=1):
                 text = page.extract_text() or ""
-                lines = [nfkc(l) for l in text.splitlines() if nfkc(l)]
+                text = normalize_pdf_text(text)
+                lines = [normalize_pdf_text(l) for l in text.splitlines() if normalize_pdf_text(l)]
                 updated = parse_updated_at(text)
 
                 contexts = self._extract_contexts(lines)
@@ -341,10 +360,10 @@ class RealproParser:
                     header_row = None
                     header = []
                     for hi in range(min(3, len(tb))):
-                        row = [nfkc(c) for c in tb[hi] if c is not None]
+                        row = [normalize_pdf_text(c) for c in tb[hi] if c is not None]
                         if "号室名" in row and "賃料" in row:
                             header_row = hi
-                            header = [nfkc(c) for c in tb[hi]]
+                            header = [normalize_pdf_text(c) for c in tb[hi]]
                             break
                     if header_row is None:
                         continue
@@ -365,18 +384,18 @@ class RealproParser:
                     current_idx += 1
 
                     for r in tb[header_row + 1 :]:
-                        if not r or all(nfkc(c) == "" for c in r):
+                        if not r or all(normalize_pdf_text(c) == "" for c in r):
                             continue
                         r = list(r) + [None] * (len(header) - len(r))
-                        roomcell = nfkc(r[idx.get("号室名", "")])
-                        rentcell = nfkc(r[idx.get("賃料", "")])
+                        roomcell = normalize_pdf_text(r[idx.get("号室名", "")])
+                        rentcell = normalize_pdf_text(r[idx.get("賃料", "")])
                         if roomcell == "" and rentcell == "":
                             continue
                         room_m = re.search(r"(\d{2,4})", roomcell)
                         room = room_m.group(1) if room_m else roomcell
                         floor_m = re.search(r"(\d+)\s*階", roomcell)
                         floor = floor_m.group(1) if floor_m else ""
-                        la = nfkc(r[idx.get("間取・面積", "")])
+                        la = normalize_pdf_text(r[idx.get("間取・面積", "")])
                         layout = ""
                         area = float("nan")
                         lm = re.search(r"(\d+[A-Z]*LDK|\d+DK|\d+K|1R)", la)
@@ -385,7 +404,7 @@ class RealproParser:
                         am = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2)", la)
                         if am:
                             area = float(am.group(1))
-                        raw = f"[source=realpro file={pdf_path.name} page={pi}] " + "|".join(nfkc(c) for c in r if nfkc(c) != "")
+                        raw = f"[source=realpro file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")
                         rows.append(
                             {
                                 "page": pi,
@@ -422,11 +441,19 @@ PARSERS: Sequence[VacancyParser] = [UlucksParser(), RealproParser()]
 
 
 def detect_pdf_kind(path: Path) -> DetectResult:
+    first = ""
     try:
-        with pdfplumber.open(str(path)) as pdf:
-            first = pdf.pages[0].extract_text() or ""
-    except Exception as e:
-        return DetectResult("non_vacancy", f"sniff_error:{type(e).__name__}")
+        r = PdfReader(str(path))
+        if r.pages:
+            first = normalize_pdf_text(r.pages[0].extract_text() or "")
+    except Exception:
+        first = ""
+    if not first:
+        try:
+            with pdfplumber.open(str(path)) as pdf:
+                first = normalize_pdf_text(pdf.pages[0].extract_text() or "")
+        except Exception as e:
+            return DetectResult("non_vacancy", f"sniff_error:{type(e).__name__}")
 
     meta = {"filename": path.name}
     results = [p.detect_kind(first, meta) for p in PARSERS]
@@ -502,6 +529,14 @@ def _extract_with_parser(kind: str, path: Path) -> ParseResult:
     return parser.parse(path)
 
 
+def _try_parse_ambiguous(path: Path) -> Tuple[str, Optional[ParseResult]]:
+    for kind in ("realpro", "ulucks"):
+        parsed = _extract_with_parser(kind, path)
+        if len(parsed.df) > 0:
+            return kind, parsed
+    return "non_vacancy", None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--ulucks-dir", required=False, default="")
@@ -543,6 +578,13 @@ def main() -> int:
             }
         )
 
+        parsed: Optional[ParseResult] = None
+        if kind == "non_vacancy" and detect.reason == "ambiguous_kind":
+            recovered_kind, recovered = _try_parse_ambiguous(path)
+            if recovered is not None:
+                kind = recovered_kind
+                parsed = recovered
+
         if kind == "non_vacancy":
             qc_lines.append(f"[WARN] {path.name} kind=non_vacancy reason={detect.reason}")
             stats_rows.append(
@@ -560,7 +602,8 @@ def main() -> int:
             )
             return
 
-        parsed = _extract_with_parser(kind, path)
+        if parsed is None:
+            parsed = _extract_with_parser(kind, path)
         df = parsed.df
         extracted_row_count = len(df)
         df, dropped_rows, drop_reasons = apply_name_and_row_filters(df)

@@ -9,6 +9,8 @@ from tatemono_map.cli.pdf_batch_run import (
     classify_detached_house,
     detect_pdf_kind,
     is_noise_line,
+    normalize_pdf_text,
+    restore_latin1_cp932_mojibake,
     should_stop_on_qc_failures,
     split_building_and_room,
 )
@@ -128,3 +130,69 @@ def test_non_vacancy_detection_fixture(tmp_path: Path):
     # detect_pdf_kind handles parser sniff errors as non_vacancy
     out = detect_pdf_kind(pdf)
     assert out.kind == "non_vacancy"
+
+
+def test_restore_latin1_cp932_mojibake_fixture():
+    mojibake = _fixture("realpro_mojibake_pypdf.txt")
+    restored = restore_latin1_cp932_mojibake(mojibake)
+    expected = _fixture("realpro_mojibake_restored.txt")
+    assert restored == expected
+
+
+def test_realpro_detect_kind_works_after_mojibake_normalization():
+    parser = RealproParser()
+    mojibake = _fixture("realpro_mojibake_pypdf.txt")
+
+    before = parser.detect_kind(mojibake, {})
+    assert before.kind == "non_vacancy"
+
+    after = parser.detect_kind(normalize_pdf_text(mojibake), {})
+    assert after.kind == "realpro"
+
+
+def test_realpro_parse_with_fixture_text_extracts_rows_from_table_like_content(tmp_path: Path):
+    from tatemono_map.cli import pdf_batch_run as mod
+
+    class _Page:
+        def __init__(self, text: str, table: list[list[str]]):
+            self._text = text
+            self._table = table
+
+        def extract_text(self):
+            return self._text
+
+        def extract_tables(self):
+            return [self._table]
+
+    class _Pdf:
+        def __init__(self, pages):
+            self.pages = pages
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    mojibake = _fixture("realpro_mojibake_pypdf.txt")
+    page_text = "\n".join(
+        [
+            mojibake,
+            "サンプルメゾン",
+            "北九州市小倉北区魚町1-1",
+            "RC造 築10年",
+        ]
+    )
+    table = [
+        ["号室名", "賃料", "共益費", "間取・面積"],
+        ["101", "6.2万", "0.3万", "1K 25.0㎡"],
+    ]
+
+    original_open = mod.pdfplumber.open
+    mod.pdfplumber.open = lambda _path: _Pdf([_Page(page_text, table)])
+    try:
+        result = RealproParser().parse(tmp_path / "dummy.pdf")
+    finally:
+        mod.pdfplumber.open = original_open
+
+    assert len(result.df) > 0
