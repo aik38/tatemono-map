@@ -4,6 +4,7 @@ param(
   [Parameter(Mandatory=$true)][string]$OrientPdf,
   [string]$RepoPath = (Join-Path $env:USERPROFILE "tatemono-map"),
   [string]$OutDir = "",
+  [ValidateSet("strict","warn","off")][string]$QcMode = "warn",
   [switch]$Open
 )
 
@@ -39,6 +40,7 @@ python -m tatemono_map.cli.pdf_batch_run `
   --ulucks-dir $ulDir `
   --realpro-dir $rpDir `
   --orient-pdf $OrientPdf `
+  --qc-mode $QcMode `
   --out-dir $OutDir
 
 if ($Open) {

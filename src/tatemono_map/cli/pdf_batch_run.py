@@ -20,12 +20,13 @@ import pdfplumber
 from pypdf import PdfReader
 
 SCHEMA = [
-    "page","category","updated_at","building_name","room","address",
+    "page","category","updated_at","source_property_name","building_name","room_no","room","address",
     "rent_man","fee_man","floor","layout","area_sqm","age_years","structure",
     "raw_block","file",
 ]
 
 BAD_BUILDING_TOKENS = ["》", "号", "NEW"]
+DETACHED_HOUSE_KEYWORDS = ["戸建", "一戸建", "貸家", "一軒家"]
 
 def nfkc(s: Any) -> str:
     if s is None:
@@ -88,6 +89,54 @@ def parse_area_sqm(x: Any) -> float:
         return float(s)
     except:
         return float("nan")
+
+def split_building_and_room(name: str) -> Tuple[str, str]:
+    src = nfkc(name)
+    if not src:
+        return "", ""
+
+    # Keep building block notation as building name (A棟 / Ⅰ号棟 / 東棟 etc.)
+    if re.search(r"([A-ZＡ-Ｚ]|[IVXⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]|\d+)\s*号?棟$|[東西南北]\s*棟$", src):
+        return src, ""
+
+    patterns = [
+        r"^(.*?)[\s\-]+(\d{2,4})\s*号室$",
+        r"^(.*?)[\s\-]+(\d{2,4})$",
+        r"^(.*?)(\d{3,4})$",
+        r"^(.*?)[\s\-]+(\d\-\d{2})$",
+    ]
+    for pat in patterns:
+        m = re.match(pat, src)
+        if not m:
+            continue
+        building = nfkc(m.group(1))
+        room = nfkc(m.group(2)).replace("-", "")
+        if building and room:
+            return building, room
+    return src, ""
+
+def classify_detached_house(name: str) -> bool:
+    s = nfkc(name)
+    return any(k in s for k in DETACHED_HOUSE_KEYWORDS)
+
+def apply_name_and_row_filters(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, Dict[str, int]]:
+    if len(df) == 0:
+        out = df.copy()
+        out["source_property_name"] = ""
+        out["room_no"] = ""
+        return out, 0, {"detached_house": 0}
+
+    out = df.copy()
+    out["source_property_name"] = out["building_name"].fillna("").astype(str).map(nfkc)
+
+    split_pairs = out["source_property_name"].map(split_building_and_room)
+    out["building_name"] = split_pairs.map(lambda t: t[0])
+    out["room_no"] = split_pairs.map(lambda t: t[1])
+
+    detached_mask = out["source_property_name"].map(classify_detached_house)
+    dropped = int(detached_mask.sum())
+    out = out.loc[~detached_mask].copy()
+    return out, dropped, {"detached_house": dropped}
 
 def looks_like_money(s: str) -> bool:
     s = nfkc(s)
@@ -375,7 +424,11 @@ def qc_check(df: pd.DataFrame, category: str) -> List[str]:
 
     # building_name garbage ratio
     bn = df["building_name"].fillna("").astype(str).map(nfkc)
-    bad = bn.map(lambda s: (len(s) <= 2) or any(tok in s for tok in BAD_BUILDING_TOKENS))
+    bad = bn.map(
+        lambda s: (len(s) <= 2)
+        or bool(re.fullmatch(r"\d{2,4}", s))
+        or any(tok in s for tok in BAD_BUILDING_TOKENS if not (tok == "号" and "棟" in s))
+    )
     bad_ratio = float(bad.mean()) if len(bad) else 0.0
     if bad_ratio >= 0.20:
         reasons.append(f"building_name_bad_ratio={bad_ratio:.2f}")
@@ -394,6 +447,9 @@ def qc_check(df: pd.DataFrame, category: str) -> List[str]:
 
     return reasons
 
+def should_stop_on_qc_failures(qc_mode: str, failures: int) -> bool:
+    return qc_mode == "strict" and failures > 0
+
 def dedupe(df: pd.DataFrame) -> Tuple[pd.DataFrame,int]:
     before = len(df)
     key_cols = ["file","building_name","address","room","rent_man","fee_man","floor","layout","area_sqm"]
@@ -406,6 +462,7 @@ def main() -> int:
     ap.add_argument("--realpro-dir", required=False, default="")
     ap.add_argument("--orient-pdf", required=False, default="")
     ap.add_argument("--out-dir", required=True)
+    ap.add_argument("--qc-mode", choices=["strict", "warn", "off"], default="warn")
     args = ap.parse_args()
 
     out_dir = Path(args.out_dir)
@@ -447,13 +504,21 @@ def main() -> int:
         else:
             df = pd.DataFrame([], columns=SCHEMA)
 
+        extracted_row_count = len(df)
+        df, dropped_rows, drop_reasons = apply_name_and_row_filters(df)
+        kept_row_count = len(df)
+
         df, dup_removed = dedupe(df)
 
         per_path = per_pdf_dir / f"{sha}.csv"
         write_csv(df, per_path)
 
-        reasons = qc_check(df, category)
-        status = "OK" if not reasons else "FAIL"
+        reasons: List[str] = []
+        status = "SKIP" if args.qc_mode == "off" else "OK"
+        if args.qc_mode != "off":
+            reasons = qc_check(df, category)
+            status = "OK" if not reasons else "FAIL"
+
         if status == "FAIL":
             failures += 1
             qc_lines.append(f"[FAIL] {path.name} sha256={sha} category={category} reasons={';'.join(reasons)}")
@@ -469,6 +534,11 @@ def main() -> int:
             except Exception as e:
                 (fx / "fixture_error.txt").write_text(repr(e), encoding="utf-8")
 
+        if dropped_rows:
+            qc_lines.append(
+                f"[DROP] {path.name} sha256={sha} dropped_rows={dropped_rows} reason=detached_house"
+            )
+
         buildings = df["building_name"].fillna("").astype(str).map(nfkc)
         rooms = df["room"].fillna("").astype(str).map(nfkc)
 
@@ -477,7 +547,11 @@ def main() -> int:
             "sha256": sha,
             "pages": pages,
             "category": category,
+            "extracted_row_count": extracted_row_count,
             "extracted_rows": len(df),
+            "drop_count": dropped_rows,
+            "kept_row_count": kept_row_count,
+            "drop_reasons": ";".join(f"{k}:{v}" for k, v in drop_reasons.items() if v),
             "buildings": int((buildings != "").sum()) and int(buildings.nunique()) or 0,
             "vacancies": int((rooms != "").sum()),
             "dedupe_removed": int(dup_removed),
@@ -502,9 +576,11 @@ def main() -> int:
     pd.DataFrame(stats_rows).to_csv(out_dir / "stats.csv", index=False, encoding="utf-8-sig", line_terminator="\r\n", quoting=csv.QUOTE_ALL)
     (out_dir / "qc_report.txt").write_text("\r\n".join(qc_lines) + ("\r\n" if qc_lines else ""), encoding="utf-8-sig")
 
-    if failures:
+    if should_stop_on_qc_failures(args.qc_mode, failures):
         print(f"[STOP] QC failed: {failures} pdf(s). See: {out_dir/'qc_report.txt'}", file=sys.stderr)
         return 2
+    if failures and args.qc_mode == "warn":
+        print(f"[WARN] QC failed: {failures} pdf(s). Continue by --qc-mode warn.")
 
     # merge
     merged = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame([], columns=SCHEMA)
