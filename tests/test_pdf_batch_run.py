@@ -75,6 +75,7 @@ def test_realpro_detect_and_noise_line_filtering_fixture():
     assert detected.kind == "realpro"
     assert is_noise_line("TEL:093-000-0000")
     assert is_noise_line("2/19頁")
+    assert is_noise_line("093-000-0000 TEL:093-000-0000")
 
 
 def test_realpro_multi_blocks_fixture_has_multiple_context_candidates():
@@ -94,6 +95,31 @@ def test_ulucks_suffix_number_fixture_keeps_building_number():
     assert b == "フェルト127"
     assert r == ""
 
+
+
+
+def test_realpro_context_extraction_ignores_noise_fixture():
+    text = _fixture("realpro_noise_context_trap.txt")
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    parser = RealproParser()
+
+    contexts = parser._extract_contexts(lines)
+
+    assert contexts
+    assert contexts[0][0] == "サンプルメゾン西小倉"
+    assert not any("TEL" in c[0] or "FAX" in c[0] for c in contexts)
+    assert not any("/" in c[0] and "頁" in c[0] for c in contexts)
+
+
+def test_qc_check_realpro_requires_building_name_when_room_exists():
+    from tatemono_map.cli.pdf_batch_run import qc_check
+
+    df = pd.DataFrame([
+        {"building_name": "", "room": "101", "address": "北九州市小倉北区魚町1-1", "rent_man": 7.0, "fee_man": 0.3, "floor": "1", "layout": "1K", "area_sqm": 25.0},
+    ])
+
+    reasons = qc_check(df, "realpro")
+    assert "building_name_missing_with_room" in reasons
 
 def test_non_vacancy_detection_fixture(tmp_path: Path):
     pdf = tmp_path / "non_vacancy.pdf"

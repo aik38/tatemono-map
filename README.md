@@ -82,27 +82,29 @@ Start-Process dist/index.html
 - DBは **`data/tatemono_map.sqlite3` 固定**（スクリプト実行時は `-DbPath` で上書き可）。
 
 ### D) PDF batch pipeline（Quickstart）
-- 前提: **PowerShell 7.x** / リポジトリ実体は `$env:USERPROFILE\tatemono-map`。
-- 入力は Downloads から最新ファイルを自動選択します（`ウラックス-*.zip` / `リアプロ-*.zip` / `オリエント*.pdf`）。
+- 前提: **PowerShell 7.x** / repo 直下で実行（本パイプラインは **Ulucks + Realpro の空室一覧専用**、Orientは対象外）。
+- 入力は Downloads から最新 ZIP を自動選択します（`ウラックス-*.zip` / `リアプロ-*.zip`）。
 
 ```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-$DL   = Join-Path $env:USERPROFILE "Downloads"
+Set-Location "$env:USERPROFILE\tatemono-map"
+$DL = Join-Path $env:USERPROFILE "Downloads"
 
 $UL = Get-ChildItem -Path $DL -File -Filter "ウラックス-*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $RP = Get-ChildItem -Path $DL -File -Filter "リアプロ-*.zip"   | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-$OR = Get-ChildItem -Path $DL -File -Filter "オリエント*.pdf"   | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $UL -or -not $RP -or -not $OR) { throw "Downloads に必要ファイル（ウラックス/リアプロ/オリエント）が見つかりません。" }
+if (-not $UL -or -not $RP) { throw "Downloads に必要ファイル（ウラックス/リアプロ）が見つかりません。" }
 
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_pdf_batch_pipeline.ps1" `
+& .\scripts\run_pdf_batch_pipeline.ps1 `
   -UlucksZip $UL.FullName `
   -RealproZip $RP.FullName `
-  -OrientPdf $OR.FullName `
   -QcMode warn
 
-$OUT = Get-ChildItem -Path (Join-Path $REPO "tmp\pdf_pipeline\out") -Directory | Sort-Object Name -Descending | Select-Object -First 1
+$OUT = Get-ChildItem -Path .\tmp\pdf_pipeline\out -Directory | Sort-Object Name -Descending | Select-Object -First 1
 ii $OUT.FullName
 ```
+
+- 事故防止:
+  - `$REPO` 未定義のまま `"$REPO\scripts\..."` を使うと `\scripts\...` になり失敗します。repo 直下で `& .\scripts\...` を推奨します。
+  - `pwsh` セッション内からさらに `pwsh -File ...` を多重起動すると引数解釈でハマることがあるため、既存セッションでは `&` 実行を推奨します。
 
 - 実行結果は `tmp/pdf_pipeline/out/YYYYMMDD_HHMMSS` に出力されます。
 - `tmp/pdf_pipeline/work/YYYYMMDD_HHMMSS` は展開・抽出の中間生成物です（最終成果物ではありません）。
@@ -119,13 +121,15 @@ ii $OUT.FullName
   - `off`: QC自体をスキップ
 - `FontBBox` 警告は pdfminer 由来のノイズが多く、通常は抽出結果に致命影響ありません（内容異常がないかは `qc_report.txt` / `stats.csv` で判断）。
 
-CSV列名（正本）:
-`building_name,address,layout,rent_man,fee_man,area_sqm,updated_at,structure,age_years`
+CSV列名（final.csv / 既定）:
+`category,updated_at,building_name,room,address,rent_man,fee_man,layout,floor,area_sqm,age_years,structure,file,page,raw_block`
+
+互換モード（必要時のみ）:
+- `--legacy-columns` を付与すると `source_property_name` / `room_no` / `raw_blockfile` を追加出力します。
 
 用語（PDF batch / manual CSV 共通）:
-- `source_property_name`: 入力PDF掲載名（原文を保持）
 - `building_name`: 正規化後の建物名（DB連携対象）
-- `room_no`: 建物名から自動分離した号室（例: `グランフォーレ小倉302` → `building_name=グランフォーレ小倉`, `room_no=302`）
+- `room`: 部屋番号/号室（`101` など）
 - 戸建（`戸建`/`一戸建`/`貸家`/`一軒家`）は **行単位で除外** し、PDF全体は落としません。
 
 
@@ -143,10 +147,10 @@ CSV列名（正本）:
   - `-NoServe` 運用なら HTTP サーバ不要（`dist/index.html` を直接開く）。
 - **`ModuleNotFoundError: tatemono_map`**
   - venv 未有効化、依存未導入、作業ディレクトリ違い。
-  - `.venv\Scripts\Activate.ps1` 実行後に `python -m pip install -r requirements.txt` を実施。
+  - `.venv\Scripts\Activate.ps1` 実行後に `python -m pip install -r requirements.txt` と `python -m pip install -r requirements-dev.txt` を実施。
 - **`forbidden data detected` / `pattern=号室`**
   - `building_name` や `address` に号室/部屋番号が混入したまま `dist` 生成に進んでいるのが原因です。
-  - PDF batch pipeline では `source_property_name` から `building_name` と `room_no` を自動分離します。manual CSV 運用では従来どおり、建物名と号室を分離して入力してください。
+  - PDF batch pipeline では `building_name` と `room` を分離して保持します。manual CSV 運用では従来どおり、建物名と号室を分離して入力してください。
 
 ---
 
@@ -403,6 +407,7 @@ $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 Set-Location $REPO
 if (-not (Test-Path ".venv\Scripts\python.exe")) { throw ".venv がありません。scripts/dev_setup.ps1 などで初期化してください。" }
 & .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+& .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 & .\.venv\Scripts\python.exe -m pytest -q tests/test_ulucks_smartlink_phase_a.py
 & .\.venv\Scripts\python.exe -m tatemono_map.ingest.ulucks_smartlink_phase_a --html tests/fixtures/ulucks/smartlink_phase_a_page_1.html tests/fixtures/ulucks/smartlink_phase_a_page_2.html --out-csv data/ulucks_phase_a_summary.csv --out-json data/ulucks_phase_a_summary.json
 ```
@@ -412,7 +417,7 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) { throw ".venv がありませ�
 - `pytest` が未認識
   - `pytest ...` ではなく `& .\.venv\Scripts\python.exe -m pytest ...` を使用。
 - `ModuleNotFoundError: No module named 'selectolax'`
-  - `& .\.venv\Scripts\python.exe -m pip install -r requirements.txt` を再実行。
+  - `& .\.venv\Scripts\python.exe -m pip install -r requirements.txt` と `requirements-dev.txt` を再実行。
 
 ## Ulucks smartlink 一発実行（MVP一本線）
 ```powershell

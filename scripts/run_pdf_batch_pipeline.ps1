@@ -1,7 +1,7 @@
 param(
   [Parameter(Mandatory=$true)][string]$UlucksZip,
   [Parameter(Mandatory=$true)][string]$RealproZip,
-    [string]$RepoPath = (Join-Path $env:USERPROFILE "tatemono-map"),
+    [string]$RepoPath = (Resolve-Path (Join-Path $PSScriptRoot "..") | Select-Object -ExpandProperty Path),
   [string]$OutDir = "",
   [ValidateSet("strict","warn","off")][string]$QcMode = "warn",
   [switch]$Open

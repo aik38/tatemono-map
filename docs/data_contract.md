@@ -25,16 +25,11 @@
 - 住所がある場合は後続フェーズでジオコードする前提とし、取得できる場合のみ lat/lon を保持する。
 
 
-## PDF batch pipeline 項目定義
-- `source_property_name`
-  - 定義: 入力PDF掲載名（原文）
-  - 例: `グランフォーレ小倉シティタワー302`
-- `building_name`
-  - 定義: 正規化した建物名（DBの建物名）
-  - 例: `グランフォーレ小倉シティタワー`
-- `room_no`
-  - 定義: `source_property_name` / `building_name` から自動分離した号室
-  - 例: `302`
+## PDF batch pipeline 項目定義（Vacancy専用: Ulucks/Realpro）
+- final.csv 必須列:
+  - `category,updated_at,building_name,room,address,rent_man,fee_man,layout,floor,area_sqm,age_years,structure,file,page,raw_block`
+- 互換列（必要時のみ）:
+  - `--legacy-columns` 指定時に `source_property_name`,`room_no`,`raw_blockfile` を追加出力
 
 補足:
 - `A棟/B棟/◯号棟` 等の棟表記は `building_name` として保持し、QCで誤検知しない。
