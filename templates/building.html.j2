@@ -174,18 +174,20 @@
       </dl>
     </section>
 
-    {% if line_cta_url %}
-      <section class="line-cta" aria-label="LINEで問い合わせる">
-        <h2>最新の空室情報をLINEで受け取る</h2>
-        <p>希望条件を送ると、条件に近い募集情報をまとめて確認できます。</p>
-        <ul>
-          <li>「沿線・駅」「家賃」「広さ」などをまとめて共有</li>
-          <li>気になる建物名を送って提案を受ける</li>
-        </ul>
-        <div>
+    <section class="line-cta" aria-label="LINEで問い合わせる">
+      <h2>最新の空室情報をLINEで受け取る</h2>
+      <p>希望条件を送ると、条件に近い募集情報をまとめて確認できます。</p>
+      <ul>
+        <li>「沿線・駅」「家賃」「広さ」などをまとめて共有</li>
+        <li>気になる建物名を送って提案を受ける</li>
+      </ul>
+      <div>
+        {% if line_cta_url %}
           <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener">LINEで条件を送る</a>
-        </div>
-      </section>
-    {% endif %}
+        {% else %}
+          <button class="button button--line" type="button" disabled>LINEで条件を送る</button>
+        {% endif %}
+      </div>
+    </section>
   </div>
 {% endblock %}
