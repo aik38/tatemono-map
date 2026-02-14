@@ -2,15 +2,15 @@
 
 {% block title %}建物一覧 | tatemono-map{% endblock %}
 
-{% block header_meta %}
-  <small class="muted">公開向け物件サマリー</small>
-{% endblock %}
+{% block header_meta %}{% endblock %}
 
 {% block extra_head %}
 <style>
   .intro { padding: 26px; margin-bottom: 18px; }
   .intro p { margin: 8px 0 0; color: var(--muted); }
   .controls { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; margin-bottom: 16px; }
+  .counts { margin: -2px 0 14px; color: var(--muted); font-size: .92rem; }
+  .counts strong { color: var(--text); font-weight: 700; }
   .field { display: grid; gap: 6px; }
   .field label { font-size: .82rem; color: var(--muted); font-weight: 600; }
   .field input, .field select {
@@ -41,14 +41,14 @@
 
 {% block content %}
   <section class="intro card" aria-label="建物一覧の案内">
-    <h1>建物一覧</h1>
-    <p>建物名・住所で検索し、公開向けの募集情報をシンプルに比較できます。</p>
+    <h1>建物マップ</h1>
+    <p>建物名や住所で検索して、データをまとめて確認できます。</p>
   </section>
 
   <section class="controls" aria-label="検索と並び替え">
     <div class="field">
-      <label for="search">建物名・住所で絞り込み</label>
-      <input id="search" type="search" placeholder="例: 渋谷 / レジデンス" autocomplete="off" />
+      <label for="search">建物名・住所で検索</label>
+      <input id="search" type="search" placeholder="例：砂津 / 京町 / レジデンス" autocomplete="off" />
     </div>
     <div class="field">
       <label for="sort">並び替え</label>
@@ -61,9 +61,11 @@
     </div>
   </section>
 
+  <p id="result-counts" class="counts" aria-live="polite"></p>
+
   <ul id="building-list" aria-live="polite">
     {% for b in buildings %}
-      <li class="card building-card" data-name="{{ (b.name or '')|lower }}" data-address="{{ (b.address or '')|lower }}" data-updated="{{ b.updated_at or '' }}" data-vacancy="{{ b.vacancy_count if b.vacancy_count is not none else -1 }}" data-rent-min="{{ b.rent_yen_min if b.rent_yen_min is not none else 999999999 }}">
+      <li class="card building-card" data-search="{{ (b.name or '')|lower }} {{ (b.address or '')|lower }}" data-updated="{{ b.updated_at or '' }}" data-vacancy="{{ b.vacancy_count if b.vacancy_count is not none else -1 }}" data-vacancies="{{ b.vacancy_count if b.vacancy_count is not none else 0 }}" data-rent-min="{{ b.rent_yen_min if b.rent_yen_min is not none else 999999999 }}">
         <a class="building-link" href="b/{{ b.building_key }}.html"><h2>{{ b.name or "名称未設定" }}</h2></a>
         <p class="address">{{ b.address or "住所情報なし" }}</p>
         <ul class="kpis">
@@ -87,23 +89,36 @@
   const input = document.getElementById('search');
   const sortSelect = document.getElementById('sort');
   const list = document.getElementById('building-list');
+  const counts = document.getElementById('result-counts');
   const cards = Array.from(list.querySelectorAll('.building-card'));
   const empty = document.getElementById('empty-state');
 
   const byNumeric = (key, direction = 'asc') => (a, b) => direction === 'asc' ? Number(a.dataset[key]) - Number(b.dataset[key]) : Number(b.dataset[key]) - Number(a.dataset[key]);
   const byText = (key, direction = 'asc') => (a, b) => direction === 'asc' ? (a.dataset[key] || '').localeCompare((b.dataset[key] || ''), 'ja') : (b.dataset[key] || '').localeCompare((a.dataset[key] || ''), 'ja');
   const sorters = { updated_desc: byText('updated', 'desc'), vacancy_desc: byNumeric('vacancy', 'desc'), rent_min_asc: byNumeric('rentMin', 'asc'), rent_min_desc: byNumeric('rentMin', 'desc') };
+  const formatCount = (n) => new Intl.NumberFormat('ja-JP').format(n);
+  const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
+  const totalBuildings = cards.length;
+  const totalVacancies = cards.reduce((sum, card) => sum + Number(card.dataset.vacancies || 0), 0);
 
   function update() {
-    const q = input.value.trim().toLowerCase();
+    const q = normalizeText(input.value);
     const sorter = sorters[sortSelect.value] || sorters.updated_desc;
     const visible = cards.filter((card) => {
-      const show = q === '' || `${card.dataset.name} ${card.dataset.address}`.includes(q);
+      const haystack = normalizeText(card.dataset.search);
+      const show = q === '' || haystack.includes(q);
       card.hidden = !show;
       return show;
     });
     visible.sort(sorter);
     visible.forEach((card) => list.appendChild(card));
+
+    const visibleVacancies = visible.reduce((sum, card) => sum + Number(card.dataset.vacancies || 0), 0);
+    if (q === '') {
+      counts.innerHTML = `建物 <strong>${formatCount(totalBuildings)}件</strong> / 空室 <strong>${formatCount(totalVacancies)}件</strong>`;
+    } else {
+      counts.innerHTML = `表示中 <strong>${formatCount(visible.length)}件</strong>（全${formatCount(totalBuildings)}件）/ 空室 <strong>${formatCount(visibleVacancies)}件</strong>`;
+    }
     empty.hidden = visible.length !== 0;
   }
 
