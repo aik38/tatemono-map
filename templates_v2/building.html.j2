@@ -1,0 +1,82 @@
+{% extends "base.html.j2" %}
+
+{% block title %}{{ building.name or "建物詳細" }} | tatemono-map{% endblock %}
+
+{% block header_meta %}
+  <a class="muted" href="../index.html" aria-label="一覧に戻る">← 一覧に戻る</a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .stack { display: grid; gap: 14px; }
+  .hero, .info, .line-cta { padding: clamp(16px, 2.5vw, 24px); }
+  .hero p { margin: 8px 0 0; color: var(--muted); }
+  .kpis { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .kpi { border-radius: 999px; background: #f2f4f8; padding: 5px 10px; font-size: .84rem; }
+  .kpi span { color: var(--muted); margin-right: 6px; }
+  .cta-row { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .facts { margin: 0; display: grid; gap: 10px; }
+  .fact { margin: 0; display: grid; grid-template-columns: 128px minmax(0,1fr); border-top: 1px solid #f0f2f6; padding-top: 9px; }
+  .fact:first-child { border-top: 0; padding-top: 0; }
+  .fact dt { color: var(--muted); }
+  .fact dd { margin: 0; font-weight: 600; }
+  .line-cta {
+    border: 1px solid #d7f4e4;
+    background: linear-gradient(180deg, #f9fffc 0%, #f4fcf8 100%);
+    display: grid;
+    gap: 10px;
+    justify-items: start;
+  }
+  .line-cta p { margin: 0; color: #2f5141; }
+  @media (max-width: 740px) {
+    .fact { grid-template-columns: 1fr; gap: 2px; }
+    .cta-row { flex-direction: column; align-items: stretch; }
+    .cta-row .button { width: 100%; }
+    .line-cta .button { max-width: none; width: 100%; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="stack">
+  <section class="hero card" aria-label="建物概要">
+    <h1>{{ building.name or "名称未設定" }}</h1>
+    <p>{{ building.address or "住所情報なし" }}</p>
+    <ul class="kpis" aria-label="注目情報">
+      <li class="kpi"><span>空室</span>{{ building.vacancy_count if building.vacancy_count is not none else "—" }}件</li>
+      <li class="kpi"><span>家賃</span>{{ (building.rent_yen_min ~ '円') if building.rent_yen_min is not none else '—' }}〜{{ (building.rent_yen_max ~ '円') if building.rent_yen_max is not none else '—' }}</li>
+      <li class="kpi"><span>面積</span>{{ (building.area_sqm_min ~ '㎡') if building.area_sqm_min is not none else '—' }}〜{{ (building.area_sqm_max ~ '㎡') if building.area_sqm_max is not none else '—' }}</li>
+    </ul>
+    <div class="cta-row">
+      {% if maps_url %}<a class="button button--primary" href="{{ maps_url }}" target="_blank" rel="noopener">Googleマップを開く</a>{% endif %}
+      <a class="button" href="../index.html" style="background:#eceff4;color:#111827;">一覧へ戻る</a>
+    </div>
+  </section>
+
+  <section class="info card" aria-label="詳細情報">
+    <h2>募集情報</h2>
+    <dl class="facts">
+      <div class="fact"><dt>空室数</dt><dd>{{ building.vacancy_count if building.vacancy_count is not none else "—" }}件</dd></div>
+      <div class="fact"><dt>家賃レンジ</dt><dd>{{ (building.rent_yen_min ~ '円') if building.rent_yen_min is not none else '—' }} 〜 {{ (building.rent_yen_max ~ '円') if building.rent_yen_max is not none else '—' }}</dd></div>
+      <div class="fact"><dt>面積レンジ</dt><dd>{{ (building.area_sqm_min ~ '㎡') if building.area_sqm_min is not none else '—' }} 〜 {{ (building.area_sqm_max ~ '㎡') if building.area_sqm_max is not none else '—' }}</dd></div>
+      <div class="fact"><dt>間取りタイプ</dt><dd>{{ building.layout_types | join(', ') if building.layout_types else '—' }}</dd></div>
+      <div class="fact"><dt>入居可能日</dt><dd>{{ building.move_in_dates | join(', ') if building.move_in_dates else '—' }}</dd></div>
+      <div class="fact"><dt>最終更新日時</dt><dd>{{ building.last_updated or '—' }}</dd></div>
+    </dl>
+  </section>
+
+  <section class="line-cta card" aria-label="LINEで問い合わせる">
+    <h2>LINEでスムーズに確認</h2>
+    <p>希望条件を送ると、条件に近い募集情報をまとめて確認できます。</p>
+    <a
+      class="button button--line"
+      href="{{ line_cta_url }}"
+      target="_blank"
+      rel="noopener"
+      data-line-universal-url="{{ line_cta_url }}"
+      data-line-deep-link="{{ line_deep_link_url }}"
+      onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)"
+    >LINEで条件を送る</a>
+  </section>
+</div>
+{% endblock %}
