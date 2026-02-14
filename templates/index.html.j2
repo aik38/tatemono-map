@@ -177,7 +177,7 @@
         <p class="address">{{ b.address or "住所情報なし" }}</p>
         <ul class="kpis" aria-label="建物の主要情報">
           <li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>
-          <li class="kpi"><span>家賃</span>{{ (b.rent_yen_min ~ '円') if b.rent_yen_min is not none else '—' }} 〜 {{ (b.rent_yen_max ~ '円') if b.rent_yen_max is not none else '—' }}</li>
+          <li class="kpi"><span>家賃</span>{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円</li>
         </ul>
         <dl class="meta">
           <div class="meta-row">

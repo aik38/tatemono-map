@@ -136,3 +136,47 @@ def test_v2_line_cta_is_single_button_with_deeplink_fallback(tmp_path, monkeypat
     assert 'data-line-universal-url="https://line.example/universal"' in page
     assert 'data-line-deep-link="line://ti/p/@example"' in page
     assert "setTimeout(function(){window.location.href=fallback;},700);" in page
+
+
+def test_render_dist_formats_rent_with_thousands_separator(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("カンマ確認マンション", "東京都品川区1-2-3", 123000, 40.0, "2DK", "2026-05-01", "ulucks", "comma"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist))
+
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    detail = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
+
+    assert "123,000円" in index
+    assert "123,000円" in detail
+
+
+def test_build_dist_versions_formats_rent_with_thousands_separator_in_v1_and_v2(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("カンマ確認マンションv2", "東京都中央区1-2-3", 125000, 40.0, "2DK", "2026-05-01", "ulucks", "comma-v2"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v1 = (out / "v1" / "index.html").read_text(encoding="utf-8")
+    index_v2 = (out / "v2" / "index.html").read_text(encoding="utf-8")
+    detail_v1 = next((out / "v1" / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail_v2 = next((out / "v2" / "b").glob("*.html")).read_text(encoding="utf-8")
+
+    assert "125,000円" in index_v1
+    assert "125,000円" in index_v2
+    assert "125,000円" in detail_v1
+    assert "125,000円" in detail_v2
