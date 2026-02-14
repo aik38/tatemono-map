@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 from pathlib import Path
 from urllib.parse import quote_plus
 
+from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from tatemono_map.db.repo import connect
@@ -47,6 +49,9 @@ def _validate_public_dist(output_dir: Path) -> None:
 
 
 def build_dist(db_path: str, output_dir: str) -> None:
+    load_dotenv()
+    line_cta_url = os.getenv("TATEMONO_MAP_LINE_CTA_URL", "").strip()
+
     conn = connect(db_path)
     out = Path(output_dir)
     if out.exists():
@@ -81,7 +86,7 @@ def build_dist(db_path: str, output_dir: str) -> None:
         address = (b.get("address") or "").strip()
         if address:
             maps_url = f"https://maps.google.com/?q={quote_plus(address)}"
-        html = building_tpl.render(building=b, maps_url=maps_url)
+        html = building_tpl.render(building=b, maps_url=maps_url, line_cta_url=line_cta_url)
         (out / "b" / f"{b['building_key']}.html").write_text(html, encoding="utf-8")
 
     (out / ".nojekyll").touch()
