@@ -1,5 +1,10 @@
 {% extends "base.html.j2" %}
-{% set line_cta_url = "https://line.me/R/ti/p/@replace_me" %}
+{% if line_cta_url %}
+<section class="line-cta" aria-label="LINEで問い合わせる">
+  ...
+  <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener">LINEで条件を送る</a>
+</section>
+{% endif %}
 
 {% block title %}{{ building.name or "建物詳細" }} | tatemono-map{% endblock %}
 
