@@ -180,3 +180,23 @@ def test_build_dist_versions_formats_rent_with_thousands_separator_in_v1_and_v2(
     assert "125,000円" in index_v2
     assert "125,000円" in detail_v1
     assert "125,000円" in detail_v2
+
+
+def test_build_dist_versions_v2_index_has_search_label_and_counts(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("カウント確認マンション", "福岡県北九州市小倉北区京町", 88000, 30.0, "1LDK", "2026-08-01", "ulucks", "counts"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+    assert "建物名・住所で検索" in index_v2
+    assert "表示中" in index_v2
+    assert "建物" in index_v2
+    assert "空室" in index_v2
