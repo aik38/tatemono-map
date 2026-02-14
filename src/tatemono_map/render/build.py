@@ -145,25 +145,19 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
 
     buildings = _load_buildings(db_path)
     _build_dist_version(
+        out,
+        buildings,
+        template_root="templates_v2",
+        line_cta_url=line_cta_url,
+        line_deep_link_url=line_deep_link_url,
+    )
+    _build_dist_version(
         out / "v1",
         buildings,
         template_root="templates",
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
     )
-    _build_dist_version(
-        out / "v2",
-        buildings,
-        template_root="templates_v2",
-        line_cta_url=line_cta_url,
-        line_deep_link_url=line_deep_link_url,
-    )
-
-    (out / "index.html").write_text(
-        """<!doctype html><html lang=\"ja\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>tatemono-map</title></head><body><ul><li><a href=\"./v1/index.html\">v1</a></li><li><a href=\"./v2/index.html\">v2</a></li></ul></body></html>""",
-        encoding="utf-8",
-    )
-    (out / ".nojekyll").touch()
 
 
 def main() -> None:
