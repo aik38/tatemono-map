@@ -584,3 +584,17 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run_ulucks_smartlink.ps1 -
 - 参照元 URL
 - 会社情報 / 管理会社名
 - PDFリンク
+
+## Mansion Review 賃貸スクレイパー（city/building）
+
+`scripts/mansion_review_fetch_chintai_cities1616_1619.py` は city ページの空室テーブルを直接解析し、デフォルトでは部屋詳細ページを取得しません。
+
+```bash
+python scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode city --max-pages 2 --sleep 0.8 --out tmp/chintai_city.csv
+python scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode building --max-pages 1 --sleep 1.0 --debug --out tmp/chintai_building.csv
+```
+
+- `--mode city`（既定）: city ページのみ巡回
+- `--mode building`: 「全xx件を表示する」リンク先の building ページも巡回（部屋詳細ページは巡回しない）
+- `--max-pages`: city ごとのページ上限（0 で無制限）
+- `--debug`: ページごとの address/layout/built 充足件数を表示
