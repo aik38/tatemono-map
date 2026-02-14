@@ -1,6 +1,7 @@
 # scripts/mansion_review_fetch_mansion_cities1616_1619.py
 from __future__ import annotations
 
+import argparse
 import csv
 import re
 import time
@@ -73,15 +74,20 @@ def _guess_name(a, card, card_text: str, detail_url: str) -> str:
     if name:
         return name
 
-    # 2) 画像リンクの場合 alt/title
+    # 2) a属性のフォールバック
+    for k in ("title", "aria-label"):
+        v = (a.get(k) or "").strip()
+        if v:
+            return v
+
+    # 3) 画像リンクの場合 alt
     img = a.find("img")
     if img:
-        for k in ("alt", "title"):
-            v = (img.get(k) or "").strip()
-            if v:
-                return v
+        v = (img.get("alt") or "").strip()
+        if v:
+            return v
 
-    # 3) カード内の見出しや “名前っぽい” 要素
+    # 4) カード内の見出しや “名前っぽい” 要素
     if card:
         cand = card.select_one(
             "h1, h2, h3, "
@@ -94,43 +100,88 @@ def _guess_name(a, card, card_text: str, detail_url: str) -> str:
         if name:
             return name
 
-    # 4) 最終手段：カードテキストの先頭行っぽい部分
+    # 5) 最終手段：カードテキストの先頭行っぽい部分
     if card_text:
         head = re.split(r"(福岡県|住所|交通|築|地上|総戸数|口コミ)", card_text)[0]
         head = head.strip(" 　\t\r\n-–—|｜")
         if head and len(head) <= 80:
             return head
 
-    # 5) どうしても無ければ URL を残して“落とさない”
+    # 6) どうしても無ければ URL を残して“落とさない”
     return detail_url
 
 
-def extract_rows_from_html(html: str, source_url: str, city_id: int, city_name: str) -> tuple[list[MansionRow], int]:
+def _extract_detail_links(soup: BeautifulSoup, html: str) -> tuple[list[str], int, int]:
+    detail_urls: list[str] = []
+
+    a_links = 0
+    for a in soup.select('a[href*="/mansion/"]'):
+        href = (a.get("href") or "").strip()
+        if not re.search(r"/mansion/\d+", href):
+            continue
+        detail_urls.append(urljoin(BASE, href))
+        a_links += 1
+
+    regex_links = 0
+    if a_links == 0:
+        for path in re.findall(r"/mansion/\d+", html):
+            detail_urls.append(urljoin(BASE, path))
+            regex_links += 1
+
+    # 順序をなるべく維持しながら重複排除
+    uniq_urls = list(dict.fromkeys(detail_urls))
+    return uniq_urls, a_links, regex_links
+
+
+def extract_rows_from_html(
+    html: str,
+    source_url: str,
+    city_id: int,
+    city_name: str,
+) -> tuple[list[MansionRow], int, int]:
     soup = BeautifulSoup(html, "lxml")
     rows: list[MansionRow] = []
 
-    # このページに詳細リンクが何本あるか（終端判定の補助）
-    detail_link_count = len(re.findall(r'href="/mansion/\d+', html))
+    detail_urls, a_count, regex_count = _extract_detail_links(soup, html)
 
-    for a in soup.select('a[href^="/mansion/"]'):
-        href = a.get("href") or ""
-        if not re.search(r"^/mansion/\d+", href):
-            continue
+    anchors = soup.select('a[href*="/mansion/"]')
 
-        detail_url = urljoin(BASE, href)
-
-        # 親を辿ってカード相当を掴む
-        card = a
-        for _ in range(12):
-            parent = getattr(card, "parent", None)
-            if not parent:
-                break
-            card = parent
-            if len(pick_text(card)) >= 40:
+    for detail_url in detail_urls:
+        path = re.sub(r"^https?://[^/]+", "", detail_url)
+        a = None
+        for anchor in anchors:
+            href = (anchor.get("href") or "").strip()
+            if not href:
+                continue
+            abs_href = urljoin(BASE, href)
+            if detail_url == abs_href or re.search(r"/mansion/\d+", href) and path in href:
+                a = anchor
                 break
 
-        card_text = pick_text(card)
-        name = _guess_name(a, card, card_text, detail_url)
+        if not a:
+            card = soup
+            card_text = pick_text(soup)
+            name = detail_url
+        else:
+            # 親を辿ってカード相当を掴む
+            card = a
+            for _ in range(12):
+                parent = getattr(card, "parent", None)
+                if not parent:
+                    break
+                card = parent
+                if len(pick_text(card)) >= 40:
+                    break
+
+            card_text = pick_text(card)
+            name = _guess_name(a, card, card_text, detail_url)
+
+            # 近傍の見出し要素をフォールバック
+            if name == detail_url:
+                heading = card.find(["h1", "h2", "h3", "h4"])
+                heading_text = pick_text(heading)
+                if heading_text:
+                    name = heading_text
 
         # 住所
         m_addr = re.search(r"(福岡県\s*北九州市.*?)(?:\s|$)", card_text)
@@ -178,7 +229,7 @@ def extract_rows_from_html(html: str, source_url: str, city_id: int, city_name: 
     for r in rows:
         uniq[r.detail_url] = r
 
-    return list(uniq.values()), detail_link_count
+    return list(uniq.values()), a_count, regex_count
 
 
 def city_page_url(city_id: int, page: int) -> str:
@@ -187,7 +238,14 @@ def city_page_url(city_id: int, page: int) -> str:
     return f"{BASE}/mansion/city/{city_id}_{page}.html"
 
 
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--debug", action="store_true", help="抽出件数の詳細ログを表示")
+    return parser
+
+
 def main() -> None:
+    args = _build_arg_parser().parse_args()
     out_csv = "mansion_review_mansions_1616_1619.csv"
 
     all_rows: list[MansionRow] = []
@@ -197,8 +255,16 @@ def main() -> None:
         page = 1
         while True:
             url = city_page_url(city_id, page)
-            html = get(url)
-            rows, link_cnt = extract_rows_from_html(html, url, city_id, city_name)
+            try:
+                html = get(url)
+            except requests.HTTPError as e:
+                if getattr(e.response, "status_code", None) == 404:
+                    print(f"[STOP] city={city_id} page={page} 404 url={url}")
+                    break
+                raise
+
+            rows, a_cnt, regex_cnt = extract_rows_from_html(html, url, city_id, city_name)
+            link_cnt = a_cnt + regex_cnt
 
             pages_total += 1
             all_rows.extend(rows)
@@ -206,8 +272,14 @@ def main() -> None:
             print(
                 f"[OK] city={city_id} page={page} "
                 f"rows+={len(rows)} total={len(all_rows)} "
-                f"detail_links_in_html={link_cnt} url={url}"
+                f"detail_links={link_cnt} url={url}"
             )
+
+            if args.debug:
+                print(
+                    f"[DEBUG] city={city_id} page={page} "
+                    f"rows={len(rows)} a_extract={a_cnt} regex_extract={regex_cnt}"
+                )
 
             # 終端判定：
             # - HTML内に詳細リンクが無いなら終わり

@@ -41,3 +41,7 @@ probe_debug.py
 mansion_review_vacancies_400001_moji_kokurakita.csv
 # generated exports
 *.csv
+
+# local debug scraps
+tmp_*.html
+tmp_*.py
