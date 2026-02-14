@@ -106,10 +106,10 @@ def test_build_dist_versions_outputs_v1_and_v2(tmp_path):
     rebuild(str(db))
     build_dist_versions(str(db), str(out))
 
+    assert (out / "index.html").exists()
+    assert list((out / "b").glob("*.html"))
     assert (out / "v1" / "index.html").exists()
-    assert (out / "v2" / "index.html").exists()
     assert list((out / "v1" / "b").glob("*.html"))
-    assert list((out / "v2" / "b").glob("*.html"))
 
 
 def test_v2_line_cta_is_single_button_with_deeplink_fallback(tmp_path, monkeypatch):
@@ -128,7 +128,7 @@ def test_v2_line_cta_is_single_button_with_deeplink_fallback(tmp_path, monkeypat
     rebuild(str(db))
     build_dist_versions(str(db), str(out))
 
-    page = next((out / "v2" / "b").glob("*.html")).read_text(encoding="utf-8")
+    page = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
 
     # CTA section has only one button anchor.
     assert page.count('class="button button--line"') == 1
@@ -172,9 +172,9 @@ def test_build_dist_versions_formats_rent_with_thousands_separator_in_v1_and_v2(
     build_dist_versions(str(db), str(out))
 
     index_v1 = (out / "v1" / "index.html").read_text(encoding="utf-8")
-    index_v2 = (out / "v2" / "index.html").read_text(encoding="utf-8")
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
     detail_v1 = next((out / "v1" / "b").glob("*.html")).read_text(encoding="utf-8")
-    detail_v2 = next((out / "v2" / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
 
     assert "125,000円" in index_v1
     assert "125,000円" in index_v2
