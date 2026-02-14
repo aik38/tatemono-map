@@ -65,7 +65,7 @@
 
   <ul id="building-list" aria-live="polite">
     {% for b in buildings %}
-      <li class="card building-card" data-search="{{ (b.name or '')|lower }} {{ (b.address or '')|lower }}" data-updated="{{ b.updated_at or '' }}" data-vacancy="{{ b.vacancy_count if b.vacancy_count is not none else -1 }}" data-vacancies="{{ b.vacancy_count if b.vacancy_count is not none else 0 }}" data-rent-min="{{ b.rent_yen_min if b.rent_yen_min is not none else 999999999 }}">
+      <li class="card building-card" data-updated="{{ b.updated_at or '' }}" data-vacancy="{{ b.vacancy_count if b.vacancy_count is not none else -1 }}" data-vacancies="{{ b.vacancy_count if b.vacancy_count is not none else 0 }}" data-rent-min="{{ b.rent_yen_min if b.rent_yen_min is not none else 999999999 }}">
         <a class="building-link" href="b/{{ b.building_key }}.html"><h2>{{ b.name or "名称未設定" }}</h2></a>
         <p class="address">{{ b.address or "住所情報なし" }}</p>
         <ul class="kpis">
@@ -93,6 +93,8 @@
   const cards = Array.from(list.querySelectorAll('.building-card'));
   const empty = document.getElementById('empty-state');
 
+  let currentQuery = '';
+
   const byNumeric = (key, direction = 'asc') => (a, b) => direction === 'asc' ? a[key] - b[key] : b[key] - a[key];
   const byText = (key, direction = 'asc') => (a, b) => direction === 'asc' ? a[key].localeCompare(b[key], 'ja') : b[key].localeCompare(a[key], 'ja');
   const sorters = {
@@ -102,15 +104,12 @@
     rent_min_desc: byNumeric('rentMin', 'desc')
   };
   const formatCount = (n) => new Intl.NumberFormat('ja-JP').format(n);
-  const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, '').trim();
+  const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, ' ').trim();
 
   const cardModels = cards.map((card, originalIndex) => {
     const name = normalizeText(card.querySelector('h2')?.textContent || '');
     const address = normalizeText(card.querySelector('.address')?.textContent || '');
-    const combined = normalizeText(card.dataset.search || `${name}${address}`);
-    if (!card.dataset.search) {
-      card.dataset.search = combined;
-    }
+    const combined = normalizeText(`${name} ${address}`);
     return {
       el: card,
       score: 0,
@@ -165,27 +164,35 @@
   }
 
   function update() {
-    const q = normalizeText(input.value);
+    currentQuery = normalizeText(input.value);
     const sorter = sorters[sortSelect.value] || sorters.updated_desc;
-    const visible = cardModels.filter((card) => {
-      card.score = getMatchScore(card, q);
-      const show = q === '' || card.score > 0;
-      card.el.hidden = !show;
-      return show;
+    const visible = [];
+
+    cardModels.forEach((card) => {
+      card.score = getMatchScore(card, currentQuery);
+      if (currentQuery !== '' && card.score === 0) {
+        card.el.style.display = 'none';
+        return;
+      }
+      visible.push(card);
     });
-    visible.sort((a, b) => compareCards(a, b, q, sorter));
-    visible.forEach((card) => list.appendChild(card.el));
+
+    visible.sort((a, b) => compareCards(a, b, currentQuery, sorter));
+    visible.forEach((card) => {
+      card.el.style.display = '';
+      list.appendChild(card.el);
+    });
 
     const visibleVacancies = visible.reduce((sum, card) => sum + card.vacancies, 0);
-    if (q === '') {
-      counts.innerHTML = `建物 <strong>${formatCount(totalBuildings)}件</strong> / 空室 <strong>${formatCount(totalVacancies)}件</strong>`;
-    } else {
-      counts.innerHTML = `表示中 <strong>${formatCount(visible.length)}件</strong>（全${formatCount(totalBuildings)}件）/ 空室 <strong>${formatCount(visibleVacancies)}件</strong>`;
+    counts.innerHTML = `表示中 <strong>${formatCount(visible.length)}件</strong>（全${formatCount(totalBuildings)}件）/ 空室 <strong>${formatCount(visibleVacancies)}件</strong>`;
+    if (currentQuery === '') {
+      counts.innerHTML = `表示中 <strong>${formatCount(totalBuildings)}件</strong> / 空室 <strong>${formatCount(totalVacancies)}件</strong>`;
     }
     empty.hidden = visible.length !== 0;
   }
 
   input.addEventListener('input', update);
+  input.addEventListener('change', update);
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       update();

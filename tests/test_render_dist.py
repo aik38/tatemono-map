@@ -202,6 +202,31 @@ def test_build_dist_versions_v2_index_has_search_label_and_counts(tmp_path):
     assert "空室" in index_v2
 
 
+
+
+def test_build_dist_versions_v2_index_search_update_pipeline(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("ハイツ門司", "福岡県北九州市門司区", 68000, 24.0, "1K", "2026-09-01", "ulucks", "pipeline-1"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+    assert "function update()" in index_v2
+    assert "const normalizeText" in index_v2
+    assert "currentQuery = normalizeText(input.value)" in index_v2
+    assert "counts.innerHTML = `表示中" in index_v2
+    assert "visible.forEach((card) => {" in index_v2
+    assert "list.appendChild(card.el)" in index_v2
+    assert "input.addEventListener('change', update)" in index_v2
+
+
 def test_build_dist_versions_v2_index_has_search_ranking_logic(tmp_path):
     db = tmp_path / "test.sqlite3"
     out = tmp_path / "dist"
@@ -218,5 +243,5 @@ def test_build_dist_versions_v2_index_has_search_ranking_logic(tmp_path):
     index_v2 = (out / "index.html").read_text(encoding="utf-8")
     assert "function getMatchScore" in index_v2
     assert "function compareCards" in index_v2
-    assert "card.score > 0" in index_v2
+    assert "card.score === 0" in index_v2
     assert "b.score - a.score" in index_v2
