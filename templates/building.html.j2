@@ -132,7 +132,7 @@
 
       <ul class="kpis" aria-label="注目情報">
         <li class="kpi"><span>空室</span>{{ building.vacancy_count if building.vacancy_count is not none else "—" }}件</li>
-        <li class="kpi"><span>家賃</span>{{ (building.rent_yen_min ~ '円') if building.rent_yen_min is not none else '—' }} 〜 {{ (building.rent_yen_max ~ '円') if building.rent_yen_max is not none else '—' }}</li>
+        <li class="kpi"><span>家賃</span>{{ building.rent_yen_min|yen }}円 〜 {{ building.rent_yen_max|yen }}円</li>
         <li class="kpi"><span>面積</span>{{ (building.area_sqm_min ~ '㎡') if building.area_sqm_min is not none else '—' }} 〜 {{ (building.area_sqm_max ~ '㎡') if building.area_sqm_max is not none else '—' }}</li>
       </ul>
 
@@ -153,7 +153,7 @@
         </div>
         <div class="fact">
           <dt>家賃レンジ</dt>
-          <dd>{{ (building.rent_yen_min ~ '円') if building.rent_yen_min is not none else '—' }} 〜 {{ (building.rent_yen_max ~ '円') if building.rent_yen_max is not none else '—' }}</dd>
+          <dd>{{ building.rent_yen_min|yen }}円 〜 {{ building.rent_yen_max|yen }}円</dd>
         </div>
         <div class="fact">
           <dt>面積レンジ</dt>

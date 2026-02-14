@@ -44,7 +44,7 @@
     <p>{{ building.address or "住所情報なし" }}</p>
     <ul class="kpis" aria-label="注目情報">
       <li class="kpi"><span>空室</span>{{ building.vacancy_count if building.vacancy_count is not none else "—" }}件</li>
-      <li class="kpi"><span>家賃</span>{{ (building.rent_yen_min ~ '円') if building.rent_yen_min is not none else '—' }}〜{{ (building.rent_yen_max ~ '円') if building.rent_yen_max is not none else '—' }}</li>
+      <li class="kpi"><span>家賃</span>{{ building.rent_yen_min|yen }}円〜{{ building.rent_yen_max|yen }}円</li>
       <li class="kpi"><span>面積</span>{{ (building.area_sqm_min ~ '㎡') if building.area_sqm_min is not none else '—' }}〜{{ (building.area_sqm_max ~ '㎡') if building.area_sqm_max is not none else '—' }}</li>
     </ul>
     <div class="cta-row">
@@ -57,7 +57,7 @@
     <h2>募集情報</h2>
     <dl class="facts">
       <div class="fact"><dt>空室数</dt><dd>{{ building.vacancy_count if building.vacancy_count is not none else "—" }}件</dd></div>
-      <div class="fact"><dt>家賃レンジ</dt><dd>{{ (building.rent_yen_min ~ '円') if building.rent_yen_min is not none else '—' }} 〜 {{ (building.rent_yen_max ~ '円') if building.rent_yen_max is not none else '—' }}</dd></div>
+      <div class="fact"><dt>家賃レンジ</dt><dd>{{ building.rent_yen_min|yen }}円 〜 {{ building.rent_yen_max|yen }}円</dd></div>
       <div class="fact"><dt>面積レンジ</dt><dd>{{ (building.area_sqm_min ~ '㎡') if building.area_sqm_min is not none else '—' }} 〜 {{ (building.area_sqm_max ~ '㎡') if building.area_sqm_max is not none else '—' }}</dd></div>
       <div class="fact"><dt>間取りタイプ</dt><dd>{{ building.layout_types | join(', ') if building.layout_types else '—' }}</dd></div>
       <div class="fact"><dt>入居可能日</dt><dd>{{ building.move_in_dates | join(', ') if building.move_in_dates else '—' }}</dd></div>

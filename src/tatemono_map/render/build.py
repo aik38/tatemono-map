@@ -27,6 +27,15 @@ DEFAULT_LINE_UNIVERSAL_URL = "https://lin.ee/Y0NvwKe"
 DEFAULT_LINE_DEEP_LINK = "line://ti/p/@055wdvuq"
 
 
+def _format_yen(value: object) -> str:
+    if value is None:
+        return "—"
+    try:
+        return f"{int(float(str(value).strip().replace(',', ''))):,}"
+    except (TypeError, ValueError):
+        return "—"
+
+
 def _sanitize_text(value: str) -> str:
     sanitized = ROOM_SUFFIX_RE.sub("", value)
     return re.sub(r"\s{2,}", " ", sanitized).strip()
@@ -86,6 +95,7 @@ def _build_dist_version(
     (output_dir / "b").mkdir(parents=True, exist_ok=True)
 
     env = Environment(loader=FileSystemLoader(template_root), autoescape=select_autoescape(["html"]))
+    env.filters["yen"] = _format_yen
     index_tpl = env.get_template("index.html.j2")
     building_tpl = env.get_template("building.html.j2")
 
