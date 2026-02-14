@@ -4,6 +4,16 @@
 
 ---
 
+## Frontend versions (v1 / v2)
+
+静的フロントは `v1` と `v2` の2系統を出力できます。
+
+- `python -m tatemono_map.render.build --version all` で `dist/v1` と `dist/v2` を同時出力
+- URLで切替: `/tatemono-map/v1/index.html` / `/tatemono-map/v2/index.html`
+- LINE CTA 設定: `TATEMONO_MAP_LINE_CTA_URL` / `TATEMONO_MAP_LINE_DEEP_LINK_URL`
+
+詳細は `docs/frontend_versions.md` を参照してください。
+
 ## 正本（PowerShell 一発手順）
 以下を正本手順とします。`data/tatemono_map.sqlite3` を唯一のSQLite DBとして利用します。
 

@@ -4,7 +4,7 @@ import pytest
 
 from tatemono_map.db.repo import ListingRecord, connect, upsert_listing
 from tatemono_map.normalize.building_summaries import rebuild
-from tatemono_map.render.build import build_dist
+from tatemono_map.render.build import build_dist, build_dist_versions
 
 
 def test_render_dist_outputs(tmp_path):
@@ -93,52 +93,46 @@ def test_render_dist_fails_when_forbidden_text_exists(tmp_path):
         build_dist(str(db), str(dist))
 
 
-def test_render_dist_always_shows_line_cta_with_or_without_address(tmp_path, monkeypatch):
-    monkeypatch.setenv("TATEMONO_MAP_LINE_CTA_URL", "https://line.example/cta")
-
+def test_build_dist_versions_outputs_v1_and_v2(tmp_path):
     db = tmp_path / "test.sqlite3"
-    dist = tmp_path / "dist"
+    out = tmp_path / "dist"
     conn = connect(db)
     upsert_listing(
         conn,
-        ListingRecord("住所ありマンション", "東京都千代田区1-2-3", 100000, 30.0, "1LDK", "2026-04-01", "ulucks", "with-address"),
-    )
-    upsert_listing(
-        conn,
-        ListingRecord("住所なしマンション", "", 85000, 24.0, "1K", "2026-05-01", "ulucks", "without-address"),
+        ListingRecord("デュアル出力マンション", "東京都千代田区1-2-3", 100000, 30.0, "1LDK", "2026-04-01", "ulucks", "dual"),
     )
     conn.close()
 
     rebuild(str(db))
-    build_dist(str(db), str(dist))
+    build_dist_versions(str(db), str(out))
 
-    pages = list((dist / "b").glob("*.html"))
-    assert len(pages) == 2
-
-    has_map_page = next(page for page in pages if "Googleマップを開く" in page.read_text(encoding="utf-8"))
-    no_map_page = next(page for page in pages if "Googleマップを開く" not in page.read_text(encoding="utf-8"))
-
-    for page in (has_map_page, no_map_page):
-        html = page.read_text(encoding="utf-8")
-        assert "最新の空室情報をLINEで受け取る" in html
-        assert "LINEで条件を送る" in html
+    assert (out / "v1" / "index.html").exists()
+    assert (out / "v2" / "index.html").exists()
+    assert list((out / "v1" / "b").glob("*.html"))
+    assert list((out / "v2" / "b").glob("*.html"))
 
 
-def test_render_dist_shows_disabled_line_cta_button_without_line_url(tmp_path, monkeypatch):
-    monkeypatch.delenv("TATEMONO_MAP_LINE_CTA_URL", raising=False)
+def test_v2_line_cta_is_single_button_with_deeplink_fallback(tmp_path, monkeypatch):
+    monkeypatch.setenv("TATEMONO_MAP_LINE_CTA_URL", "https://line.example/universal")
+    monkeypatch.setenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", "line://ti/p/@example")
 
     db = tmp_path / "test.sqlite3"
-    dist = tmp_path / "dist"
+    out = tmp_path / "dist"
     conn = connect(db)
     upsert_listing(
         conn,
-        ListingRecord("LINE未設定マンション", "東京都新宿区1-1-1", 99000, 28.0, "1DK", "2026-06-01", "ulucks", "no-line-url"),
+        ListingRecord("LINE確認マンション", "東京都新宿区1-1-1", 99000, 28.0, "1DK", "2026-06-01", "ulucks", "line-check"),
     )
     conn.close()
 
     rebuild(str(db))
-    build_dist(str(db), str(dist))
+    build_dist_versions(str(db), str(out))
 
-    page = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
-    assert "最新の空室情報をLINEで受け取る" in page
-    assert '<button class="button button--line" type="button" disabled>LINEで条件を送る</button>' in page
+    page = next((out / "v2" / "b").glob("*.html")).read_text(encoding="utf-8")
+
+    # CTA section has only one button anchor.
+    assert page.count('class="button button--line"') == 1
+    assert 'href="https://line.example/universal"' in page
+    assert 'data-line-universal-url="https://line.example/universal"' in page
+    assert 'data-line-deep-link="line://ti/p/@example"' in page
+    assert "setTimeout(function(){window.location.href=fallback;},700);" in page

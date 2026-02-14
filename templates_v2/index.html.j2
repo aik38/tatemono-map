@@ -1,0 +1,115 @@
+{% extends "base.html.j2" %}
+
+{% block title %}建物一覧 | tatemono-map{% endblock %}
+
+{% block header_meta %}
+  <small class="muted">公開向け物件サマリー</small>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .intro { padding: 26px; margin-bottom: 18px; }
+  .intro p { margin: 8px 0 0; color: var(--muted); }
+  .controls { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; margin-bottom: 16px; }
+  .field { display: grid; gap: 6px; }
+  .field label { font-size: .82rem; color: var(--muted); font-weight: 600; }
+  .field input, .field select {
+    width: 100%; border: 1px solid var(--border); background: #fff; border-radius: 10px;
+    padding: 11px 12px; font-size: 1rem;
+  }
+  #building-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .building-card { padding: 18px; display: grid; gap: 10px; }
+  .building-link { text-decoration: none; }
+  .building-link:hover h2 { text-decoration: underline; text-underline-offset: 3px; }
+  .address { margin: 0; color: var(--muted); }
+  .meta { margin: 0; display: grid; gap: 7px; }
+  .meta-row { margin: 0; display: grid; grid-template-columns: 120px minmax(0,1fr); }
+  .meta-row dt { color: var(--muted); }
+  .meta-row dd { margin: 0; font-weight: 600; }
+  .kpis { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .kpi { border-radius: 999px; background: #f2f4f8; padding: 5px 10px; font-size: .84rem; }
+  .kpi span { color: var(--muted); margin-right: 6px; }
+  .empty { margin-top: 20px; padding: 20px; text-align: center; }
+  .empty[hidden] { display: none; }
+  @media (max-width: 740px) {
+    .intro { padding: 18px; }
+    .controls { grid-template-columns: 1fr; }
+    .meta-row { grid-template-columns: 1fr; gap: 2px; }
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+  <section class="intro card" aria-label="建物一覧の案内">
+    <h1>建物一覧</h1>
+    <p>建物名・住所で検索し、公開向けの募集情報をシンプルに比較できます。</p>
+  </section>
+
+  <section class="controls" aria-label="検索と並び替え">
+    <div class="field">
+      <label for="search">建物名・住所で絞り込み</label>
+      <input id="search" type="search" placeholder="例: 渋谷 / レジデンス" autocomplete="off" />
+    </div>
+    <div class="field">
+      <label for="sort">並び替え</label>
+      <select id="sort">
+        <option value="updated_desc">更新日時（新しい順）</option>
+        <option value="vacancy_desc">空室数（多い順）</option>
+        <option value="rent_min_asc">家賃下限（安い順）</option>
+        <option value="rent_min_desc">家賃下限（高い順）</option>
+      </select>
+    </div>
+  </section>
+
+  <ul id="building-list" aria-live="polite">
+    {% for b in buildings %}
+      <li class="card building-card" data-name="{{ (b.name or '')|lower }}" data-address="{{ (b.address or '')|lower }}" data-updated="{{ b.updated_at or '' }}" data-vacancy="{{ b.vacancy_count if b.vacancy_count is not none else -1 }}" data-rent-min="{{ b.rent_yen_min if b.rent_yen_min is not none else 999999999 }}">
+        <a class="building-link" href="b/{{ b.building_key }}.html"><h2>{{ b.name or "名称未設定" }}</h2></a>
+        <p class="address">{{ b.address or "住所情報なし" }}</p>
+        <ul class="kpis">
+          <li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>
+          <li class="kpi"><span>家賃</span>{{ (b.rent_yen_min ~ '円') if b.rent_yen_min is not none else '—' }}〜{{ (b.rent_yen_max ~ '円') if b.rent_yen_max is not none else '—' }}</li>
+        </ul>
+        <dl class="meta">
+          <div class="meta-row"><dt>面積</dt><dd>{{ (b.area_sqm_min ~ '㎡') if b.area_sqm_min is not none else '—' }} 〜 {{ (b.area_sqm_max ~ '㎡') if b.area_sqm_max is not none else '—' }}</dd></div>
+          <div class="meta-row"><dt>最終更新</dt><dd>{{ b.last_updated or '—' }}</dd></div>
+        </dl>
+      </li>
+    {% endfor %}
+  </ul>
+
+  <div id="empty-state" class="card empty" hidden>条件に合う建物が見つかりませんでした。</div>
+{% endblock %}
+
+{% block extra_body %}
+<script>
+(() => {
+  const input = document.getElementById('search');
+  const sortSelect = document.getElementById('sort');
+  const list = document.getElementById('building-list');
+  const cards = Array.from(list.querySelectorAll('.building-card'));
+  const empty = document.getElementById('empty-state');
+
+  const byNumeric = (key, direction = 'asc') => (a, b) => direction === 'asc' ? Number(a.dataset[key]) - Number(b.dataset[key]) : Number(b.dataset[key]) - Number(a.dataset[key]);
+  const byText = (key, direction = 'asc') => (a, b) => direction === 'asc' ? (a.dataset[key] || '').localeCompare((b.dataset[key] || ''), 'ja') : (b.dataset[key] || '').localeCompare((a.dataset[key] || ''), 'ja');
+  const sorters = { updated_desc: byText('updated', 'desc'), vacancy_desc: byNumeric('vacancy', 'desc'), rent_min_asc: byNumeric('rentMin', 'asc'), rent_min_desc: byNumeric('rentMin', 'desc') };
+
+  function update() {
+    const q = input.value.trim().toLowerCase();
+    const sorter = sorters[sortSelect.value] || sorters.updated_desc;
+    const visible = cards.filter((card) => {
+      const show = q === '' || `${card.dataset.name} ${card.dataset.address}`.includes(q);
+      card.hidden = !show;
+      return show;
+    });
+    visible.sort(sorter);
+    visible.forEach((card) => list.appendChild(card));
+    empty.hidden = visible.length !== 0;
+  }
+
+  input.addEventListener('input', update);
+  sortSelect.addEventListener('change', update);
+  update();
+})();
+</script>
+{% endblock %}
