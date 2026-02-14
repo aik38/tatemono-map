@@ -4,8 +4,9 @@ import argparse
 import csv
 import re
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
+from typing import Callable
 from urllib.parse import urljoin
 
 import requests
@@ -29,75 +30,55 @@ SESSION = requests.Session()
 SESSION.headers.update(UA)
 
 SLEEP_SEC = 0.8
+RETRY_COUNT = 2
+
+
+@dataclass
+class ChintaiRow:
+    building_name: str
+    room_no: str
+    address: str
+    layout: str
+    area_sqm: float | None
+    rent_man: float | None
+    fee_man: float | None
+    deposit_man: float | None
+    key_money_man: float | None
+    built: str
+    floors: str
+    access: str
+    detail_url: str
+    scraped_at: str
+    city_id: int
+    city_page: str
 
 
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
 
-def get(url: str) -> str:
-    r = SESSION.get(url, timeout=30)
-    r.raise_for_status()
-    r.encoding = r.apparent_encoding
-    return r.text
+def get(url: str, *, retries: int = RETRY_COUNT, sleep_sec: float = 0.0) -> str:
+    last_err: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            r = SESSION.get(url, timeout=30)
+            r.raise_for_status()
+            r.encoding = r.apparent_encoding
+            return r.text
+        except requests.RequestException as err:  # noqa: PERF203
+            last_err = err
+            if attempt >= retries:
+                break
+            if sleep_sec > 0:
+                time.sleep(sleep_sec)
+    assert last_err is not None
+    raise last_err
 
 
 def pick_text(el) -> str:
     if not el:
         return ""
     return re.sub(r"\s+", " ", el.get_text(" ", strip=True)).strip()
-
-
-@dataclass
-class ChintaiRow:
-    mansion_name: str
-    address: str
-    detail_url: str
-    built: str
-    floors: str
-    units: str
-    reviews: str
-    access: str
-    scraped_at: str
-    city_id: int
-    city_page: str
-
-
-def _guess_name(a, card, card_text: str, detail_url: str) -> str:
-    name = pick_text(a)
-    if name:
-        return name
-
-    for k in ("title", "aria-label"):
-        v = (a.get(k) or "").strip()
-        if v:
-            return v
-
-    img = a.find("img")
-    if img:
-        v = (img.get("alt") or "").strip()
-        if v:
-            return v
-
-    if card:
-        cand = card.select_one(
-            "h1, h2, h3, "
-            ".mansionName, .mansion-name, .mansion_name, "
-            ".bukkenName, .bukken-name, .bukken_name, "
-            ".propertyName, .property-name, .property_name, "
-            ".name, .title"
-        )
-        name = pick_text(cand)
-        if name:
-            return name
-
-    if card_text:
-        head = re.split(r"(福岡県|住所|交通|築|地上|総戸数|口コミ)", card_text)[0]
-        head = head.strip(" 　\t\r\n-–—|｜")
-        if head and len(head) <= 80:
-            return head
-
-    return detail_url
 
 
 def _extract_detail_links(soup: BeautifulSoup, html: str) -> tuple[list[str], int, int]:
@@ -121,81 +102,176 @@ def _extract_detail_links(soup: BeautifulSoup, html: str) -> tuple[list[str], in
     return uniq_urls, a_links, regex_links
 
 
+def _find_value_by_label(text: str, labels: list[str]) -> str:
+    for label in labels:
+        m = re.search(fr"{label}\s*[:：]\s*([^\n\r]+)", text)
+        if m:
+            return m.group(1).strip()
+    return ""
+
+
+def _normalize_man(value: str) -> float | None:
+    v = value.strip()
+    if not v or v in {"-", "ー", "—", "なし", "無", "相談"}:
+        return None
+
+    m_man = re.search(r"(\d+(?:\.\d+)?)\s*万", v)
+    if m_man:
+        return float(m_man.group(1))
+
+    m_yen = re.search(r"([\d,]+)\s*円", v)
+    if m_yen:
+        return round(float(m_yen.group(1).replace(",", "")) / 10000.0, 4)
+
+    m_num = re.search(r"(\d+(?:\.\d+)?)", v)
+    if m_num:
+        return float(m_num.group(1))
+
+    return None
+
+
+def _extract_numeric_sqm(text: str) -> float | None:
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:m2|m²|㎡)", text)
+    if m:
+        return float(m.group(1))
+    return None
+
+
+def _split_building_and_room(raw_name: str) -> tuple[str, str]:
+    name = re.sub(r"\s+", " ", raw_name).strip()
+    if not name:
+        return "", ""
+
+    m = re.search(r"(\d{1,4})\s*号室", name)
+    if not m:
+        m = re.search(r"(\d{1,4})\s*(?:号|室)", name)
+    if m:
+        room_no = m.group(1)
+        building_name = (name[: m.start()] + " " + name[m.end() :]).strip()
+        building_name = re.sub(r"\s+", " ", building_name)
+        return building_name, room_no
+
+    trailing = re.search(r"^(.*\S)\s+(\d{1,4})$", name)
+    if trailing:
+        prefix = trailing.group(1)
+        if not re.search(r"No\.\s*$", prefix, re.IGNORECASE):
+            return prefix.strip(), trailing.group(2)
+
+    return name, ""
+
+
+def _extract_name(soup: BeautifulSoup) -> str:
+    for sel in ["h1", "h2", ".property-name", ".bukkenName", ".mansionName", "title"]:
+        el = soup.select_one(sel)
+        txt = pick_text(el)
+        if txt:
+            txt = re.sub(r"\s*[|｜].*$", "", txt).strip()
+            if txt:
+                return txt
+    return ""
+
+
+def _extract_detail_fields(detail_html: str) -> dict[str, str | float | None]:
+    soup = BeautifulSoup(detail_html, "lxml")
+    text = pick_text(soup)
+    text_lines = soup.get_text("\n", strip=True)
+
+    raw_name = _extract_name(soup)
+    building_name, room_no = _split_building_and_room(raw_name)
+
+    address = _find_value_by_label(text_lines, ["住所", "所在地"])
+    if not address:
+        m_addr = re.search(r"(福岡県\s*北九州市[^\s、。,]+(?:[\d丁目番地\-－ー\s]+)?)", text)
+        address = m_addr.group(1).strip() if m_addr else ""
+
+    layout = _find_value_by_label(text_lines, ["間取り", "タイプ"])
+    if not layout:
+        m_layout = re.search(r"\b(\d+\s*[SLDKR]+)\b", text)
+        layout = m_layout.group(1).replace(" ", "") if m_layout else ""
+
+    area_sqm = _extract_numeric_sqm(_find_value_by_label(text_lines, ["専有面積", "面積", "占有面積"]) or text)
+
+    rent_man = _normalize_man(_find_value_by_label(text_lines, ["賃料", "家賃"]))
+    if rent_man is None:
+        m = re.search(r"(\d+(?:\.\d+)?)\s*万円", text)
+        if m:
+            rent_man = float(m.group(1))
+
+    fee_man = _normalize_man(_find_value_by_label(text_lines, ["管理費", "共益費", "管理費/共益費"]))
+    deposit_man = _normalize_man(_find_value_by_label(text_lines, ["敷金"]))
+    key_money_man = _normalize_man(_find_value_by_label(text_lines, ["礼金"]))
+
+    built = _find_value_by_label(text_lines, ["築年月", "築年数"])
+    if not built:
+        m_built = re.search(r"(\d{4}年\d{1,2}月|築\d+年(?:\d+ヶ月)?)", text)
+        built = m_built.group(1) if m_built else ""
+
+    floors = _find_value_by_label(text_lines, ["階建", "建物階数", "所在階"])
+    if not floors:
+        m_floors = re.search(r"(地上\s*\d+\s*階(?:\s*地下\s*\d+\s*階)?)", text)
+        floors = m_floors.group(1) if m_floors else ""
+
+    access = _find_value_by_label(text_lines, ["交通", "アクセス"])
+    if not access:
+        m_access = re.search(r"([^\s]+駅\s*徒歩\s*\d+\s*分)", text)
+        access = m_access.group(1) if m_access else ""
+
+    return {
+        "building_name": building_name,
+        "room_no": room_no,
+        "address": address,
+        "layout": layout,
+        "area_sqm": area_sqm,
+        "rent_man": rent_man,
+        "fee_man": fee_man,
+        "deposit_man": deposit_man,
+        "key_money_man": key_money_man,
+        "built": built,
+        "floors": floors,
+        "access": access,
+    }
+
+
 def extract_rows_from_html(
     html: str,
     city_page: str,
     city_id: int,
+    *,
+    fetch_detail: Callable[[str], str] | None = None,
 ) -> tuple[list[ChintaiRow], int, int]:
     soup = BeautifulSoup(html, "lxml")
     rows: list[ChintaiRow] = []
 
     detail_urls, a_count, regex_count = _extract_detail_links(soup, html)
-
-    anchors = soup.select('a[href*="/chintai/"]')
+    fetcher = fetch_detail or get
 
     for detail_url in detail_urls:
-        path = re.sub(r"^https?://[^/]+", "", detail_url)
-        a = None
-        for anchor in anchors:
-            href = (anchor.get("href") or "").strip()
-            if not href:
-                continue
-            abs_href = urljoin(BASE, href)
-            if detail_url == abs_href or re.search(r"/chintai/\d+", href) and path in href:
-                a = anchor
-                break
+        try:
+            detail_html = fetcher(detail_url)
+        except requests.RequestException as err:
+            print(f"[WARN] failed detail fetch: {detail_url} err={err}")
+            continue
 
-        if not a:
-            card = soup
-            card_text = pick_text(soup)
-            name = detail_url
-        else:
-            card = a
-            for _ in range(12):
-                parent = getattr(card, "parent", None)
-                if not parent:
-                    break
-                card = parent
-                if len(pick_text(card)) >= 40:
-                    break
-
-            card_text = pick_text(card)
-            name = _guess_name(a, card, card_text, detail_url)
-
-            if name == detail_url:
-                heading = card.find(["h1", "h2", "h3", "h4"])
-                heading_text = pick_text(heading)
-                if heading_text:
-                    name = heading_text
-
-        m_addr = re.search(r"(福岡県\s*北九州市.*?)(?:\s|$)", card_text)
-        address = m_addr.group(1).strip() if m_addr else ""
-
-        m_access = re.search(r"([^\s]+駅\s*徒歩\s*\d+\s*分)", card_text)
-        access = m_access.group(1) if m_access else ""
-
-        m_built = re.search(r"(\d{4}年\d{1,2}月)", card_text)
-        built = m_built.group(1) if m_built else ""
-
-        m_floors = re.search(r"(地上\s*\d+\s*階(?:\s*地下\s*\d+\s*階)?)", card_text)
-        floors = m_floors.group(1) if m_floors else ""
-
-        m_units = re.search(r"(?:総戸数|戸数)\s*[:：]?\s*(\d+\s*戸)", card_text)
-        units = m_units.group(1) if m_units else ""
-
-        m_reviews = re.search(r"(?:口コミ数|口コミ)\s*[:：]?\s*(\d+)", card_text)
-        reviews = m_reviews.group(1) if m_reviews else ""
+        detail = _extract_detail_fields(detail_html)
+        if not detail["building_name"] and not detail["address"] and not detail["layout"]:
+            print(f"[WARN] detail parse empty, skipped: {detail_url}")
+            continue
 
         rows.append(
             ChintaiRow(
-                mansion_name=name,
-                address=address,
+                building_name=str(detail["building_name"]),
+                room_no=str(detail["room_no"]),
+                address=str(detail["address"]),
+                layout=str(detail["layout"]),
+                area_sqm=detail["area_sqm"],
+                rent_man=detail["rent_man"],
+                fee_man=detail["fee_man"],
+                deposit_man=detail["deposit_man"],
+                key_money_man=detail["key_money_man"],
+                built=str(detail["built"]),
+                floors=str(detail["floors"]),
+                access=str(detail["access"]),
                 detail_url=detail_url,
-                built=built,
-                floors=floors,
-                units=units,
-                reviews=reviews,
-                access=access,
                 scraped_at=now_iso(),
                 city_id=city_id,
                 city_page=city_page,
@@ -218,6 +294,7 @@ def city_page_url(city_id: int, page: int) -> str:
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true", help="抽出件数の詳細ログを表示")
+    parser.add_argument("--sleep", type=float, default=SLEEP_SEC, help="リクエスト間隔（秒）")
     return parser
 
 
@@ -233,14 +310,19 @@ def main() -> None:
         while True:
             url = city_page_url(city_id, page)
             try:
-                html = get(url)
+                html = get(url, sleep_sec=args.sleep)
             except requests.HTTPError as e:
                 if getattr(e.response, "status_code", None) == 404:
                     print(f"[STOP] city={city_id} page={page} 404 url={url}")
                     break
                 raise
 
-            rows, a_cnt, regex_cnt = extract_rows_from_html(html, city_page=url, city_id=city_id)
+            rows, a_cnt, regex_cnt = extract_rows_from_html(
+                html,
+                city_page=url,
+                city_id=city_id,
+                fetch_detail=lambda detail_url: get(detail_url, sleep_sec=args.sleep),
+            )
             link_cnt = a_cnt + regex_cnt
 
             pages_total += 1
@@ -264,17 +346,22 @@ def main() -> None:
                 break
 
             page += 1
-            time.sleep(SLEEP_SEC)
+            time.sleep(args.sleep)
 
     fieldnames = list(asdict(all_rows[0]).keys()) if all_rows else [
-        "mansion_name",
+        "building_name",
+        "room_no",
         "address",
-        "detail_url",
+        "layout",
+        "area_sqm",
+        "rent_man",
+        "fee_man",
+        "deposit_man",
+        "key_money_man",
         "built",
         "floors",
-        "units",
-        "reviews",
         "access",
+        "detail_url",
         "scraped_at",
         "city_id",
         "city_page",
