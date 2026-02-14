@@ -43,12 +43,24 @@ def pick_text(el) -> str:
     return re.sub(r"\s+", " ", el.get_text(" ", strip=True)).strip()
 
 def find_next_url(soup: BeautifulSoup, current_url: str) -> str | None:
+    # 「次へ」ボタン
     a = soup.find("a", string=re.compile(r"^\s*次へ\s*$"))
     if a and a.get("href"):
-        return urljoin(BASE, a["href"])
+        href = a["href"]
+        if href.startswith("http"):
+            return href
+        if href.startswith("/"):
+            return urljoin(BASE, href)
+
+    # rel="next"
     a = soup.find("a", attrs={"rel": "next"})
     if a and a.get("href"):
-        return urljoin(BASE, a["href"])
+        href = a["href"]
+        if href.startswith("http"):
+            return href
+        if href.startswith("/"):
+            return urljoin(BASE, href)
+
     return None
 
 @dataclass
