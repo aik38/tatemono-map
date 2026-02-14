@@ -200,3 +200,23 @@ def test_build_dist_versions_v2_index_has_search_label_and_counts(tmp_path):
     assert "表示中" in index_v2
     assert "建物" in index_v2
     assert "空室" in index_v2
+
+
+def test_build_dist_versions_v2_index_has_search_ranking_logic(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("門司サンプルマンション", "福岡県北九州市門司区", 78000, 28.0, "1DK", "2026-08-15", "ulucks", "rank-1"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+    assert "function getMatchScore" in index_v2
+    assert "function compareCards" in index_v2
+    assert "card.score > 0" in index_v2
+    assert "b.score - a.score" in index_v2

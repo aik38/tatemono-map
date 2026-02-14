@@ -93,27 +93,90 @@
   const cards = Array.from(list.querySelectorAll('.building-card'));
   const empty = document.getElementById('empty-state');
 
-  const byNumeric = (key, direction = 'asc') => (a, b) => direction === 'asc' ? Number(a.dataset[key]) - Number(b.dataset[key]) : Number(b.dataset[key]) - Number(a.dataset[key]);
-  const byText = (key, direction = 'asc') => (a, b) => direction === 'asc' ? (a.dataset[key] || '').localeCompare((b.dataset[key] || ''), 'ja') : (b.dataset[key] || '').localeCompare((a.dataset[key] || ''), 'ja');
-  const sorters = { updated_desc: byText('updated', 'desc'), vacancy_desc: byNumeric('vacancy', 'desc'), rent_min_asc: byNumeric('rentMin', 'asc'), rent_min_desc: byNumeric('rentMin', 'desc') };
+  const byNumeric = (key, direction = 'asc') => (a, b) => direction === 'asc' ? a[key] - b[key] : b[key] - a[key];
+  const byText = (key, direction = 'asc') => (a, b) => direction === 'asc' ? a[key].localeCompare(b[key], 'ja') : b[key].localeCompare(a[key], 'ja');
+  const sorters = {
+    updated_desc: byText('updatedTs', 'desc'),
+    vacancy_desc: byNumeric('vacancy', 'desc'),
+    rent_min_asc: byNumeric('rentMin', 'asc'),
+    rent_min_desc: byNumeric('rentMin', 'desc')
+  };
   const formatCount = (n) => new Intl.NumberFormat('ja-JP').format(n);
-  const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim();
-  const totalBuildings = cards.length;
-  const totalVacancies = cards.reduce((sum, card) => sum + Number(card.dataset.vacancies || 0), 0);
+  const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, '').trim();
+
+  const cardModels = cards.map((card, originalIndex) => {
+    const name = normalizeText(card.querySelector('h2')?.textContent || '');
+    const address = normalizeText(card.querySelector('.address')?.textContent || '');
+    const combined = normalizeText(card.dataset.search || `${name}${address}`);
+    if (!card.dataset.search) {
+      card.dataset.search = combined;
+    }
+    return {
+      el: card,
+      score: 0,
+      rentMin: Number(card.dataset.rentMin || 999999999),
+      updatedTs: card.dataset.updated || '',
+      vacancy: Number(card.dataset.vacancy || -1),
+      vacancies: Number(card.dataset.vacancies || 0),
+      originalIndex,
+      name,
+      address,
+      combined,
+    };
+  });
+
+  const totalBuildings = cardModels.length;
+  const totalVacancies = cardModels.reduce((sum, card) => sum + card.vacancies, 0);
+
+  function getMatchScore(card, q) {
+    if (!q) return 0;
+    let score = 0;
+    let matched = false;
+    if (card.name.startsWith(q)) {
+      score += 300;
+      matched = true;
+    } else if (card.name.includes(q)) {
+      score += 200;
+      matched = true;
+    }
+    if (card.address.startsWith(q)) {
+      score += 120;
+      matched = true;
+    } else if (card.address.includes(q)) {
+      score += 80;
+      matched = true;
+    }
+    if (card.combined.includes(q)) {
+      score += 20;
+      matched = true;
+    }
+    return matched ? score : 0;
+  }
+
+  function compareCards(a, b, q, sorter) {
+    if (q !== '' && b.score !== a.score) {
+      return b.score - a.score;
+    }
+    const sortResult = sorter(a, b);
+    if (sortResult !== 0) {
+      return sortResult;
+    }
+    return a.originalIndex - b.originalIndex;
+  }
 
   function update() {
     const q = normalizeText(input.value);
     const sorter = sorters[sortSelect.value] || sorters.updated_desc;
-    const visible = cards.filter((card) => {
-      const haystack = normalizeText(card.dataset.search);
-      const show = q === '' || haystack.includes(q);
-      card.hidden = !show;
+    const visible = cardModels.filter((card) => {
+      card.score = getMatchScore(card, q);
+      const show = q === '' || card.score > 0;
+      card.el.hidden = !show;
       return show;
     });
-    visible.sort(sorter);
-    visible.forEach((card) => list.appendChild(card));
+    visible.sort((a, b) => compareCards(a, b, q, sorter));
+    visible.forEach((card) => list.appendChild(card.el));
 
-    const visibleVacancies = visible.reduce((sum, card) => sum + Number(card.dataset.vacancies || 0), 0);
+    const visibleVacancies = visible.reduce((sum, card) => sum + card.vacancies, 0);
     if (q === '') {
       counts.innerHTML = `建物 <strong>${formatCount(totalBuildings)}件</strong> / 空室 <strong>${formatCount(totalVacancies)}件</strong>`;
     } else {
@@ -123,6 +186,12 @@
   }
 
   input.addEventListener('input', update);
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      update();
+    }
+  });
+  input.addEventListener('search', update);
   sortSelect.addEventListener('change', update);
   update();
 })();
