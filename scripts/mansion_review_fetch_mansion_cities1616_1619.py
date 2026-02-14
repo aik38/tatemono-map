@@ -6,6 +6,7 @@ import re
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime
+from typing import Iterable
 from urllib.parse import urljoin
 
 import requests
@@ -13,11 +14,19 @@ from bs4 import BeautifulSoup
 
 BASE = "https://www.mansion-review.jp"
 
-# 1616=門司区, 1619=小倉北区（あなたの確認済みURL規則に合わせる）
+# 1616=門司区, 1619=小倉北区
 CITY_PAGES = [
     (1616, "門司区"),
     (1619, "小倉北区"),
 ]
+
+# 1ページ目: /mansion/city/1616.html
+# 2ページ目: /mansion/city/1616_2.html
+def city_page_url(city_id: int, page: int) -> str:
+    if page <= 1:
+        return f"{BASE}/mansion/city/{city_id}.html"
+    return f"{BASE}/mansion/city/{city_id}_{page}.html"
+
 
 UA = {
     "User-Agent": (
@@ -33,19 +42,35 @@ SESSION.headers.update(UA)
 
 SLEEP_SEC = 0.8  # 礼儀（連打しない）
 
+
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
-def get(url: str) -> str:
+
+def get_html(url: str) -> str:
     r = SESSION.get(url, timeout=30)
     r.raise_for_status()
     r.encoding = r.apparent_encoding
     return r.text
 
+
+def norm_text(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "")).strip()
+
+
 def pick_text(el) -> str:
     if not el:
         return ""
-    return re.sub(r"\s+", " ", el.get_text(" ", strip=True)).strip()
+    return norm_text(el.get_text(" ", strip=True))
+
+
+def first_non_empty(items: Iterable[str]) -> str:
+    for x in items:
+        x = norm_text(x)
+        if x:
+            return x
+    return ""
+
 
 @dataclass
 class MansionRow:
@@ -62,33 +87,80 @@ class MansionRow:
     units: str
     reviews: str
 
-def extract_rows_from_html(html: str, source_url: str, city_id: int, city_name: str) -> list[MansionRow]:
-    soup = BeautifulSoup(html, "lxml")
-    rows: list[MansionRow] = []
 
-    # 一覧内の詳細リンク（/mansion/数字...）を拾う
+def find_card_container(a_tag) -> object:
+    """
+    aタグが画像リンク等でテキストが空でも、親を辿ってカード全体の塊を掴む。
+    """
+    card = a_tag
+    for _ in range(12):
+        parent = getattr(card, "parent", None)
+        if not parent:
+            break
+        card = parent
+        if len(pick_text(card)) >= 60:
+            break
+    return card
+
+
+def extract_name(a_tag, card_text: str) -> str:
+    """
+    1) a文字
+    2) title属性
+    3) カード内の住所直前っぽい行
+    4) それでも無理ならカード先頭
+    """
+    name1 = pick_text(a_tag)
+    name2 = norm_text(a_tag.get("title") or "")
+
+    if name1 or name2:
+        return first_non_empty([name1, name2])
+
+    # カード内の“行っぽい”分割（雑にでも効く）
+    parts = [p.strip() for p in re.split(r"[\r\n|]+", card_text) if p.strip()]
+
+    # 住所の位置を探し、その一つ前を名前候補にする（よく効く）
+    addr_idx = None
+    for i, p in enumerate(parts):
+        if "福岡県" in p and "北九州市" in p:
+            addr_idx = i
+            break
+
+    cand = ""
+    if addr_idx is not None and addr_idx > 0:
+        cand = parts[addr_idx - 1]
+    elif parts:
+        cand = parts[0]
+
+    cand = re.sub(r"^(中古|新築|分譲|ランキング|マンションレビュー)\s*", "", cand).strip()
+    return cand
+
+
+def parse_city_page(html: str, source_url: str, city_id: int, city_name: str) -> list[MansionRow]:
+    soup = BeautifulSoup(html, "lxml")
+
+    # requestsで取れていることはあなたの検証で確定（/mansion/数字 が 41〜42件）
+    # まずはアンカーから拾う（DOMが変わっても耐性を持たせる）
+    rows: list[MansionRow] = []
+    seen_detail: set[str] = set()
+
     for a in soup.select('a[href^="/mansion/"]'):
         href = a.get("href") or ""
         if not re.search(r"^/mansion/\d+", href):
             continue
 
         detail_url = urljoin(BASE, href)
-        name = pick_text(a)
-        if not name:
+        if detail_url in seen_detail:
             continue
+        seen_detail.add(detail_url)
 
-        # 親を辿ってカード相当の塊を掴む（テキストが一定以上ある要素）
-        card = a
-        for _ in range(8):
-            parent = getattr(card, "parent", None)
-            if not parent:
-                break
-            card = parent
-            txt = pick_text(card)
-            if len(txt) >= 40:
-                break
-
+        card = find_card_container(a)
         card_text = pick_text(card)
+
+        name = extract_name(a, card_text)
+        if not name:
+            # 最後の砦：URLを仮名にする（0件防止）
+            name = f"(no_name) {href}"
 
         # 住所（福岡県北九州市...）
         m_addr = re.search(r"(福岡県\s*北九州市.*?)(?:\s|$)", card_text)
@@ -110,41 +182,32 @@ def extract_rows_from_html(html: str, source_url: str, city_id: int, city_name: 
         m_units = re.search(r"(?:総戸数|戸数)\s*[:：]?\s*(\d+\s*戸)", card_text)
         units = m_units.group(1) if m_units else ""
 
-        # 口コミ数（数値だけ拾う）
+        # 口コミ数（数値）
         m_reviews = re.search(r"(?:口コミ数|口コミ)\s*[:：]?\s*(\d+)", card_text)
         reviews = m_reviews.group(1) if m_reviews else ""
 
-        rows.append(MansionRow(
-            scraped_at=now_iso(),
-            city_id=city_id,
-            city_name=city_name,
-            source_url=source_url,
-            detail_url=detail_url,
-            mansion_name=name,
-            address=address,
-            access=access,
-            built=built,
-            floors=floors,
-            units=units,
-            reviews=reviews,
-        ))
+        rows.append(
+            MansionRow(
+                scraped_at=now_iso(),
+                city_id=city_id,
+                city_name=city_name,
+                source_url=source_url,
+                detail_url=detail_url,
+                mansion_name=name,
+                address=address,
+                access=access,
+                built=built,
+                floors=floors,
+                units=units,
+                reviews=reviews,
+            )
+        )
 
-    # detail_urlで重複排除
-    uniq: dict[str, MansionRow] = {}
-    for r in rows:
-        uniq[r.detail_url] = r
-    return list(uniq.values())
+    return rows
 
-def city_page_url(city_id: int, page: int) -> str:
-    # 1ページ目: /mansion/city/1616.html
-    # 2ページ目: /mansion/city/1616_2.html
-    if page <= 1:
-        return f"{BASE}/mansion/city/{city_id}.html"
-    return f"{BASE}/mansion/city/{city_id}_{page}.html"
 
 def main() -> None:
     out_csv = "mansion_review_mansions_1616_1619.csv"
-
     all_rows: list[MansionRow] = []
     pages_total = 0
 
@@ -152,14 +215,20 @@ def main() -> None:
         page = 1
         while True:
             url = city_page_url(city_id, page)
-            html = get(url)
-            rows = extract_rows_from_html(html, url, city_id, city_name)
+            try:
+                html = get_html(url)
+            except requests.HTTPError as e:
+                # 404などで終端
+                print(f"[END] city={city_id} page={page} http_error={e}")
+                break
+
+            rows = parse_city_page(html, url, city_id, city_name)
 
             pages_total += 1
             all_rows.extend(rows)
             print(f"[OK] city={city_id} page={page} rows+={len(rows)} total={len(all_rows)} url={url}")
 
-            # そのページで0件なら、そこが終端（以降の _{n} も無い/空のはず）
+            # 0件ならそのcityは終端（以降の _{n} も無い/空の可能性が高い）
             if len(rows) == 0:
                 break
 
@@ -178,6 +247,7 @@ def main() -> None:
             w.writerow(asdict(r))
 
     print(f"[DONE] pages_total={pages_total} rows={len(all_rows)} -> {out_csv}")
+
 
 if __name__ == "__main__":
     main()
