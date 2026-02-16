@@ -25,6 +25,8 @@ tmp/*
 tmp/manual/**
 !tmp/manual/.gitkeep
 !tmp/manual/README.md
+tmp/manual/**/*.csv
+tmp/manual/*.csv
 
 # Ulucks debug artifacts
 /data/_debug_ulucks_*.html

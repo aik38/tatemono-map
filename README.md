@@ -601,7 +601,14 @@ python scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode building -
 
 ### MR賃貸CSV → 建物マスター化 → primary追加マージ
 
-`mansion_review_fetch_chintai_cities1616_1619.py` の出力は空室行ベースのため、同一建物が複数行になります。次の2スクリプトを追加しました。
+`mansion_review_fetch_chintai_cities1616_1619.py` の出力は空室行ベースのため、同一建物が複数行になります。運用ルールは次の通りです。
+
+- 正本スクリプトは **`scripts/buildings_master_from_mr_chintai.py`** / **`scripts/merge_building_masters_primary_wins.py`** を使用（repo 直下の同名ファイルは使わない）。
+- 入力配置は **`tmp/manual/`** 固定。
+- 出力配置も **`tmp/manual/`** 固定。
+- マージ仕様は **primary（`final完全版.csv` 相当）を優先**、secondary（MR賃貸由来）は **新規追加のみ**。
+
+各スクリプトの役割:
 
 - `scripts/buildings_master_from_mr_chintai.py`
   - 賃貸CSVを `building_name + address` 単位で重複排除
@@ -609,12 +616,12 @@ python scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode building -
   - ランキング見出しなどのノイズ行を除外
   - 出力は Excel で開きやすい `utf-8-sig`
 - `scripts/merge_building_masters_primary_wins.py`
-  - primary（既存統合マスター）を優先
+  - primary（既存統合マスター / final完全版）を優先
   - secondary（MR賃貸由来）は「既存に無い建物のみ追加」
   - header差異は union して出力
   - `--addr-only-fallback` で「同一住所かつprimary側が1件だけ」を重複扱い可能
 
-#### PowerShell（複数行 / repo指定）
+#### PowerShell（複数行 / scripts配下固定・tmp/manual固定）
 
 ```powershell
 $ErrorActionPreference = "Stop"
@@ -624,20 +631,20 @@ $PY = Join-Path $REPO ".venv\Scripts\python.exe"
 if (-not (Test-Path $PY)) { throw ".venv の python が見つかりません: $PY" }
 
 # 1) MR賃貸CSVを生成（city推奨）
-& $PY scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode city --max-pages 0 --sleep 0.8 --out tmp/mr_chintai_city.csv
+& $PY scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode city --max-pages 0 --sleep 0.8 --out tmp/manual/mr_chintai_city.csv
 
 # 2) 先頭5行で検証
-Get-Content tmp/mr_chintai_city.csv -TotalCount 5
+Get-Content tmp/manual/mr_chintai_city.csv -TotalCount 5
 
 # 3) 建物マスター化（重複排除 + vacancy_rows 集計）
-& $PY scripts/buildings_master_from_mr_chintai.py --in tmp/mr_chintai_city.csv --out tmp/buildings_master_from_mr_chintai.csv
+& $PY scripts/buildings_master_from_mr_chintai.py --in tmp/manual/mr_chintai_city.csv --out tmp/manual/buildings_master_from_mr_chintai.csv
 
-# 4) primaryに追加マージ（secondaryは追加のみ）
-& $PY scripts/merge_building_masters_primary_wins.py --primary data/buildings_master_integrated.csv --secondary tmp/buildings_master_from_mr_chintai.csv --out tmp/buildings_master_integrated_plus_mr_chintai.csv --addr-only-fallback
+# 4) primaryに追加マージ（secondaryは新規追加のみ）
+& $PY scripts/merge_building_masters_primary_wins.py --primary data/final完全版.csv --secondary tmp/manual/buildings_master_from_mr_chintai.csv --out tmp/manual/buildings_master_integrated_plus_mr_chintai.csv --addr-only-fallback
 ```
 
 #### PowerShell（1発コマンド / そのまま貼り付け）
 
 ```powershell
-$ErrorActionPreference="Stop"; $REPO=Join-Path $env:USERPROFILE "tatemono-map"; Set-Location $REPO; $PY=Join-Path $REPO ".venv\Scripts\python.exe"; if(-not (Test-Path $PY)){throw ".venv の python が見つかりません: $PY"}; & $PY scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode city --max-pages 0 --sleep 0.8 --out tmp/mr_chintai_city.csv; Get-Content tmp/mr_chintai_city.csv -TotalCount 5; & $PY scripts/buildings_master_from_mr_chintai.py --in tmp/mr_chintai_city.csv --out tmp/buildings_master_from_mr_chintai.csv; & $PY scripts/merge_building_masters_primary_wins.py --primary data/buildings_master_integrated.csv --secondary tmp/buildings_master_from_mr_chintai.csv --out tmp/buildings_master_integrated_plus_mr_chintai.csv --addr-only-fallback
+$ErrorActionPreference="Stop"; $REPO=Join-Path $env:USERPROFILE "tatemono-map"; Set-Location $REPO; $PY=Join-Path $REPO ".venv\Scripts\python.exe"; if(-not (Test-Path $PY)){throw ".venv の python が見つかりません: $PY"}; & $PY scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode city --max-pages 0 --sleep 0.8 --out tmp/manual/mr_chintai_city.csv; Get-Content tmp/manual/mr_chintai_city.csv -TotalCount 5; & $PY scripts/buildings_master_from_mr_chintai.py --in tmp/manual/mr_chintai_city.csv --out tmp/manual/buildings_master_from_mr_chintai.csv; & $PY scripts/merge_building_masters_primary_wins.py --primary data/final完全版.csv --secondary tmp/manual/buildings_master_from_mr_chintai.csv --out tmp/manual/buildings_master_integrated_plus_mr_chintai.csv --addr-only-fallback
 ```
