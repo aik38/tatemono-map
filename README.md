@@ -648,3 +648,54 @@ Get-Content tmp/manual/mr_chintai_city.csv -TotalCount 5
 ```powershell
 $ErrorActionPreference="Stop"; $REPO=Join-Path $env:USERPROFILE "tatemono-map"; Set-Location $REPO; $PY=Join-Path $REPO ".venv\Scripts\python.exe"; if(-not (Test-Path $PY)){throw ".venv の python が見つかりません: $PY"}; & $PY scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode city --max-pages 0 --sleep 0.8 --out tmp/manual/mr_chintai_city.csv; Get-Content tmp/manual/mr_chintai_city.csv -TotalCount 5; & $PY scripts/buildings_master_from_mr_chintai.py --in tmp/manual/mr_chintai_city.csv --out tmp/manual/buildings_master_from_mr_chintai.csv; & $PY scripts/merge_building_masters_primary_wins.py --primary data/final完全版.csv --secondary tmp/manual/buildings_master_from_mr_chintai.csv --out tmp/manual/buildings_master_integrated_plus_mr_chintai.csv --addr-only-fallback
 ```
+
+## Manual CSV Runbook（再現可能フロー固定版）
+
+手動CSVフロー（Ulucks/RealPro PDF / MansionReview 分譲 / MansionReview 賃貸）は、**必ず `tmp/manual/in/` 入力 → `tmp/manual/out/` 出力**で運用します。  
+repo直下に運用生成物CSVは置かない方針です（例外: テストfixtureのみ）。
+
+### 入出力・粒度・実行コマンド（PowerShell）
+
+| データソース | 入力ファイル（標準） | PowerShell実行コマンド（1行） | 出力ファイル（標準） | 粒度 |
+|---|---|---|---|---|
+| Ulucks/RealPro PDF 由来の primary listings | `tmp/manual/in/primary_listings.csv`（`final完全版.csv` の正本名） | `python scripts/buildings_master_from_primary_listings.py --in tmp/manual/in/primary_listings.csv --out tmp/manual/out/buildings_master_primary.csv --addr-only-fallback` | `tmp/manual/out/buildings_master_primary.csv` | **建物=1行/建物**（listing_rows付き） |
+| MR 賃貸 listings | `tmp/manual/in/mansion_review_chintai_1616_1619.csv` | `python scripts/buildings_master_from_mr_chintai.py --in tmp/manual/in/mansion_review_chintai_1616_1619.csv --out tmp/manual/out/buildings_master_from_mr_chintai.csv` | `tmp/manual/out/buildings_master_from_mr_chintai.csv` | **建物=1行/建物**（vacancy_rows付き） |
+| MR 分譲カタログ（建物一覧） | `tmp/manual/in/mansion_review_mansions_1616_1619.csv` | （そのまま建物マスターとして使用。必要なら `manual_stats.py` で確認） | `tmp/manual/in/mansion_review_mansions_1616_1619.csv` | **建物=1行/建物** |
+
+### マージ順序（粒度を建物マスターに統一）
+
+1. `primary_listings.csv` を `buildings_master_primary.csv` に集約。  
+2. MR賃貸 listings を `buildings_master_from_mr_chintai.csv` に集約。  
+3. MR分譲 `mansion_review_mansions_1616_1619.csv` は建物マスターとしてそのまま扱う。  
+4. `scripts/merge_building_masters_primary_wins.py` で **primary-wins** マージ（`primary` 側同一キーを優先）。
+
+- ユニークキー: 基本 `address + building_name`。
+- primary-wins: 同一キーが既に primary にあれば secondary は追加しない。
+- `--addr-only-fallback`: building_name 欠損時のみ address 単独で重複判定。
+
+```powershell
+python scripts/merge_building_masters_primary_wins.py --primary tmp/manual/out/buildings_master_primary.csv --secondary tmp/manual/out/buildings_master_from_mr_chintai.csv --out tmp/manual/out/buildings_master_primary_plus_chintai.csv --addr-only-fallback
+python scripts/merge_building_masters_primary_wins.py --primary tmp/manual/out/buildings_master_primary_plus_chintai.csv --secondary tmp/manual/in/mansion_review_mansions_1616_1619.csv --out tmp/manual/out/buildings_master_all.csv --addr-only-fallback
+```
+
+### 統計確認
+
+```powershell
+python scripts/manual_stats.py tmp/manual/out/buildings_master_all.csv
+```
+
+出力項目:
+- `rows`
+- `unique_buildings(address+name)`
+- `missing_address` / `missing_building_name` / `missing_mansion_name`（存在列のみ）
+
+### 既存ファイルの棚卸し（削除はしない）
+
+- `final完全版.csv` と `ulucks_pdf_raw.csv` が同一内容になるケースがあるため、**運用上の正本名は `primary_listings.csv`（または `final_primary_listings.csv`）に統一**します。
+- repo直下に残っている `mansion_review_mansions_1616_1619.csv` などは、次回運用から `tmp/manual/in/` に移してください（このチャットでは実移動しません）。
+
+### ローカル同期→実行（PowerShell一発）
+
+```powershell
+$ErrorActionPreference="Stop"; $REPO=Join-Path $env:USERPROFILE "tatemono-map"; Set-Location $REPO; git pull --ff-only; $PY=Join-Path $REPO ".venv\Scripts\python.exe"; & $PY scripts/buildings_master_from_primary_listings.py --in tmp/manual/in/primary_listings.csv --out tmp/manual/out/buildings_master_primary.csv --addr-only-fallback; & $PY scripts/buildings_master_from_mr_chintai.py --in tmp/manual/in/mansion_review_chintai_1616_1619.csv --out tmp/manual/out/buildings_master_from_mr_chintai.csv; & $PY scripts/merge_building_masters_primary_wins.py --primary tmp/manual/out/buildings_master_primary.csv --secondary tmp/manual/out/buildings_master_from_mr_chintai.csv --out tmp/manual/out/buildings_master_primary_plus_chintai.csv --addr-only-fallback; & $PY scripts/merge_building_masters_primary_wins.py --primary tmp/manual/out/buildings_master_primary_plus_chintai.csv --secondary tmp/manual/in/mansion_review_mansions_1616_1619.csv --out tmp/manual/out/buildings_master_all.csv --addr-only-fallback; & $PY scripts/manual_stats.py tmp/manual/out/buildings_master_all.csv
+```
