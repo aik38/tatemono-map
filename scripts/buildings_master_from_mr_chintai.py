@@ -5,7 +5,8 @@ import csv
 import re
 from pathlib import Path
 
-DEFAULT_OUT = "buildings_master_from_mr_chintai.csv"
+DEFAULT_IN = "tmp/manual/in/mansion_review_chintai_1616_1619.csv"
+DEFAULT_OUT = "tmp/manual/out/buildings_master_from_mr_chintai.csv"
 
 
 def _normalize_space(text: str) -> str:
@@ -46,7 +47,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="MR賃貸CSV（空室行ベース）から建物マスターを重複排除して作成"
     )
-    parser.add_argument("--in", dest="input_csv", required=True, help="入力CSV（mansion_review_fetch_chintai 出力）")
+    parser.add_argument(
+        "--in",
+        dest="input_csv",
+        default=DEFAULT_IN,
+        help=f"入力CSV（既定: {DEFAULT_IN}）",
+    )
     parser.add_argument("--out", default=DEFAULT_OUT, help=f"出力CSV（既定: {DEFAULT_OUT}）")
     return parser
 

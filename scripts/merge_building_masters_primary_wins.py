@@ -6,12 +6,19 @@ import re
 from pathlib import Path
 
 
+DEFAULT_OUT = "tmp/manual/out/buildings_master_all.csv"
+
+
 def _normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip()
 
 
 def _norm(text: str) -> str:
     return _normalize_space(text).replace("　", " ")
+
+
+def _building_name(row: dict[str, str]) -> str:
+    return row.get("building_name", "") or row.get("mansion_name", "")
 
 
 def _load_rows(path: Path) -> tuple[list[dict[str, str]], list[str]]:
@@ -24,7 +31,7 @@ def _load_rows(path: Path) -> tuple[list[dict[str, str]], list[str]]:
 
 
 def _key(row: dict[str, str]) -> tuple[str, str]:
-    return (_norm(row.get("building_name", "")), _norm(row.get("address", "")))
+    return (_norm(_building_name(row)), _norm(row.get("address", "")))
 
 
 def _address_index(rows: list[dict[str, str]]) -> dict[str, int]:
@@ -38,10 +45,10 @@ def _address_index(rows: list[dict[str, str]]) -> dict[str, int]:
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="建物マスターを primary wins でマージ")
+    parser = argparse.ArgumentParser(description="建物マスターCSV同士を primary wins でマージ")
     parser.add_argument("--primary", required=True, help="既存の統合済み建物マスター")
     parser.add_argument("--secondary", required=True, help="追加候補の建物マスター")
-    parser.add_argument("--out", required=True, help="出力CSV")
+    parser.add_argument("--out", default=DEFAULT_OUT, help=f"出力CSV（既定: {DEFAULT_OUT}）")
     parser.add_argument(
         "--addr-only-fallback",
         action="store_true",
@@ -59,6 +66,14 @@ def main() -> None:
 
     primary_rows, primary_headers = _load_rows(primary_path)
     secondary_rows, secondary_headers = _load_rows(secondary_path)
+
+    for path, headers in [(primary_path, primary_headers), (secondary_path, secondary_headers)]:
+        if "address" not in headers:
+            raise ValueError(f"address 列がありません（建物マスター前提）: {path}")
+        if "building_name" not in headers and "mansion_name" not in headers:
+            raise ValueError(
+                f"building_name も mansion_name もありません（建物マスター前提）: {path}"
+            )
 
     merged_headers = list(primary_headers)
     for h in secondary_headers:
