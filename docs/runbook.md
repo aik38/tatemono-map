@@ -62,20 +62,26 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_merg
 
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "sync.ps1")
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "sync.ps1") -RepoPath $REPO
 ```
 
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "push.ps1") -Message "your commit message" -SensitiveColumnPolicy strict
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "push.ps1") -RepoPath $REPO -Message "your commit message" -SensitiveColumnPolicy strict
 ```
 
 ## 6. 事故防止ガード
-- `.gitignore` で `secrets/**`, `.tmp/**`, ルート `/*.csv`, `tmp/**（.gitkeep など最小例外のみ）` を無視。
+- `.gitignore` で `secrets/**`, `.tmp/**`, ルート `/*.csv`, `tmp/**（.gitkeep と tmp/manual/README.md のみ例外）` を無視。
 - `scripts/git_push.ps1` が push 前に以下を検査。
-  - tracked に `secrets/**` / `.tmp/**` / `tmp/**（.gitkeep 以外）` がある → **失敗**
+  - tracked に `secrets/**` / `.tmp/**` / `tmp/**（.gitkeep と tmp/manual/README.md 以外）` がある → **失敗**
   - tracked にルート `*.csv` がある → **失敗**
   - CSV ヘッダに `room_no`, `unit`, `号室`, `source_url` などがある → `warn` or `strict`
+
+
+## 6-1. tmp/manual 配下の扱い（tracked 許可/禁止）
+- `tmp/manual/README.md` はガイダンス文書として **tracked 許可**。
+- `tmp/manual` 配下の生成物（CSV/zip/html など）は **tracked 禁止**。
+- 固定ディレクトリ維持用の `.gitkeep` は tracked 許可。
 
 ## 7. 事故った時の復旧手順
 

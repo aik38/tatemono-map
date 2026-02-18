@@ -47,6 +47,16 @@ function Get-TrackedMatches {
     return $results | Sort-Object -Unique
 }
 
+function Test-PathAllowedInTmp {
+    param([string]$RelativePath)
+
+    if ($RelativePath -match '(^|/)\.gitkeep$') {
+        return $true
+    }
+
+    return $RelativePath -eq 'tmp/manual/README.md'
+}
+
 function Test-SensitiveColumns {
     param(
         [string]$RepoRoot,
@@ -111,7 +121,13 @@ $forbiddenPatterns = @(
 )
 
 $trackedForbidden = Get-TrackedMatches -RepoRoot $resolvedRepoPath -Patterns $forbiddenPatterns |
-    Where-Object { $_ -notmatch '(^|/)\.gitkeep$' }
+    Where-Object {
+        if ($_ -notlike 'tmp/*') {
+            return $true
+        }
+
+        return -not (Test-PathAllowedInTmp -RelativePath $_)
+    }
 
 if ($trackedForbidden.Count -gt 0) {
     Write-Host '[ERROR] Forbidden tracked files detected:' -ForegroundColor Red

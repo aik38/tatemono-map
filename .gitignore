@@ -29,6 +29,7 @@ secrets/**
 # tmp artifacts (allow only tracked guidance files)
 tmp/**
 !tmp/manual/
+!tmp/manual/README.md
 !tmp/manual/.gitkeep
 !tmp/manual/inputs/
 !tmp/manual/inputs/.gitkeep
