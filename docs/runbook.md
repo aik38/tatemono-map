@@ -66,25 +66,154 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_merg
 ```
 
 
-## 4-1. mansion-review 推奨運用（全ページ自動収集）
-- **基本は `run_mansion_review_crawl.ps1` を使った自動収集**。小倉北区/門司区の 1 ページ目〜最終ページまで巡回し、一覧カードを構造化して CSV 化する。
-- `-MaxPages 0` の場合は 1 ページ目の**ページネーションリンク**から最終ページを自動推定する（数字テキストは見ない）。推定値が異常に大きい場合は、`次へ` リンク追跡 + 同一ページ検知で安全停止する。
-- `stats.json` で `pages_total` / `rows_total` / `zero_extract_pages` を確認する。
-- `zero_extract_pages` が 1 件でもある場合は `debug/*.html` を見てセレクタ不一致を調査する。
+## 4-1. データ収集（mansion-review）
+対象は `mansion-review.jp` の city 一覧（分譲=`mansion` / 賃貸=`chintai`）。
 
-### 実行例（推奨: 自動）
+- URL 1ページ目: `https://www.mansion-review.jp/{kind}/city/{city_id}.html`
+- URL 2ページ目以降: `https://www.mansion-review.jp/{kind}/city/{city_id}_{n}.html`（`n>=2`）
+- `kind`: `mansion` または `chintai`
+- `city_id` 例: `1619=小倉北区`, `1616=門司区`
+
+目視確認用 URL（そのままブラウザで確認可）:
+
+- 540件 分譲マンション 小倉北区
+  - https://www.mansion-review.jp/mansion/city/1619.html
+  - https://www.mansion-review.jp/mansion/city/1619_2.html
+  - https://www.mansion-review.jp/mansion/city/1619_3.html
+- 270件 分譲マンション 門司区
+  - https://www.mansion-review.jp/mansion/city/1616.html
+  - https://www.mansion-review.jp/mansion/city/1616_2.html
+  - https://www.mansion-review.jp/mansion/city/1616_3.html
+- 2049件 賃貸物件 小倉北区
+  - https://www.mansion-review.jp/chintai/city/1619.html
+  - https://www.mansion-review.jp/chintai/city/1619_2.html
+  - https://www.mansion-review.jp/chintai/city/1619_3.html
+- 477件 賃貸物件 門司区
+  - https://www.mansion-review.jp/chintai/city/1616.html
+  - https://www.mansion-review.jp/chintai/city/1616_2.html
+  - https://www.mansion-review.jp/chintai/city/1616_3.html
+
+使用スクリプト:
+
+- PowerShell wrapper: `scripts/run_mansion_review_crawl.ps1`
+- 本体: `scripts/mansion_review_crawl_to_csv.py`
+- 出力先:
+  - `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_list_<timestamp>.csv`
+  - `tmp/manual/outputs/mansion_review/<timestamp>/stats.json`
+  - 結合出力: `tmp/manual/outputs/mansion_review/combined/`
+
+### Quickstart（確実に通った一発コマンド）
+PowerShell 7.5.4 前提。`$env:USERPROFILE\tatemono-map` を repo パスとして固定し、4ジョブを順番に実行する。
+
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_mansion_review_crawl.ps1") `
-  -RepoPath $REPO -CityIds "1616,1619" -Kinds "mansion,chintai" -Mode list -SleepSec 0.7 -MaxPages 0
+$ErrorActionPreference="Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$PS1  = Join-Path $REPO "scripts\run_mansion_review_crawl.ps1"
+
+# 分譲: 1616=7p, 1619=14p / 賃貸: 1616=12p, 1619=52p
+$jobs = @(
+  @{CityIds="1616"; Kinds="mansion"; MaxPages=7},
+  @{CityIds="1619"; Kinds="mansion"; MaxPages=14},
+  @{CityIds="1616"; Kinds="chintai"; MaxPages=12},
+  @{CityIds="1619"; Kinds="chintai"; MaxPages=52}
+)
+
+foreach ($j in $jobs) {
+  pwsh -NoProfile -ExecutionPolicy Bypass -File $PS1 `
+    -RepoPath $REPO `
+    -CityIds  $j.CityIds `
+    -Kinds    $j.Kinds `
+    -Mode     "list" `
+    -SleepSec 0.7 `
+    -MaxPages $j.MaxPages
+}
 ```
 
-### 実行例（確実: 明示ページ数）
+### 検算（収集できたか確認）
+最新4CSVをまとめて件数と内訳を確認する。実行例として `FILES = 4`、`TOTAL ROWS = 3340` が得られる。
+
+> 重複チェックは `building_url` ではなく `detail_url` を使うこと（CSV列に `building_url` は無い）。
+
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_mansion_review_crawl.ps1") `
-  -RepoPath $REPO -CityIds "1616,1619" -Kinds "mansion,chintai" -Mode list -SleepSec 0.7 -MaxPages 52
+$ErrorActionPreference="Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$root = Join-Path $REPO "tmp\manual\outputs\mansion_review"
+
+$csvs = Get-ChildItem $root -Recurse -File -Filter "mansion_review_list_*.csv" |
+  Where-Object { $_.Name -notlike "*COMBINED*" } |
+  Sort-Object LastWriteTime -Desc | Select-Object -First 4
+
+$all = foreach ($c in $csvs) { Import-Csv $c.FullName }
+
+"FILES = $($csvs.Count)"
+"TOTAL ROWS = $($all.Count)"
+$all | Group-Object kind, city_id | Sort-Object Name | Select-Object Count, Name
+
+$dupGroups = $all | Group-Object { (($_.detail_url ?? "")).Trim() } |
+  Where-Object { $_.Name -ne "" -and $_.Count -gt 1 }
+
+"dup detail_url groups = $($dupGroups.Count)"
+"unique detail_url = $(@($all | Where-Object detail_url | Select-Object -Expand detail_url | Sort-Object -Unique).Count)"
 ```
 
-- 既知のページ数（例: 7 / 14 / 12 / 52）がある運用では、`-MaxPages` 明示指定が最も確実。
+例: `dup detail_url groups = 750` / `unique detail_url = 2557`
+
+### 結合CSVの作成
+最新4CSVを結合し、`combined/mansion_review_list_COMBINED_YYYYMMDD_HHMMSS.csv` を作成する。
+
+```powershell
+$ErrorActionPreference="Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$root = Join-Path $REPO "tmp\manual\outputs\mansion_review"
+$outDir = Join-Path $root "combined"
+New-Item -ItemType Directory -Force $outDir | Out-Null
+
+$csvs = Get-ChildItem $root -Recurse -File -Filter "mansion_review_list_*.csv" |
+  Where-Object { $_.Name -notlike "*COMBINED*" } |
+  Sort-Object LastWriteTime -Desc | Select-Object -First 4
+
+$all = foreach ($c in $csvs) { Import-Csv $c.FullName }
+
+$out = Join-Path $outDir ("mansion_review_list_COMBINED_{0}.csv" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+$all | Export-Csv $out -NoTypeInformation -Encoding utf8BOM
+"COMBINED = $out"
+"TOTAL ROWS = $($all.Count)"
+```
+
+### ユニーク化（detail_url で建物マスター化）
+`detail_url` が空の行を除外し、`detail_url` でユニーク化した master CSV を作成する。
+
+```powershell
+$ErrorActionPreference="Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$root = Join-Path $REPO "tmp\manual\outputs\mansion_review"
+$outDir = Join-Path $root "combined"
+New-Item -ItemType Directory -Force $outDir | Out-Null
+
+$csvs = Get-ChildItem $root -Recurse -File -Filter "mansion_review_list_*.csv" |
+  Where-Object { $_.Name -notlike "*COMBINED*" } |
+  Sort-Object LastWriteTime -Desc | Select-Object -First 4
+
+$all = foreach ($c in $csvs) { Import-Csv $c.FullName }
+
+$uniq = $all |
+  Where-Object { ($_.detail_url ?? "").Trim() -ne "" } |
+  Sort-Object detail_url -Unique
+
+$out = Join-Path $outDir ("mansion_review_master_UNIQ_{0}.csv" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
+$uniq | Export-Csv $out -NoTypeInformation -Encoding utf8BOM
+
+"UNIQ OUT = $out"
+"UNIQ ROWS = $($uniq.Count)"
+$uniq | Group-Object kind, city_id | Sort-Object Name | Select-Object Count, Name
+```
+
+例: `UNIQ ROWS = 2557`（`kind,city_id` 内訳はコマンド出力で確認）
+
+### 補足（運用上の注意）
+- `cache_hit=True/False` はキャッシュ利用の有無。`False` は失敗ではなく「キャッシュ未命中でWeb取得した」という意味。
+- `MaxPages=0` は自動検出モード。現状は誤検出リスクがあるため、当面は `MaxPages` 明示指定を推奨。
+- 実測ページ数 `7/14/12/52` は 2026-02-18 時点の目安で、将来増減しうる。
 
 ### 手動保存HTMLを使う場合
 - 既存の `run_mansion_review_html.ps1` は互換維持されており利用可能。
