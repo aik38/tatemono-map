@@ -28,7 +28,10 @@ tmp/
         buildings_master_secondary.csv    # 合算の従系入力（固定名）
     outputs/
       mansion_review/
-        <timestamp>/mansion_review_<timestamp>.csv
+        <timestamp>/mansion_review_<timestamp>.csv                 # 保存HTML→CSV
+        <timestamp>/mansion_review_list_<timestamp>.csv            # 自動巡回(list)→CSV
+        <timestamp>/stats.json
+        <timestamp>/debug/*.html
       buildings_master/
         buildings_master.csv              # 合算の最終成果物（固定名）
   pdf_pipeline/
@@ -44,6 +47,9 @@ tmp/
 - `scripts/run_mansion_review_html.ps1`
   - 入力: `tmp/manual/inputs/html_saved/`
   - 出力: `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_<timestamp>.csv`
+- `scripts/run_mansion_review_crawl.ps1`
+  - 入力: city_id/kind 指定（HTTP 自動巡回。手動保存HTMLは不要）
+  - 出力: `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_list_<timestamp>.csv` + `stats.json` + `debug/*.html`
 - `scripts/run_merge_building_masters.ps1`
   - 入力: `tmp/manual/inputs/buildings_master/buildings_master_primary.csv` + `buildings_master_secondary.csv`
   - 出力: `tmp/manual/outputs/buildings_master/buildings_master.csv`
@@ -55,8 +61,20 @@ $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\setup.ps1") -RepoPath $REPO
 pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_pdf_zip_latest.ps1") -RepoPath $REPO
 pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_mansion_review_html.ps1") -RepoPath $REPO
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_mansion_review_crawl.ps1") -RepoPath $REPO -CityIds "1616,1619" -Kinds "mansion,chintai" -Mode list -MaxPages 0
 pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_merge_building_masters.ps1") -RepoPath $REPO
 ```
+
+
+## 4-1. mansion-review 推奨運用（全ページ自動収集）
+- **基本は `run_mansion_review_crawl.ps1` を使った自動収集**。小倉北区/門司区の 1 ページ目〜最終ページまで巡回し、一覧カードを構造化して CSV 化する。
+- `-MaxPages 0` の場合は 1 ページ目のページネーションから最終ページを自動推定する。
+- `stats.json` で `pages_total` / `rows_total` / `zero_extract_pages` を確認する。
+- `zero_extract_pages` が 1 件でもある場合は `debug/*.html` を見てセレクタ不一致を調査する。
+
+### 手動保存HTMLを使う場合
+- 既存の `run_mansion_review_html.ps1` は互換維持されており利用可能。
+- 手動保存するなら **HTML のみ** で十分（完全保存でも動くが不要）。
 
 ## 5. GitHub ↔ ローカル同期（repo 外から実行可）
 
