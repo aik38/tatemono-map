@@ -1,701 +1,166 @@
-# Tatemono Map（建物/不動産データAPI MVP）
+# tatemono-map（手動一次資料 → CSV 固定化リポジトリ）
 
-**目的**：建物/不動産データを扱うAPI MVP「tatemono-map」を、**Windows 11 + PowerShell 7.x** だけでローカル起動・運用できるようにするための手順書です。
+## 1) これは何か（30秒で理解）
+- このリポジトリは **手動で集めた一次資料（ZIP/PDF/保存HTML）を、再現可能な手順でCSV化する** ための運用基盤です。
+- 現時点の正本は次の2本です。
+  - **A. PDF（Ulucks / Realpro）→ CSV**
+  - **B. 保存HTML（mansion-review）→ CSV**
+- venv は必ず **`\.venv\Scripts\python.exe` を直接指定**して使います（Activate前提にしない）。
 
 ---
 
-## Frontend versions (v1 / v2)
+## 2) 最短で動かす（Quickstart）
 
-静的フロントは `v1` と `v2` の2系統を出力できます。
-
-- `python -m tatemono_map.render.build --version all` で `dist/`(v2) と `dist/v1` を同時出力
-- URLで切替: `/tatemono-map/index.html` (v2) / `/tatemono-map/v1/index.html`
-- LINE CTA 設定: `TATEMONO_MAP_LINE_CTA_URL` / `TATEMONO_MAP_LINE_DEEP_LINK_URL`
-
-詳細は `docs/frontend_versions.md` を参照してください。
-
-## 正本（PowerShell 一発手順）
-以下を正本手順とします。`data/tatemono_map.sqlite3` を唯一のSQLite DBとして利用します。
-
+### 2-1. 初回セットアップ
 ```powershell
-$env:SQLITE_DB_PATH = "data/tatemono_map.sqlite3"
-python -m tatemono_map.cli.ulucks_run --url '<smartlink>' --db $env:SQLITE_DB_PATH --output dist
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\setup.ps1
 ```
 
-- 内部で `ingest -> parse -> normalize -> build -> audit` を順次実行します。
-- 監査だけ実行したい場合は以下を使います。
-
+### 2-2. PDF ZIP（Downloadsの最新）→ CSV
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/ps/doctor.ps1 -DbPath $env:SQLITE_DB_PATH
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_pdf_zip_latest.ps1
 ```
 
-## Quick Start（Windows / PowerShell）
-> This project intentionally does NOT use detail pages (smartview).
+- 成果物は `tmp/pdf_pipeline/out/<timestamp>/` に作成されます。
+  - `final.csv`
+  - `stats.csv`
+  - `manifest.csv`
+  - `qc_report.txt`
 
-この章を **正本** とし、次の3手順を標準運用とします。いずれも実体パスは **`$env:USERPROFILE\tatemono-map` 固定** です。
-
-- 前提: リポジトリ配置は **`$env:USERPROFILE\tatemono-map` に固定**
-- OneDrive 配下の同名 repo は混在事故の原因になるため使用しない
-- Smartlink URL 例は PowerShell で壊れないよう **単一引用符** を使う（`mail=` の `@` は `%40` で指定）
-
-### A) build-only（既存DB → dist生成 → index.htmlを開く）
+### 2-3. mansion-review 保存HTML → CSV
 ```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-Set-Location $REPO
-if (-not (Test-Path ".venv\Scripts\Activate.ps1")) { throw ".venv がありません。scripts/dev_setup.ps1 などで初期化してください。" }
-. .\.venv\Scripts\Activate.ps1
-if (-not $env:SQLITE_DB_PATH) { $env:SQLITE_DB_PATH = "data\tatemono_map.sqlite3" }
-python -m tatemono_map.render.build --output-dir dist
-Start-Process (Join-Path $REPO "dist\index.html")
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_mansion_review_html.ps1
 ```
 
-### B) ingest（smartlink → DB更新 → normalize → dist生成 → open）
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com' -NoServe
-```
+- 成果物は `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_<timestamp>.csv` に作成されます。
 
-### C) Manual PDF（正式ルートC: PDF→CSV→DB→dist）
-PowerShell スクリプト運用の正本（推奨）は次です。
+---
 
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ulucks_manual_pdf.ps1 -CsvPath tmp/manual/ulucks_pdf_raw.csv -NoServe -Open
-```
+## 3) 手動パイプライン（正）
 
-- `--no-serve:False` のような誤引数を避けるため、`-NoServe` 指定時だけ `--no-serve` を付ける実装です。
-- 任意指定: `-DbPath`, `-OutputDir`, `-RepoPath`, `-Open`。
+## A. PDF（Ulucks / Realpro）→ CSV
 
-補足（誤解防止）:
-- 「60件」は管理画面プルダウンの**表示件数の例**です。PDF件数そのものは管理会社・検索条件で変動し、10〜500件以上になることがあります。
-- 物件別PDFはCSV化しやすく有利ですが、1 PDF が長すぎるとCSV化事故が増えるため、目安として **200〜300件程度で分割**（エリア/条件ごとに複数PDF）を推奨します。
-- CLI は `--csv` で任意パスを受け付けるため、CSVファイル名は何でも構いません。
-- ただし運用上は投入用の固定パス `tmp/manual/ulucks_pdf_raw.csv` を推奨します（上書き運用）。履歴を残す場合は `ulucks_pdf_raw_YYYYMMDD.csv` を保存し、投入前に `ulucks_pdf_raw.csv` へコピーしてください。
-
-運用コマンド例（1ブロック）:
-
-```powershell
-# 任意CSVを指定（-CsvPath）して投入し、HTTPサーバは起動せず（-NoServe）、生成した index.html を開く（-Open）
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_ulucks_manual_pdf.ps1 -CsvPath tmp/manual/ulucks_pdf_raw_20260211.csv -NoServe -Open
-```
-
-取り込み CLI を直接実行する場合（Quickstart / サーバ起動なし）は次を正本にします。
-
-```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-Set-Location $REPO
-. .\.venv\Scripts\Activate.ps1
-$env:PYTHONPATH = "src"
-python -m tatemono_map.cli.ulucks_manual_run --csv tmp/manual/ulucks_pdf_raw.csv --db data/tatemono_map.sqlite3 --output dist --no-serve
-Start-Process dist/index.html
-```
-
-- CSV保存先は CLI の `--csv` で任意指定可（運用推奨は `tmp/manual/ulucks_pdf_raw.csv`）。
-- DBは **`data/tatemono_map.sqlite3` 固定**（スクリプト実行時は `-DbPath` で上書き可）。
-
-### C-2) Manual CSV → public DB 取り込み（ulucks_pdf_raw.csv）
-`tmp/manual/ulucks_pdf_raw.csv` を `data/public/public.sqlite3` に取り込み、最終的に `dist/index.html` まで確認する正本手順です。
-
-- 実装の呼び出し先は `tatemono_map.ingest.manual_ulucks_pdf.import_ulucks_pdf_csv`（Pages workflow と同一）です。
-- Pages 側は `main` への push をトリガーに **CSV → public DB再生成 → dist build → deploy** を自動実行します。
-
-#### A) ローカル手順（PowerShell 7 / リポ指定ワンライナー）
-```powershell
-$ErrorActionPreference = "Stop"
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-Set-Location $REPO
-$PY = Join-Path $REPO ".venv\Scripts\python.exe"
-if (-not (Test-Path $PY)) { throw ".venv の python が見つかりません: $PY" }
-$CSV = "tmp/manual/ulucks_pdf_raw.csv"
-if (-not (Test-Path $CSV)) { throw "CSV が見つかりません: $CSV" }
-$DB = "data/public/public.sqlite3"
-if (Test-Path $DB) { Remove-Item $DB -Force }
-
-$code = @'
-from tatemono_map.ingest.manual_ulucks_pdf import import_ulucks_pdf_csv
-imported = import_ulucks_pdf_csv(
-    db_path="data/public/public.sqlite3",
-    csv_path="tmp/manual/ulucks_pdf_raw.csv",
-    source_kind="ulucks_pdf",
-    source_url="manual_pdf",
-)
-print(f"imported_listings={imported}")
-'@
-& $PY -c $code
-
-$count = (& $PY -c "import sqlite3; conn=sqlite3.connect('data/public/public.sqlite3'); print(conn.execute('SELECT COUNT(*) FROM building_summaries').fetchone()[0]); conn.close()").Trim()
-"building_summaries_count=$count"
-if ([int]$count -le 0) { throw "building_summaries が 0 件です（取り込み失敗）" }
-
-& $PY -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist
-if (-not (Test-Path "dist/index.html")) { throw "dist/index.html が生成されていません" }
-"OK: dist/index.html generated"
-```
-
-#### B) GitHub 本番反映（PowerShell 7 / リポ指定ワンライナー）
-`tmp/manual/ulucks_pdf_raw.csv` が `HEAD` と同一なら push は不要です。改行コード差異（CRLF/LF）の誤判定を避けるため、`sha256` ではなく **git blob hash** を使います。
-
-```powershell
-$ErrorActionPreference = "Stop"
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-Set-Location $REPO
-$CSV = "tmp/manual/ulucks_pdf_raw.csv"
-if (-not (Test-Path $CSV)) { throw "CSV が見つかりません: $CSV" }
-
-$work = (git hash-object -- "$CSV").Trim()
-$head = ""
-try { $head = (git rev-parse "HEAD:$CSV").Trim() } catch { $head = "" }
-
-if ($work -eq $head) {
-  "CSV は HEAD と同一です。commit/push は不要です。"
-} else {
-  git add -- "$CSV"
-  git commit -m "Update manual ulucks CSV"
-  git push origin main
-  "Push 完了。GitHub Actions の 'Deploy static site to GitHub Pages' が Success になることを確認してください。"
-}
-```
-
-#### C) よくあるハマりどころ
-- ローカルの `dist` は本番と別物です。本番反映には Pages workflow（Actions）の build/deploy 成功が必要です。
-- Pages workflow が失敗した場合、本番サイトは更新されず前回の成功デプロイが残ります。
-- CSV差分確認は `sha256` ではなく `git hash-object` / `git rev-parse HEAD:<path>` を使ってください（改行変換の誤判定回避）。
-
-### D) PDF batch pipeline（Quickstart）
-- 本パイプラインは **Ulucks + Realpro の空室一覧専用**（Orientは対象外）です。
-
-#### 1) 前提
-- OS/シェル: **Windows 11 + PowerShell 7.5.x**
-- repo の実体パス: **`%USERPROFILE%\tatemono-map` 固定**
-- Python は必ず **`<repo>\.venv\Scripts\python.exe` のフルパス**を使います。
-  - `./.venv/...` は「repo 直下にいる時だけ」正しいため、運用手順では使いません。
-
-#### 2) 入力ファイル（ユーザー操作）
-- `Downloads` に以下2種類の ZIP を置きます（複数ある場合は最新を自動採用）。
+### 入力
+- `Downloads` の ZIP（最新を自動採用）
   - `リアプロ-*.zip`
   - `ウラックス-*.zip`
 
-#### 3) 出力先（固定）
-- 作業用（展開/集約）: `tmp\pdf_pipeline\work\<timestamp>`
-  - `extract_realpro`, `extract_ulucks`
-  - `realpro_pdfs`, `ulucks_pdfs`（PDF集約先）
-- 成果物: `tmp\pdf_pipeline\out\<timestamp>`
-  - `final.csv`
-  - `stats.csv`
-  - `todo_realpro_missing_address.csv`（後述QCで作成）
-
-#### 4) PowerShell “一発”コマンド（コピペ実行）
-以下をそのまま実行してください（PowerShell 7 互換）。
-
+### 実行（最新ZIP自動）
 ```powershell
-$ErrorActionPreference="Stop"
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-Set-Location $REPO
-$PY = Join-Path $REPO ".venv\Scripts\python.exe"
-$DL = Join-Path $env:USERPROFILE "Downloads"
-$ZIPR = Get-ChildItem $DL -File | ? Name -like "リアプロ-*.zip"   | Sort LastWriteTime -Desc | Select -First 1
-$ZIPU = Get-ChildItem $DL -File | ? Name -like "ウラックス-*.zip" | Sort LastWriteTime -Desc | Select -First 1
-if(!$ZIPR){throw "Downloads に リアプロ-*.zip が見つかりません"}
-if(!$ZIPU){throw "Downloads に ウラックス-*.zip が見つかりません"}
-$TS=(Get-Date).ToString("yyyyMMdd_HHmmss")
-$WORK=Join-Path $REPO "tmp\pdf_pipeline\work\$TS"
-$OUT =Join-Path $REPO "tmp\pdf_pipeline\out\$TS"
-$EXR=Join-Path $WORK "extract_realpro"
-$EXU=Join-Path $WORK "extract_ulucks"
-$RDIR=Join-Path $WORK "realpro_pdfs"
-$UDIR=Join-Path $WORK "ulucks_pdfs"
-New-Item -ItemType Directory -Force $EXR,$EXU,$RDIR,$UDIR,$OUT | Out-Null
-Expand-Archive -Force $ZIPR.FullName $EXR
-Expand-Archive -Force $ZIPU.FullName $EXU
-Get-ChildItem $EXR -Recurse -File -Filter *.pdf | Copy-Item -Destination $RDIR -Force
-Get-ChildItem $EXU -Recurse -File -Filter *.pdf | Copy-Item -Destination $UDIR -Force
-& $PY -m tatemono_map.cli.pdf_batch_run --realpro-dir $RDIR --ulucks-dir $UDIR --out-dir $OUT --qc-mode warn
-"OUT=$OUT"
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_pdf_zip_latest.ps1
 ```
 
-#### 5) QC（住所欠損チェック）と手動補完の最小運用
-MVP優先では、Realproの住所欠損は **欠損抽出 → 手動補完** で先に進みます（欠損が特定PDFに集中している場合は特に有効）。
-- 現状観測では Realpro の住所欠損 109/987（約11%）のうち、108件が `レオパレスセンター小倉.pdf` に集中しています。
-
-Realpro の `address_empty` 率を表示:
-
+### 実行（ZIPを明示指定）
 ```powershell
-$FINAL = Join-Path $OUT "final.csv"
-$rows = Import-Csv $FINAL | ? category -eq "realpro"
-$total = $rows.Count
-$empty = ($rows | ? { [string]::IsNullOrWhiteSpace($_.address) }).Count
-"{0}/{1} empty ({2}%)" -f $empty,$total,[math]::Round($empty/$total*100,1)
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_pdf_zip.ps1 `
+  -RealproZip "C:\path\リアプロ-20260218.zip" `
+  -UlucksZip "C:\path\ウラックス-20260218.zip" `
+  -QcMode warn
 ```
 
-欠損行を `todo_realpro_missing_address.csv` に書き出し:
+### 固定インターフェイス（CLI）
+`src/tatemono_map/cli/pdf_batch_run.py` は次を受け付けます（`--zip` はありません）。
+- `--realpro-dir`
+- `--ulucks-dir`
+- `--out-dir`
+- `--qc-mode` (`strict|warn|off`)
+- `--legacy-columns`
 
+### 出力
+- 中間: `tmp/pdf_pipeline/work/<timestamp>/...`（展開/集約）
+- 成果: `tmp/pdf_pipeline/out/<timestamp>/final.csv, stats.csv`
+
+## B. 保存HTML（mansion-review）→ CSV
+
+### 入力
+- 保存HTMLを `tmp/manual/inputs/html_saved/` に置く（単一ファイル指定も可）
+
+### 実行
 ```powershell
-Import-Csv $FINAL |
-  ? { $_.category -eq "realpro" -and [string]::IsNullOrWhiteSpace($_.address) } |
-  Select file,page,building_name,room,layout,floor,area_sqm,rent_man,fee_man |
-  Export-Csv (Join-Path $OUT "todo_realpro_missing_address.csv") -NoTypeInformation -Encoding UTF8
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_mansion_review_html.ps1
 ```
 
-欠損がどのPDFに集中しているか確認:
+### 出力
+- `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_<timestamp>.csv`
 
-```powershell
-Import-Csv $FINAL |
-  ? { $_.category -eq "realpro" -and [string]::IsNullOrWhiteSpace($_.address) } |
-  Group-Object file |
-  Sort-Object Count -Descending |
-  Select -First 10 Name,Count |
-  Format-Table -Auto
-```
-
-#### 6) よくあるエラーと対処（PDF pipeline）
-- `fatal: not a git repository`
-  - repo 外で実行しています。`Set-Location (Join-Path $env:USERPROFILE "tatemono-map")` してから再実行してください。
-- `No module named pdfplumber`
-  - repo の `.venv` ではない Python を使っています。`$PY = Join-Path $REPO ".venv\Scripts\python.exe"` を使って実行してください。
-- `Join-Path ... is null`
-  - 別 PowerShell セッションで `$RDIR` などが消えています。`tmp\pdf_pipeline\work\<timestamp>` から対象フォルダを再設定して再実行してください。
-
-- 実行結果は `tmp/pdf_pipeline/out/YYYYMMDD_HHMMSS` に出力されます。
-- `tmp/pdf_pipeline/work/YYYYMMDD_HHMMSS` は展開・抽出の中間生成物です（最終成果物ではありません）。
-- `out` 配下の主な成果物:
-  - `manifest.csv`: PDFごとの入力一覧（ファイル名、SHA256、ページ数など）
-  - `stats.csv`: PDFごとの件数統計（抽出件数、QC結果、除外件数など）
-  - `qc_report.txt`: QC詳細（FAIL理由や除外件数）
-  - `per_pdf/*.csv`: PDF単位の抽出CSV
-  - `fixtures/`: QC失敗時の調査用スナップショット
-  - `final.csv`: マージ済み最終CSV
-- `-QcMode` の意味（既定: `warn`）:
-  - `warn`: QC失敗があっても処理継続（警告のみ）
-  - `strict`: QC失敗が1件でもあれば停止（非0終了）
-  - `off`: QC自体をスキップ
-- `FontBBox` 警告は pdfminer 由来のノイズが多く、通常は抽出結果に致命影響ありません（内容異常がないかは `qc_report.txt` / `stats.csv` で判断）。
-
-CSV列名（final.csv / 既定）:
-`category,updated_at,building_name,room,address,rent_man,fee_man,layout,floor,area_sqm,age_years,structure,file,page,raw_block`
-
-互換モード（必要時のみ）:
-- `--legacy-columns` を付与すると `source_property_name` / `room_no` / `raw_blockfile` を追加出力します。
-
-用語（PDF batch / manual CSV 共通）:
-- `building_name`: 正規化後の建物名（DB連携対象）
-- `room`: 部屋番号/号室（`101` など）
-- 戸建（`戸建`/`一戸建`/`貸家`/`一軒家`）は **行単位で除外** し、PDF全体は落としません。
-
-
-> `C:\dev\tatemono-map` は **非推奨** です。運用は `$env:USERPROFILE\tatemono-map` に統一してください。
-
-### よくある失敗と原因
-- **DBが見つからない**
-  - 別クローンを見ている、または DB 未作成。
-  - `Set-Location "$env:USERPROFILE\tatemono-map"` と `SQLITE_DB_PATH=data\tatemono_map.sqlite3` を確認。
-- **`scripts/run_ulucks_smartlink.ps1` が見つからない**
-  - 相対パス実行でカレントディレクトリが違う、または別クローンを操作している。
-  - フルパス（`$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1`）で実行する。
-- **127.0.0.1 拒否**
-  - `http.server` が起動していない、またはポート競合。
-  - `-NoServe` 運用なら HTTP サーバ不要（`dist/index.html` を直接開く）。
-- **`ModuleNotFoundError: tatemono_map`**
-  - venv 未有効化、依存未導入、作業ディレクトリ違い。
-  - `.venv\Scripts\Activate.ps1` 実行後に `python -m pip install -r requirements.txt` と `python -m pip install -r requirements-dev.txt` を実施。
-- **`forbidden data detected` / `pattern=号室`**
-  - `building_name` や `address` に号室/部屋番号が混入したまま `dist` 生成に進んでいるのが原因です。
-  - PDF batch pipeline では `building_name` と `room` を分離して保持します。manual CSV 運用では従来どおり、建物名と号室を分離して入力してください。
+### 最小カラム
+- `building_name`
+- `address`
+- `area`
+- `city`
+- `ward`
+- `source_url`
+- `source_file`
 
 ---
 
-## 最短ルート（迷ったらここだけ）
-**1本の流れで迷わない運用手順です。GitHub で merge した後の同期もこれだけ。**
+## 4) QC（必須）
 
-### Smartlink 一発実行（ingest → normalize → build → ブラウザ表示）
-どの作業ディレクトリからでも次の 1 コマンドで実行できます。
+### stats.csv の見方
+- `status=OK|WARN|SKIP` で PDF単位の抽出品質を確認。
+- `warning_count` と `reasons` で要確認PDFを特定。
 
+### final.csv の欠損率（building_name / address）
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com'
-```
-
-- 既定動作: リポジトリ検出 → `git pull --ff-only` → `.venv` 作成/有効化 → 依存インストール → smartlink ingest → 正規化 → `dist` build → `http://127.0.0.1:8080/index.html` を表示
-- `-NoServe` 指定時: `http.server` を起動せず、`dist/index.html` を直接開きます。
-- 任意指定: `-RepoPath`, `-MaxItems`（既定200）, `-Port`（既定8080）
-
-0) **前提：PowerShell 7.x / Windows 11**
-
-1) **同期（GitHub→ローカル）**
-```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-Set-Location $REPO
-git pull --ff-only
-git status
-```
-
-2) **起動（scripts/dev.ps1）**
-```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev.ps1"
-```
-
-3) **ローカル疎通確認（scripts/smoke.ps1）**
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\smoke.ps1"
-```
-
-3.5) **静的HTML生成（build）**
-```powershell
-python -m tatemono_map.render.build --output-dir dist
-```
-
-4) **変更の取り込み（コミット&push）**
-- `scripts/push.ps1` で一発 push（詳細は下記の「スクリプト一覧」）
-
-5) **よくある停止理由（sync.ps1が止まる）**
-- “Untracked files: db/ や dist_tmp などがあると sync.ps1 が止まる”
-  - **対処（1行）**：`db/` と `dist_tmp` 系を `.gitignore` に入れる（推奨） or `sync.ps1 -Force`（不要なら削除）
-  - `tmp_ulucks_*.html` は smartlink デバッグ生成物のためコミット不要です（`dist_tmp/` など Git 管理外に出力）。
-
----
-
-## 前提（必須）
-- OS：**Windows 11**
-- シェル：**PowerShell 7.x**
-- Python：**3.11 以上**（`py -0` で確認）
-- Git：インストール済み（`git --version`）
-
-> **OneDrive 外で開発すること（必須）**
-> - **統一方針**：リポジトリ実体は **`$env:USERPROFILE\tatemono-map` 固定**。
-> - **理由**：OneDrive の同期/ロックが `.venv` や作業ディレクトリを不安定にし、別クローン混在を招くためです。
-> - 実際の事故例：OneDrive 配下で作業すると、`Set-Location` 失敗 → `fatal: not a git repository` → venv未有効化で `ModuleNotFoundError` → build未実行で `dist/index.html` 不在、の連鎖が起きやすくなります。
-> - `scripts/run_ulucks_smartlink.ps1` は OneDrive 配下を検知すると警告して停止します。
-
----
-
-## 初回セットアップ
-### 1) リポジトリを取得（未クローンの場合）
-```powershell
-git clone https://github.com/<your-org>/tatemono-map.git "$env:USERPROFILE\tatemono-map"
-```
-
-### 2) 依存インストール & 起動
-初回以降は **`scripts/dev.ps1` だけでOK** です。
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1"
+$csv = "tmp\pdf_pipeline\out\<timestamp>\final.csv"
+$rows = Import-Csv $csv
+"building_name empty = {0}/{1}" -f (($rows | ? { [string]::IsNullOrWhiteSpace($_.building_name) }).Count), $rows.Count
+"address empty      = {0}/{1}" -f (($rows | ? { [string]::IsNullOrWhiteSpace($_.address) }).Count), $rows.Count
 ```
 
 ---
 
-## Git運用の土台（Codex→merge→ローカルsync→開発→push）
-1. **Codex / GitHub で変更 → PR → merge（main）**
-2. **ローカル同期**：`scripts/sync.ps1` で **fast-forward のみ**同期
-3. **開発/実行**：`scripts/dev.ps1` で起動・検証
-4. **コミット & push**：`scripts/push.ps1` で一発 push
+## 5) トラブルシュート
+
+### 違うPythonで動かしてしまう
+- **必ず** `\.venv\Scripts\python.exe` を使ってください。
+- `python` / `py` の素実行は環境依存で事故の元です。
+
+### `Advanced encoding /90msp-RKSJ-H` 警告
+- 文字コード系の警告は、処理完走する場合があります。
+- 重要なのは `final.csv` / `stats.csv` の欠損・崩れ有無です。
+- 警告有無より **抽出品質（欠損率・QC reason）** を優先判断します。
 
 ---
 
-## スクリプト一覧（PowerShell）
-### 1) 開発・起動（`scripts/dev.ps1`）
-- **venv 作成/有効化** → **依存インストール** → **DBパス設定** → **uvicorn起動**
-- オプション：`-InstallPytest` / `-RunTests` / `-NoReload`
+## 6) 禁止事項
+- 推測だけで抽出ロジックを変更しない。
+- fixture（再現HTML/PDF断片）なしで修正しない。
+- ZIP/PDF/生HTMLなど巨大一次資料をコミットしない。
+- 一時ファイルをルート直下へ散乱させない（`tmp/manual/inputs` / `tmp/pdf_pipeline/work` に集約）。
 
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1" -ListenHost 127.0.0.1 -Port 8000
-```
+---
 
-### 2) ローカル同期（`scripts/sync.ps1`）
-- **未コミットがあれば停止**（`-Force` で無視可能）
-- `git pull --ff-only`
-- オプション：`-RunTests`
+## 固定フォルダ構造（運用正本）
+```text
+docs/
+  spec.md
+  runbook.md
+scripts/
+  setup.ps1
+  run_pdf_zip_latest.ps1
+  run_pdf_zip.ps1
+  run_mansion_review_html.ps1
+  mansion_review_html_to_csv.py
 
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\sync.ps1"
-```
-
-### 3) コミット & push（`scripts/push.ps1`）
-- `git add -A` → `git commit -m "..."` → `git push origin main`
-- **commit message は必須**
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\push.ps1" -Message "feat: add building import"
-```
-
-### 4) ローカル疎通確認（`scripts/smoke.ps1`）
-- `git pull --ff-only` → サーバ起動確認 → `/health` を待機 → `/health`, `/buildings`, `/b/demo` を叩く
-- **DBファイルは環境依存で差分ノイズや容量増の原因になるため Git 管理しません。**
-- `DEV_SEED=true`：空DBならデモ1件を投入して `/buildings` が空にならないようにします
-- `DEBUG=true`：`/debug/db` を有効化して結果表示します
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\smoke.ps1" -DevSeed -Debug
+tmp/
+  manual/
+    inputs/
+      pdf_zips/
+      html_saved/
+    outputs/
+      mansion_review/
+  pdf_pipeline/
+    work/<timestamp>/
+    out/<timestamp>/
 ```
 
 ---
 
-## 動作確認（/health など）
-別ターミナルで実行：
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/health
-```
-期待されるレスポンス：
-```json
-{"status": "ok", "app": "Tatemono Map", "time": "2024-01-01T00:00:00+00:00"}
-```
-
-ブラウザ確認：
-- http://127.0.0.1:8000/
-- http://127.0.0.1:8000/b/demo
-
----
-
-## .env / secrets の扱い（重要）
-- **secrets/.env はコミットしない**でください。
-- 推奨：`.env.example` を作り、**安全な値だけ**をサンプルとして共有します。
-- 実運用の `.env` は **ローカルだけ**に保存してください。
-- **SQLITE_DB_PATH**：SQLite のファイルパスを指定（未指定なら `./data/tatemono_map.sqlite3`）。
-
----
-
-
-## 公開禁止ルール（building単位のみ公開）
-- 公開用テーブル `building_summaries` では **建物単位のみ** を扱い、号室・部屋番号・募集単位の文字列を公開してはいけません。
-- `building_summaries.name` は公開名（正規化済み）として扱い、`^\s*\d{1,4}\s*[:：]\s*` のような部屋番号プレフィックスを保存しないこと。
-- 元文字列は `building_summaries.raw_name` に保持し、正規化前データの追跡に使います（公開UIでは `raw_name` を直接表示しない）。
-- 同一建物判定は **第一キー: 正規化済み `name`**、**補助キー: 正規化済み `address`**（完全一致または正規化一致）で行い、同一建物は canonical `building_key` 1つへ統合します。
-- 統合時は `raw_name` を保持し、canonical 側で `address` 欠損がある場合は重複側の `address` で補完し、`updated_at`（なければ `last_updated`）を引き継ぎます。
-- build 実行時は fail-fast バリデーションで `name` の部屋番号プレフィックス/号室表現を検出した時点で停止します。
-- build 実行時は同一 `name` に複数 `building_key` が残っていても fail-fast で停止します（統合漏れを公開前に検知）。
-
-### 正規化の実行
-```powershell
-python scripts/normalize_building_summaries.py
-```
-- 必要に応じて `--db-path` で対象DBを指定できます。スクリプトは name/address 正規化と canonical `building_key` への統合を実行します。
-
-### 公開サイト運用手順（ingest → normalize → build）
-公開HTMLは建物単位でのみ出力し、号室/参照元URL/管理会社/PDFなどの募集詳細は公開しません。
-
-```powershell
-# 1) 募集データ取り込み（DBには詳細を保持してOK）
-python -m tatemono_map.ingest.run
-
-# 2) 建物単位へ正規化・統合
-python scripts/normalize_building_summaries.py
-
-# 3) 公開HTML生成（fail-fast leak scan 付き）
-python -m tatemono_map.render.build --output-dir dist
-```
-
-### Smartlink 80件を一気通貫で確認（ingest → normalize → build → index）
-最短は以下の一発スクリプトです。
-
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\run_ulucks_smartlink.ps1" -Url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com' -MaxItems 80
-```
-
-手動実行する場合のみ、従来手順を使用してください。
-
-```powershell
-# 1) Smartlink から全ページ取得（必要に応じて上限を指定）
-python -m tatemono_map.ingest.ulucks_smartlink --url 'https://ulucks.example/smartlink/?link_id=YOUR_LINK_ID&mail=user%40example.com' --max-items 80
-
-# 2) building_key 正規化・重複統合
-python scripts/normalize_building_summaries.py
-
-# 3) 公開HTML生成（漏洩スキャン実行）
-python -m tatemono_map.render.build --output-dir dist
-
-# 4) 出力確認（件数・建物ページ導線）
-python -m http.server 8080 --directory dist
-# ブラウザで http://127.0.0.1:8080/index.html を開く
-```
-
-- `--max-items` 未指定時は smartlink の次ページがなくなるまで取得します。
-- 例: `--max-items 200` を指定すると、最大200件までで停止します。
-
-- build は `listings` から公開許可項目のみを集計し、`(layout, area_sqm, rent_yen, maint_yen)` ごとの空室サマリーを生成します。
-- 建物ページには `vacancy_total`（建物内募集合計）と、表の `vacancy_count`（サマリー行ごとの件数）を表示します。
-- 「最終更新日時」は listings の最大 `updated_at`（なければ `fetched_at`）を優先し、値がなければ `building_summaries.last_updated` を使用します。
-
-## 仕様・ドキュメント
-- `docs/spec.md`
-- `docs/data_contract.md`
-- `docs/runbook.md`
-- `docs/manual_pdf_ingest.md`
-
----
-
-## FAQ
-### Q1. `fatal: not a git repository`
-**原因**：誤った場所で `git` を直接実行している。
-**対処**：`scripts/dev.ps1` / `scripts/sync.ps1` / `scripts/push.ps1` を使う。
-
-### Q2. `Address already in use`（ポート競合）
-**原因**：8000番ポートが他プロセスで使用中。
-**対処**：`-Port` を変えて起動。
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\tatemono-map\scripts\dev.ps1" -Port 8010
-```
-
-### Q3. `Activate.ps1` で venv が有効化できない
-**原因**：PowerShell の実行ポリシー。
-**対処**：現在のユーザーだけ許可して再実行。
-```powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
-```
-
-## Ulucks Phase A（smartlink 一覧のみ）
-
-smartlink 一覧ページだけを解析して建物サマリを作る手順は `docs/ulucks_phase_a.md` を参照してください。
-
-- detail page には遷移しません（一覧ページのみ使用）。
-- smartlink 一覧ページのみをデータソースとして扱います。
-- `mail`・TEL/FAX・担当者などの機微情報はログ/出力に含めない運用です。
-
-### PowerShell one-shot（.venv の python を明示）
-
-`pytest` コマンド未認識の環境でも確実に動かすため、`python -m pytest` と `.venv\Scripts\python.exe` を直接使います。
-
-```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-Set-Location $REPO
-if (-not (Test-Path ".venv\Scripts\python.exe")) { throw ".venv がありません。scripts/dev_setup.ps1 などで初期化してください。" }
-& .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-& .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-& .\.venv\Scripts\python.exe -m pytest -q tests/test_ulucks_smartlink_phase_a.py
-& .\.venv\Scripts\python.exe -m tatemono_map.ingest.ulucks_smartlink_phase_a --html tests/fixtures/ulucks/smartlink_phase_a_page_1.html tests/fixtures/ulucks/smartlink_phase_a_page_2.html --out-csv data/ulucks_phase_a_summary.csv --out-json data/ulucks_phase_a_summary.json
-```
-
-### トラブルシュート（Phase A）
-
-- `pytest` が未認識
-  - `pytest ...` ではなく `& .\.venv\Scripts\python.exe -m pytest ...` を使用。
-- `ModuleNotFoundError: No module named 'selectolax'`
-  - `& .\.venv\Scripts\python.exe -m pip install -r requirements.txt` と `requirements-dev.txt` を再実行。
-
-## Ulucks smartlink 一発実行（MVP一本線）
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/run_ulucks_smartlink.ps1 -Url '<smartlink>' -NoServe
-```
-
-このコマンドで `(1)詳細ページ取得 -> (2)パース -> (3)SQLite upsert -> (4)building_summaries集計 -> (5)dist生成` を順に実行します。`SQLITE_DB_PATH` 未設定時は `data/tatemono_map.sqlite3` を使います。
-
-### DoD（最低保証）
-- `dist/index.html` と `dist/b/{building_key}.html` を生成。
-- index には「建物名・住所で絞り込み」を必ず表示。
-- building ページは空室数・家賃レンジ・面積レンジ・間取りタイプ・最終更新を表示。
-- Googleマップリンクは `address` がある場合のみ表示。
-
-### 公開NG（dist に絶対出さない）
-- 号室 / 部屋番号
-- 参照元 URL
-- 会社情報 / 管理会社名
-- PDFリンク
-
-## Mansion Review 賃貸スクレイパー（city/building）
-
-`scripts/mansion_review_fetch_chintai_cities1616_1619.py` は city ページの空室テーブルを直接解析し、デフォルトでは部屋詳細ページを取得しません。
-
-```bash
-python scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode city --max-pages 2 --sleep 0.8 --out tmp/chintai_city.csv
-python scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode building --max-pages 1 --sleep 1.0 --debug --out tmp/chintai_building.csv
-```
-
-- `--mode city`（既定）: city ページのみ巡回
-- `--mode building`: 「全xx件を表示する」リンク先の building ページも巡回（部屋詳細ページは巡回しない）
-- `--max-pages`: city ごとのページ上限（0 で無制限）
-- `--debug`: ページごとの address/layout/built 充足件数を表示
-
-### MR賃貸CSV → 建物マスター化 → primary追加マージ
-
-`mansion_review_fetch_chintai_cities1616_1619.py` の出力は空室行ベースのため、同一建物が複数行になります。運用ルールは次の通りです。
-
-- 正本スクリプトは **`scripts/buildings_master_from_mr_chintai.py`** / **`scripts/merge_building_masters_primary_wins.py`** を使用（repo 直下の同名ファイルは使わない）。
-- 入力配置は **`tmp/manual/`** 固定。
-- 出力配置も **`tmp/manual/`** 固定。
-- マージ仕様は **primary（`final完全版.csv` 相当）を優先**、secondary（MR賃貸由来）は **新規追加のみ**。
-
-各スクリプトの役割:
-
-- `scripts/buildings_master_from_mr_chintai.py`
-  - 賃貸CSVを `building_name + address` 単位で重複排除
-  - `vacancy_rows`（元CSVでの空室行数）を集計
-  - ランキング見出しなどのノイズ行を除外
-  - 出力は Excel で開きやすい `utf-8-sig`
-- `scripts/merge_building_masters_primary_wins.py`
-  - primary（既存統合マスター / final完全版）を優先
-  - secondary（MR賃貸由来）は「既存に無い建物のみ追加」
-  - header差異は union して出力
-  - `--addr-only-fallback` で「同一住所かつprimary側が1件だけ」を重複扱い可能
-
-#### PowerShell（複数行 / scripts配下固定・tmp/manual固定）
-
-```powershell
-$ErrorActionPreference = "Stop"
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-Set-Location $REPO
-$PY = Join-Path $REPO ".venv\Scripts\python.exe"
-if (-not (Test-Path $PY)) { throw ".venv の python が見つかりません: $PY" }
-
-# 1) MR賃貸CSVを生成（city推奨）
-& $PY scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode city --max-pages 0 --sleep 0.8 --out tmp/manual/mr_chintai_city.csv
-
-# 2) 先頭5行で検証
-Get-Content tmp/manual/mr_chintai_city.csv -TotalCount 5
-
-# 3) 建物マスター化（重複排除 + vacancy_rows 集計）
-& $PY scripts/buildings_master_from_mr_chintai.py --in tmp/manual/mr_chintai_city.csv --out tmp/manual/buildings_master_from_mr_chintai.csv
-
-# 4) primaryに追加マージ（secondaryは新規追加のみ）
-& $PY scripts/merge_building_masters_primary_wins.py --primary data/final完全版.csv --secondary tmp/manual/buildings_master_from_mr_chintai.csv --out tmp/manual/buildings_master_integrated_plus_mr_chintai.csv --addr-only-fallback
-```
-
-#### PowerShell（1発コマンド / そのまま貼り付け）
-
-```powershell
-$ErrorActionPreference="Stop"; $REPO=Join-Path $env:USERPROFILE "tatemono-map"; Set-Location $REPO; $PY=Join-Path $REPO ".venv\Scripts\python.exe"; if(-not (Test-Path $PY)){throw ".venv の python が見つかりません: $PY"}; & $PY scripts/mansion_review_fetch_chintai_cities1616_1619.py --mode city --max-pages 0 --sleep 0.8 --out tmp/manual/mr_chintai_city.csv; Get-Content tmp/manual/mr_chintai_city.csv -TotalCount 5; & $PY scripts/buildings_master_from_mr_chintai.py --in tmp/manual/mr_chintai_city.csv --out tmp/manual/buildings_master_from_mr_chintai.csv; & $PY scripts/merge_building_masters_primary_wins.py --primary data/final完全版.csv --secondary tmp/manual/buildings_master_from_mr_chintai.csv --out tmp/manual/buildings_master_integrated_plus_mr_chintai.csv --addr-only-fallback
-```
-
-## Manual CSV Runbook（再現可能フロー固定版）
-
-手動CSVフロー（Ulucks/RealPro PDF / MansionReview 分譲 / MansionReview 賃貸）は、**必ず `tmp/manual/in/` 入力 → `tmp/manual/out/` 出力**で運用します。  
-repo直下に運用生成物CSVは置かない方針です（例外: テストfixtureのみ）。
-
-### 入出力・粒度・実行コマンド（PowerShell）
-
-| データソース | 入力ファイル（標準） | PowerShell実行コマンド（1行） | 出力ファイル（標準） | 粒度 |
-|---|---|---|---|---|
-| Ulucks/RealPro PDF 由来の primary listings | `tmp/manual/in/primary_listings.csv`（`final完全版.csv` の正本名） | `python scripts/buildings_master_from_primary_listings.py --in tmp/manual/in/primary_listings.csv --out tmp/manual/out/buildings_master_primary.csv --addr-only-fallback` | `tmp/manual/out/buildings_master_primary.csv` | **建物=1行/建物**（listing_rows付き） |
-| MR 賃貸 listings | `tmp/manual/in/mansion_review_chintai_1616_1619.csv` | `python scripts/buildings_master_from_mr_chintai.py --in tmp/manual/in/mansion_review_chintai_1616_1619.csv --out tmp/manual/out/buildings_master_from_mr_chintai.csv` | `tmp/manual/out/buildings_master_from_mr_chintai.csv` | **建物=1行/建物**（vacancy_rows付き） |
-| MR 分譲カタログ（建物一覧） | `tmp/manual/in/mansion_review_mansions_1616_1619.csv` | （そのまま建物マスターとして使用。必要なら `manual_stats.py` で確認） | `tmp/manual/in/mansion_review_mansions_1616_1619.csv` | **建物=1行/建物** |
-
-### マージ順序（粒度を建物マスターに統一）
-
-1. `primary_listings.csv` を `buildings_master_primary.csv` に集約。  
-2. MR賃貸 listings を `buildings_master_from_mr_chintai.csv` に集約。  
-3. MR分譲 `mansion_review_mansions_1616_1619.csv` は建物マスターとしてそのまま扱う。  
-4. `scripts/merge_building_masters_primary_wins.py` で **primary-wins** マージ（`primary` 側同一キーを優先）。
-
-- ユニークキー: 基本 `address + building_name`。
-- primary-wins: 同一キーが既に primary にあれば secondary は追加しない。
-- `--addr-only-fallback`: building_name 欠損時のみ address 単独で重複判定。
-
-```powershell
-python scripts/merge_building_masters_primary_wins.py --primary tmp/manual/out/buildings_master_primary.csv --secondary tmp/manual/out/buildings_master_from_mr_chintai.csv --out tmp/manual/out/buildings_master_primary_plus_chintai.csv --addr-only-fallback
-python scripts/merge_building_masters_primary_wins.py --primary tmp/manual/out/buildings_master_primary_plus_chintai.csv --secondary tmp/manual/in/mansion_review_mansions_1616_1619.csv --out tmp/manual/out/buildings_master_all.csv --addr-only-fallback
-```
-
-### 統計確認
-
-```powershell
-python scripts/manual_stats.py tmp/manual/out/buildings_master_all.csv
-```
-
-出力項目:
-- `rows`
-- `unique_buildings(address+name)`
-- `missing_address` / `missing_building_name` / `missing_mansion_name`（存在列のみ）
-
-### 既存ファイルの棚卸し（削除はしない）
-
-- `final完全版.csv` と `ulucks_pdf_raw.csv` が同一内容になるケースがあるため、**運用上の正本名は `primary_listings.csv`（または `final_primary_listings.csv`）に統一**します。
-- repo直下に残っている `mansion_review_mansions_1616_1619.csv` などは、次回運用から `tmp/manual/in/` に移してください（このチャットでは実移動しません）。
-
-### ローカル同期→実行（PowerShell一発）
-
-```powershell
-$ErrorActionPreference="Stop"; $REPO=Join-Path $env:USERPROFILE "tatemono-map"; Set-Location $REPO; git pull --ff-only; $PY=Join-Path $REPO ".venv\Scripts\python.exe"; & $PY scripts/buildings_master_from_primary_listings.py --in tmp/manual/in/primary_listings.csv --out tmp/manual/out/buildings_master_primary.csv --addr-only-fallback; & $PY scripts/buildings_master_from_mr_chintai.py --in tmp/manual/in/mansion_review_chintai_1616_1619.csv --out tmp/manual/out/buildings_master_from_mr_chintai.csv; & $PY scripts/merge_building_masters_primary_wins.py --primary tmp/manual/out/buildings_master_primary.csv --secondary tmp/manual/out/buildings_master_from_mr_chintai.csv --out tmp/manual/out/buildings_master_primary_plus_chintai.csv --addr-only-fallback; & $PY scripts/merge_building_masters_primary_wins.py --primary tmp/manual/out/buildings_master_primary_plus_chintai.csv --secondary tmp/manual/in/mansion_review_mansions_1616_1619.csv --out tmp/manual/out/buildings_master_all.csv --addr-only-fallback; & $PY scripts/manual_stats.py tmp/manual/out/buildings_master_all.csv
-```
+## 旧構造からの移行メモ
+- 旧運用 `tmp/manual/ulucks_pdf_raw.csv` は互換のため残しています。
+- 新規一次資料は、次の固定先を使ってください。
+  - PDF ZIP: `tmp/manual/inputs/pdf_zips/`
+  - 保存HTML: `tmp/manual/inputs/html_saved/`
+
+詳細は `docs/runbook.md` を参照してください。

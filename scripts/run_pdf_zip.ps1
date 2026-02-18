@@ -1,0 +1,50 @@
+param(
+  [Parameter(Mandatory = $true)][string]$RealproZip,
+  [Parameter(Mandatory = $true)][string]$UlucksZip,
+  [string]$RepoPath = (Resolve-Path (Join-Path $PSScriptRoot "..") | Select-Object -ExpandProperty Path),
+  [ValidateSet("strict", "warn", "off")][string]$QcMode = "warn"
+)
+
+$ErrorActionPreference = "Stop"
+
+$PY = Join-Path $RepoPath ".venv\Scripts\python.exe"
+if (-not (Test-Path $PY)) { throw ".venv python not found: $PY. Run scripts/setup.ps1 first." }
+
+$ts = Get-Date -Format "yyyyMMdd_HHmmss"
+$work = Join-Path $RepoPath "tmp\pdf_pipeline\work\$ts"
+$out = Join-Path $RepoPath "tmp\pdf_pipeline\out\$ts"
+$extractRealpro = Join-Path $work "extract_realpro"
+$extractUlucks = Join-Path $work "extract_ulucks"
+$realproPdfs = Join-Path $work "realpro_pdfs"
+$ulucksPdfs = Join-Path $work "ulucks_pdfs"
+
+New-Item -ItemType Directory -Force -Path $extractRealpro, $extractUlucks, $realproPdfs, $ulucksPdfs, $out | Out-Null
+
+Expand-Archive -Path (Resolve-Path $RealproZip) -DestinationPath $extractRealpro -Force
+Expand-Archive -Path (Resolve-Path $UlucksZip) -DestinationPath $extractUlucks -Force
+
+$idx = 0
+Get-ChildItem $extractRealpro -Recurse -File -Filter *.pdf | ForEach-Object {
+  $idx++
+  $dest = Join-Path $realproPdfs (("{0:D4}_" -f $idx) + $_.Name)
+  Copy-Item -Path $_.FullName -Destination $dest -Force
+}
+$idx = 0
+Get-ChildItem $extractUlucks -Recurse -File -Filter *.pdf | ForEach-Object {
+  $idx++
+  $dest = Join-Path $ulucksPdfs (("{0:D4}_" -f $idx) + $_.Name)
+  Copy-Item -Path $_.FullName -Destination $dest -Force
+}
+
+& $PY -m tatemono_map.cli.pdf_batch_run --realpro-dir $realproPdfs --ulucks-dir $ulucksPdfs --out-dir $out --qc-mode $QcMode
+
+$finalCsv = Join-Path $out "final.csv"
+$statsCsv = Join-Path $out "stats.csv"
+if (-not (Test-Path $finalCsv)) { throw "final.csv was not generated: $finalCsv" }
+if (-not (Test-Path $statsCsv)) { throw "stats.csv was not generated: $statsCsv" }
+
+$finalCount = (Import-Csv $finalCsv).Count
+$warnCount = ((Import-Csv $statsCsv) | Where-Object { $_.status -eq "WARN" }).Count
+"[OK] out=$out"
+"[OK] final_rows=$finalCount"
+"[OK] stats_warn_files=$warnCount"

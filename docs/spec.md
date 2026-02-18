@@ -1,46 +1,34 @@
-# 仕様（正本）— 建物マップ
+# spec（手動CSV化フェーズ）
 
-## 役割分担
-- Web：建物ページ（図鑑/マップ）/ 募集サマリー（レンジ）/ LINE誘導
-- LINE：空室確認 / 初期費用目安 / 申込受付 / 見積PDF提示（条件付き）
-- 提携先：重要事項説明以降（当面）
+## スコープ（作るもの）
+1. Ulucks / Realpro PDFバッチを安定してCSV化する。
+2. mansion-review 保存HTMLを最小カラムでCSV化する。
+3. 実行手順を PowerShell 一発で再現可能にする。
 
-## 更新方針
-- 定期更新：週2回
-- Webには「最終更新日時」を必ず表示
-- 更新失敗時：最終更新日時が古い状態で継続（落とさない）
+## 非スコープ（今は作らない）
+- 自動巡回の高度化
+- API/DB機能の拡張
+- UI改善
 
-## 公開サマリー（建物ページに表示）
-A) 募集件数
-B) 間取りタイプ（存在のみ）
-C) 家賃レンジ（min〜max、1件なら単値）
-D) 面積レンジ（min〜max、1件なら単値）
-E) 入居可能日（最短〜最長、曖昧表現は丸めてOK）
-F) 空室ステータス（空室あり/満室）
-G) 最終更新日時
+## データ契約
 
-## 禁止事項（MVP）
-- 参照元URLの公開、元付/管理会社情報の公開
-- 号室のWeb公開
-- 見積内訳のWeb公開
-- Webで申込完結（LINEに集約）
+### PDF pipeline 出力
+- `tmp/pdf_pipeline/out/<timestamp>/final.csv`
+- `tmp/pdf_pipeline/out/<timestamp>/stats.csv`
 
-## Phase2 主要変更（運用メモ）
-- 静的HTML生成CLI：`python -m tatemono_map.render.build --output-dir dist`
-- building_summaries が空でも最低1件（seed）を出して `dist/b/*.html` を0件にしない
-- `dist/` はビルド成果物で Git 管理しない（.gitignore で除外）
-- 禁止情報（URL/PDF/号室/参照元/管理会社等）が dist に混入しないチェックを継続し、各ページに「最終更新日時」を必須表示
-- `python -m ...` が repo 直下から動く（PYTHONPATH 追加不要の方向へ寄せた）
-- 既知の警告：Pydantic/FastAPI の deprecation warning は「動作影響なし、後でまとめて対応」でOK
+### mansion-review HTML 出力
+- `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_<timestamp>.csv`
 
+最小カラム:
+- `building_name`
+- `address`
+- `area`
+- `city`
+- `ward`
+- `source_url`
+- `source_file`
 
-## PDF batch 用語・QC運用（合意反映）
-- final.csv（既定）は Vacancy 向けの必須列のみを出力する。
-- `building_name` は DB 連携用の正規化建物名。
-- 号室（例: `302`）は `room` として保持する。
-- `A棟`/`B棟`/`◯号棟` などの棟表記は通常ケースとして `building_name` に保持し、異常扱いしない。
-- 戸建（戸建/一戸建/貸家/一軒家）は PDF 単位で落とさず、対象行のみ除外する。
-- QC は warn-by-default（既定 `warn`）。
-  - `warn`: 継続
-  - `strict`: FAIL時に停止
-  - `off`: QCスキップ
+## 公開禁止・運用制約
+- ZIP/PDF/保存HTMLなど巨大一次資料は Git にコミットしない。
+- 推測修正を禁止し、fixtureベースでのみ修正する。
+- 入出力の置き場は `tmp/manual/inputs`, `tmp/manual/outputs`, `tmp/pdf_pipeline/work`, `tmp/pdf_pipeline/out` に固定する。

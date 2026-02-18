@@ -3,47 +3,55 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .env
-data/
-db/
+
+.vscode/
+.idea/
+
+# local databases
 *.sqlite3
-data/*.db
-data/*.sqlite3
+*.db
+data/
 !data/public/
 !data/public/**
 !data/public/public.sqlite3
-secrets/
-.vscode/
-.idea/
+
+# build artifacts
 dist/
 dist_tmp/
 dist__tmp/
 dist__next/
 dist__prev/
-tmp_ulucks_*.html
-tmp/*
+
+# tmp artifacts (allow only tracked guidance files)
+tmp/**
 !tmp/manual/
-tmp/manual/**
 !tmp/manual/.gitkeep
 !tmp/manual/README.md
-tmp/manual/**/*.csv
-tmp/manual/*.csv
-
-# Ulucks debug artifacts
-/data/_debug_ulucks_*.html
-/data/_debug_ulucks_*/
-*.tmp
-data/_debug_ulucks_phase_a/
-data/_debug_ulucks_*.html
-
-# Local manual-ingest artifacts
-probe_debug.py
-
 !tmp/manual/ulucks_pdf_raw.csv
+!tmp/manual/inputs/
+!tmp/manual/inputs/.gitkeep
+!tmp/manual/inputs/pdf_zips/
+!tmp/manual/inputs/pdf_zips/.gitkeep
+!tmp/manual/inputs/html_saved/
+!tmp/manual/inputs/html_saved/.gitkeep
+!tmp/manual/outputs/
+!tmp/manual/outputs/.gitkeep
+!tmp/manual/outputs/mansion_review/
+!tmp/manual/outputs/mansion_review/.gitkeep
+!tmp/pdf_pipeline/
+!tmp/pdf_pipeline/.gitkeep
+!tmp/pdf_pipeline/work/
+!tmp/pdf_pipeline/work/.gitkeep
+!tmp/pdf_pipeline/out/
+!tmp/pdf_pipeline/out/.gitkeep
 
-mansion_review_vacancies_400001_moji_kokurakita.csv
-# generated exports
-*.csv
-
-# local debug scraps
+# large/manual source files
+*.zip
 tmp_*.html
 tmp_*.py
+
+# debug artifacts
+/data/_debug_ulucks_*.html
+/data/_debug_ulucks_*/
+data/_debug_ulucks_phase_a/
+probe_debug.py
