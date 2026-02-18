@@ -22,12 +22,15 @@ dist__tmp/
 dist__next/
 dist__prev/
 
+# secrets / local workspaces (never commit)
+secrets/**
+.tmp/**
+
 # tmp artifacts (allow only tracked guidance files)
 tmp/**
 !tmp/manual/
 !tmp/manual/.gitkeep
 !tmp/manual/README.md
-!tmp/manual/ulucks_pdf_raw.csv
 !tmp/manual/inputs/
 !tmp/manual/inputs/.gitkeep
 !tmp/manual/inputs/pdf_zips/
@@ -48,6 +51,9 @@ tmp/**
 !tmp/pdf_pipeline/work/.gitkeep
 !tmp/pdf_pipeline/out/
 !tmp/pdf_pipeline/out/.gitkeep
+
+# generated CSVs in repository root
+/*.csv
 
 # large/manual source files
 *.zip

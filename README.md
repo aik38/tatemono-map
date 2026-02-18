@@ -1,22 +1,38 @@
 # tatemono-map
 
-## Overview（Why / 目的）
-- このリポジトリは **手動一次資料（PDF ZIP / 保存HTML）をCSV化し、建物マスターへ合算する正本フロー** を固定するための運用リポジトリです。
-- Webは **図鑑として完結** させ、申込導線はLINEへ集約します（WBS Phase2/4方針）。
-
-## 制約（公開NG）
-- Web出力禁止: **号室 / 参照元URL / 会社情報 / PDFリンク**。
-- 一次資料（ZIP/PDF/保存HTML）はGitにコミットしない。
-- 推測修正は禁止（fixtureを追加して再現性を担保）。
+## Why（目的）
+- **建物図鑑として公開する静的HTML** を再現可能に生成するためのリポジトリです。
+- 手動データ収集（PDF ZIP / 保存HTML）→ CSV化 → 建物マスター合算までを運用として固定します。
+- **公開禁止情報（号室 / 参照元URL / 会社情報 / PDFリンク / 認証情報）を公開物に含めない**ことを前提にしています。
 
 ## 正本ドキュメント
-- 仕様: `docs/spec.md`
-- 工程/WBS: `docs/wbs.md`
-- 運用手順（迷わない手順）: `docs/runbook.md`
+- 仕様の正本: `docs/spec.md`
+- 工程の正本: `docs/wbs.md`
+- 運用手順の正本: `docs/runbook.md`
 
-## Quickstart（最短導線）
-> すべて **repo root で実行**。各PowerShellは内部で repo root へ `Set-Location` し、repo外実行をガードします。
+## Git運用（必須）
+Git操作は必ず以下のスクリプトを使用してください。
+- 同期: `scripts/git_sync.ps1`
+- コミット/プッシュ: `scripts/git_push.ps1`
 
+`git_push.ps1` は、機密・作業場・生成物の禁止ファイルが追跡されている場合に停止します。
+
+```powershell
+$REPO = "C:\path\to\tatemono-map"
+
+# 最新化（fast-forward only）
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\git_sync.ps1 -RepoPath $REPO
+
+# 変更確認後にコミット/プッシュ
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\git_push.ps1 -RepoPath $REPO -Message "docs: update runbook"
+```
+
+## ローカル生成物の取り扱い
+- `secrets/**` と `.tmp/**` はローカル専用です。
+- `tmp/manual/inputs/**` `tmp/manual/outputs/**` `tmp/pdf_pipeline/**` はローカル運用ディレクトリです（`.gitkeep` のみ追跡）。
+- リポジトリ直下の `*.csv` はコミットしません。
+
+## パイプライン（概要）
 ```powershell
 $REPO = "C:\path\to\tatemono-map"
 Set-Location $REPO
@@ -26,18 +42,4 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_mansion_review_html.
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_merge_building_masters.ps1 -RepoPath $REPO
 ```
 
-- PDF ZIP成果物: `tmp/pdf_pipeline/out/<timestamp>/final.csv`
-- 保存HTML成果物: `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_<timestamp>.csv`
-- 合算成果物（固定）: `tmp/manual/outputs/buildings_master/buildings_master.csv`
-
-## GitHub ↔ ローカル同期
-```powershell
-$REPO = "C:\path\to\tatemono-map"
-Set-Location $REPO
-# pull
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync.ps1 -RepoPath $REPO
-# 編集・確認後に push
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\push.ps1 -RepoPath $REPO -Message "your commit message"
-```
-
-詳細運用・固定ファイル名は `docs/runbook.md` を参照してください。
+詳細は `docs/runbook.md` を参照してください。
