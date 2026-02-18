@@ -39,7 +39,10 @@ tmp/
         buildings_master.csv              # 既存 merge スクリプトの固定出力
         <timestamp>/
           buildings_master_raw.csv        # 空室(final.csv)の建物単位集約
-          buildings_master_merged.csv     # 空室+MR統合(重複除去前後を含む成果)
+          buildings_master_keys.csv       # 正規化キー単位の集約
+          buildings_master_suspects.csv   # 要確認行（reason code付き）
+          buildings_master_overrides.template.csv  # 人力補正テンプレート
+          buildings_master_merged_primary_wins.csv # overrides適用後マージ成果
           buildings_master.csv            # 次工程入力用の建物マスター
           stats.json
   pdf_pipeline/
@@ -69,8 +72,8 @@ tmp/
   - 出力: `tmp/manual/outputs/buildings_master/buildings_master.csv`
 - `scripts/run_buildings_master_from_sources.ps1`
   - 入力（既定）: `tmp/pdf_pipeline/out` の latest `final.csv` + `tmp/manual/outputs/mansion_review/combined` の latest `mansion_review_master_UNIQ_*.csv`
-  - 出力: `tmp/manual/outputs/buildings_master/<timestamp>/buildings_master_raw.csv`, `buildings_master_merged.csv`, `buildings_master.csv`, `stats.json`
-  - 重複除去キー: `building_name + address`（正規化）／mansion-review は `mr_detail_url_evidence` を保持
+  - 出力: `tmp/manual/outputs/buildings_master/<timestamp>/buildings_master_raw.csv`, `buildings_master_keys.csv`, `buildings_master_suspects.csv`, `buildings_master_overrides.template.csv`, `buildings_master_merged_primary_wins.csv`, `buildings_master.csv`, `stats.json`
+  - 重複除去: ソース内dedup（mansion-reviewは`detail_url`）後、`normalized_address + normalized_building_name` の安定キーで高信頼結合。弱住所/欠損/衝突は suspects に分離
 
 ## 4. 迷わない実行手順（Quickstart と同一）
 
@@ -252,16 +255,16 @@ $uniq | Group-Object kind, city_id | Sort-Object Name | Select-Object Count, Nam
 
 全体像（入力→出力）:
 1. **入力**: `tmp/pdf_pipeline/out/<timestamp>/final.csv`（空室リスト）と `tmp/manual/outputs/mansion_review/combined/mansion_review_master_UNIQ_<timestamp>.csv`
-2. **正規化**: `building_name` / `address` の空白・全角空白・大文字小文字を正規化
-3. **候補生成**: `final.csv` から建物単位候補（`buildings_master_raw.csv`）を生成
-4. **マージ**: mansion-review 側を突合し `building_name+address` キーで重複除去（証跡として `mr_detail_url_evidence` 保持）
-5. **建物マスターCSV**: `buildings_master.csv` を作成
+2. **正規化**: `normalize_address_jp()` / `normalize_building_name()` で揺れを統一（数字の推測補完はしない）
+3. **候補生成**: `buildings_master_raw.csv` と `buildings_master_keys.csv` を生成
+4. **要確認抽出**: `weak_address`, `missing_address`, `name_conflict_same_address`, `key_collision`, `suspicious_name` を `buildings_master_suspects.csv` に出力
+5. **人力補正反映**: `buildings_master_overrides.template.csv` を編集し再実行すると `buildings_master_merged_primary_wins.csv` / `buildings_master.csv` を再現可能に生成
 6. **SQLite取り込み → dist生成**: 既存の DB 取り込み/レンダリング手順（`docs/spec.md` と README Quickstart）に従って反映
 
 正本スクリプト（latest 自動検出）:
 - `scripts/run_buildings_master_from_sources.ps1`
   - 既定入力: `tmp/pdf_pipeline/out` の latest `final.csv`、`tmp/manual/outputs/mansion_review/combined` の latest `mansion_review_master_UNIQ_*.csv`
-  - 既定出力: `tmp/manual/outputs/buildings_master/<timestamp>/buildings_master_raw.csv`, `buildings_master_merged.csv`, `buildings_master.csv`, `stats.json`
+  - 既定出力: `tmp/manual/outputs/buildings_master/<timestamp>/buildings_master_raw.csv`, `buildings_master_keys.csv`, `buildings_master_suspects.csv`, `buildings_master_overrides.template.csv`, `buildings_master_merged_primary_wins.csv`, `buildings_master.csv`, `stats.json`
 
 一発コマンド:
 
@@ -269,6 +272,14 @@ $uniq | Group-Object kind, city_id | Sort-Object Name | Select-Object Count, Nam
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_buildings_master_from_sources.ps1") -RepoPath $REPO
 ```
+
+
+任意補強（Google Geocoding）:
+- `python -m tatemono_map.enrich.google_geocode`
+  - 必須環境変数: `GOOGLE_MAPS_API_KEY`
+  - 既定キャッシュ: `tmp/cache/google_geocode.sqlite`
+  - 既定レート制限: `--qps 5`（5QPS以下）
+  - 既定動作: 弱い/曖昧住所のみ補強。`--force-all` で全件
 
 既存互換フロー（固定名CSVを事前配置する運用）:
 - `scripts/run_merge_building_masters.ps1`

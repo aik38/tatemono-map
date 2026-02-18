@@ -119,6 +119,34 @@ $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_buildings_master_from_sources.ps1") -RepoPath $REPO
 ```
 
+- 出力先: `tmp/manual/outputs/buildings_master/<timestamp>/`
+  - `buildings_master_raw.csv`
+  - `buildings_master_keys.csv`
+  - `buildings_master_suspects.csv`
+  - `buildings_master_overrides.template.csv`
+  - `buildings_master_merged_primary_wins.csv`
+  - `buildings_master.csv`
+  - `stats.json`
+
+suspects を人手確認して overrides を適用する再実行:
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$OUT = Get-ChildItem (Join-Path $REPO "tmp\manual\outputs\buildings_master") -Directory |
+  Sort-Object LastWriteTime -Desc | Select-Object -First 1 -ExpandProperty FullName
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_buildings_master_from_sources.ps1") `
+  -RepoPath $REPO `
+  -OutDir $OUT `
+  -OverridesCsv (Join-Path $OUT "buildings_master_overrides.template.csv")
+```
+
+Google Geocoding 補強（任意）:
+
+```powershell
+$env:GOOGLE_MAPS_API_KEY = "<YOUR_KEY>"
+python -m tatemono_map.enrich.google_geocode --in (Join-Path $OUT "buildings_master.csv") --out (Join-Path $OUT "buildings_master_geocoded.csv")
+```
+
 ---
 
 ## Git sync / push（CWD非依存）
