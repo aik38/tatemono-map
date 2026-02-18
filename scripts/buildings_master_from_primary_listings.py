@@ -5,8 +5,8 @@ import csv
 import re
 from pathlib import Path
 
-DEFAULT_IN = "tmp/manual/in/primary_listings.csv"
-DEFAULT_OUT = "tmp/manual/out/buildings_master_primary.csv"
+DEFAULT_IN = "tmp/manual/inputs/primary_listings.csv"
+DEFAULT_OUT = "tmp/manual/outputs/buildings_master_primary.csv"
 
 
 def _normalize_space(text: str) -> str:

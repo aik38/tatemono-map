@@ -1,11 +1,19 @@
-# tmp/manual（手動一次資料の固定置き場）
+# tmp/manual（手動一次資料フローの固定I/O契約）
 
-## inputs/
-- `inputs/pdf_zips/`: 手動で取得した ZIP の一時置き場（Git管理しない）
-- `inputs/html_saved/`: mansion-review 等の保存HTML（Git管理しない）
+## 入力（inputs）
+- `inputs/html_saved/`
+  - mansion-review 等の保存HTML（一次資料）を置く。
+- `inputs/buildings_master/buildings_master_primary.csv`
+  - 合算の主系入力（固定ファイル名）。
+- `inputs/buildings_master/buildings_master_secondary.csv`
+  - 合算の従系入力（固定ファイル名）。
 
-## outputs/
-- `outputs/mansion_review/<timestamp>/`: 保存HTML→CSVの成果物
+## 出力（outputs）
+- `outputs/mansion_review/<timestamp>/mansion_review_<timestamp>.csv`
+  - 保存HTML→CSV の成果物。
+- `outputs/buildings_master/buildings_master.csv`
+  - 建物マスター合算の最終成果物（固定ファイル名）。
 
 ## 互換運用
-- 既存フロー互換のため `tmp/manual/ulucks_pdf_raw.csv` は残置しています。
+- `tmp/manual/ulucks_pdf_raw.csv` は旧運用互換のため残置。
+- 新規運用は `docs/runbook.md` の手順を正本とする。

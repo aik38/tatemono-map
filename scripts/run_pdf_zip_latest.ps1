@@ -6,10 +6,27 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Resolve-RepoRoot {
+  param([string]$Path)
+
+  $resolved = Resolve-Path -Path $Path -ErrorAction Stop
+  $fullPath = $resolved.Path
+  if (-not (Test-Path (Join-Path $fullPath ".git"))) {
+    throw "Not a git repository: $fullPath"
+  }
+  if (-not (Test-Path (Join-Path $fullPath "pyproject.toml"))) {
+    throw "pyproject.toml not found. Refusing to run outside tatemono-map repo: $fullPath"
+  }
+  return $fullPath
+}
+
+$REPO = Resolve-RepoRoot -Path $RepoPath
+Set-Location $REPO
+
 $realpro = Get-ChildItem $DownloadsDir -File | Where-Object Name -like "リアプロ-*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 $ulucks = Get-ChildItem $DownloadsDir -File | Where-Object Name -like "ウラックス-*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
 if (-not $realpro) { throw "Not found: リアプロ-*.zip in $DownloadsDir" }
 if (-not $ulucks) { throw "Not found: ウラックス-*.zip in $DownloadsDir" }
 
-& (Join-Path $RepoPath "scripts/run_pdf_zip.ps1") -RepoPath $RepoPath -RealproZip $realpro.FullName -UlucksZip $ulucks.FullName -QcMode $QcMode
+& (Join-Path $REPO "scripts/run_pdf_zip.ps1") -RepoPath $REPO -RealproZip $realpro.FullName -UlucksZip $ulucks.FullName -QcMode $QcMode
