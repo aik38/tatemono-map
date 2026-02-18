@@ -62,6 +62,18 @@ Start-Process "$REPO\dist\index.html"
 - `scripts/run_mansion_review_html.ps1`
 - `scripts/run_merge_building_masters.ps1`
 
+### Ulucks / RealPro（pdf_pipeline）成果物の場所
+- 出力ルート: `tmp/pdf_pipeline/out/<timestamp>/`
+- 主要成果物: `final.csv`, `manifest.csv`, `qc_report.txt`, `stats.csv`, `per_pdf/`
+- `final.csv` は **空室リスト（抽出結果の集約）** であり、建物DBそのものではありません（建物DB化は runbook の「次の工程」を実施）。
+
+```powershell
+# 最新 out を 1 発で特定
+$latestOut = Get-ChildItem (Join-Path $REPO "tmp\pdf_pipeline\out") -Directory |
+  Sort-Object LastWriteTime -Desc | Select-Object -First 1 -ExpandProperty FullName
+$latestOut
+```
+
 ### mansion-review 一覧収集（最短 Quickstart 抜粋）
 詳細手順は runbook の「データ収集（mansion-review）」を参照してください。
 
@@ -89,6 +101,22 @@ foreach ($j in $jobs) {
     -SleepSec 0.7 `
     -MaxPages $j.MaxPages
 }
+```
+
+- 出力ルート: `tmp/manual/outputs/mansion_review/<timestamp>/`
+- 主要成果物: `mansion_review_list_<timestamp>.csv`, `stats.json`
+- 合算/ユニーク化成果物: `tmp/manual/outputs/mansion_review/combined/`
+  - `mansion_review_list_COMBINED_<timestamp>.csv`
+  - `mansion_review_master_UNIQ_<timestamp>.csv`
+- `cache_hit=True/False` は成功/失敗ではなく「キャッシュ命中」の有無です。`False` が多くても `rows > 0` であれば収集成功です。
+
+### 次工程（空室リスト → 建物DBの入力CSV）
+- runbook の「次の工程：空室リスト → 建物DB（重複なし）」を実施。
+- 一発実行（latest 自動検出）:
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_buildings_master_from_sources.ps1") -RepoPath $REPO
 ```
 
 ---
