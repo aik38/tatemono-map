@@ -1,5 +1,5 @@
 param(
-    [string]$RepoPath
+    [string]$RepoPath = (Join-Path $env:USERPROFILE 'tatemono-map')
 )
 
 $ErrorActionPreference = 'Stop'
@@ -7,43 +7,24 @@ $ErrorActionPreference = 'Stop'
 function Resolve-RepoRoot {
     param([string]$RequestedRepoPath)
 
-    if (-not [string]::IsNullOrWhiteSpace($RequestedRepoPath)) {
-        $candidate = Resolve-Path -LiteralPath $RequestedRepoPath -ErrorAction SilentlyContinue
-        if (-not $candidate) {
-            throw "Repo path not found: $RequestedRepoPath"
-        }
-        $fullPath = $candidate.Path
-        if (-not (Test-Path (Join-Path $fullPath '.git'))) {
-            throw "Not a git repository: $fullPath"
-        }
-        return $fullPath
+    if ([string]::IsNullOrWhiteSpace($RequestedRepoPath)) {
+        throw 'RepoPath is empty. Set -RepoPath or ensure $env:USERPROFILE\tatemono-map exists.'
     }
 
-    $candidates = @(
-        $PSScriptRoot,
-        (Split-Path -Parent $PSScriptRoot),
-        (Get-Location).Path
-    ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique
-
-    foreach ($candidatePath in $candidates) {
-        $resolved = Resolve-Path -LiteralPath $candidatePath -ErrorAction SilentlyContinue
-        if (-not $resolved) { continue }
-
-        $dir = $resolved.Path
-        while ($true) {
-            if (Test-Path (Join-Path $dir '.git')) {
-                return $dir
-            }
-
-            $parent = Split-Path -Parent $dir
-            if ([string]::IsNullOrWhiteSpace($parent) -or $parent -eq $dir) {
-                break
-            }
-            $dir = $parent
-        }
+    $candidate = Resolve-Path -LiteralPath $RequestedRepoPath -ErrorAction SilentlyContinue
+    if (-not $candidate) {
+        throw "Repository path not found: $RequestedRepoPath`nExpected default: $(Join-Path $env:USERPROFILE 'tatemono-map')"
     }
 
-    throw 'Could not auto-resolve repository root. Use -RepoPath explicitly.'
+    $fullPath = $candidate.Path
+    if (-not (Test-Path (Join-Path $fullPath '.git'))) {
+        throw "Not a git repository: $fullPath"
+    }
+    if (-not (Test-Path (Join-Path $fullPath 'pyproject.toml'))) {
+        throw "pyproject.toml not found. Refusing to run outside tatemono-map repo: $fullPath"
+    }
+
+    return $fullPath
 }
 
 $resolvedRepoPath = Resolve-RepoRoot -RequestedRepoPath $RepoPath
