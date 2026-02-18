@@ -62,6 +62,35 @@ Start-Process "$REPO\dist\index.html"
 - `scripts/run_mansion_review_html.ps1`
 - `scripts/run_merge_building_masters.ps1`
 
+### mansion-review 一覧収集（最短 Quickstart 抜粋）
+詳細手順は runbook の「データ収集（mansion-review）」を参照してください。
+
+- runbook: [`docs/runbook.md#4-1-データ収集mansion-review`](docs/runbook.md#4-1-データ収集mansion-review)
+
+```powershell
+$ErrorActionPreference="Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$PS1  = Join-Path $REPO "scripts\run_mansion_review_crawl.ps1"
+
+# 分譲: 1616=7p, 1619=14p / 賃貸: 1616=12p, 1619=52p
+$jobs = @(
+  @{CityIds="1616"; Kinds="mansion"; MaxPages=7},
+  @{CityIds="1619"; Kinds="mansion"; MaxPages=14},
+  @{CityIds="1616"; Kinds="chintai"; MaxPages=12},
+  @{CityIds="1619"; Kinds="chintai"; MaxPages=52}
+)
+
+foreach ($j in $jobs) {
+  pwsh -NoProfile -ExecutionPolicy Bypass -File $PS1 `
+    -RepoPath $REPO `
+    -CityIds  $j.CityIds `
+    -Kinds    $j.Kinds `
+    -Mode     "list" `
+    -SleepSec 0.7 `
+    -MaxPages $j.MaxPages
+}
+```
+
 ---
 
 ## Git sync / push（CWD非依存）
