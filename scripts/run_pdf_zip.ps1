@@ -7,12 +7,29 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$PY = Join-Path $RepoPath ".venv\Scripts\python.exe"
+function Resolve-RepoRoot {
+  param([string]$Path)
+
+  $resolved = Resolve-Path -Path $Path -ErrorAction Stop
+  $fullPath = $resolved.Path
+  if (-not (Test-Path (Join-Path $fullPath ".git"))) {
+    throw "Not a git repository: $fullPath"
+  }
+  if (-not (Test-Path (Join-Path $fullPath "pyproject.toml"))) {
+    throw "pyproject.toml not found. Refusing to run outside tatemono-map repo: $fullPath"
+  }
+  return $fullPath
+}
+
+$REPO = Resolve-RepoRoot -Path $RepoPath
+Set-Location $REPO
+
+$PY = Join-Path $REPO ".venv\Scripts\python.exe"
 if (-not (Test-Path $PY)) { throw ".venv python not found: $PY. Run scripts/setup.ps1 first." }
 
 $ts = Get-Date -Format "yyyyMMdd_HHmmss"
-$work = Join-Path $RepoPath "tmp\pdf_pipeline\work\$ts"
-$out = Join-Path $RepoPath "tmp\pdf_pipeline\out\$ts"
+$work = Join-Path $REPO "tmp\pdf_pipeline\work\$ts"
+$out = Join-Path $REPO "tmp\pdf_pipeline\out\$ts"
 $extractRealpro = Join-Path $work "extract_realpro"
 $extractUlucks = Join-Path $work "extract_ulucks"
 $realproPdfs = Join-Path $work "realpro_pdfs"

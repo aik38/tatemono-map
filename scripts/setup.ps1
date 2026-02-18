@@ -4,15 +4,32 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$PY = Join-Path $RepoPath ".venv\Scripts\python.exe"
+function Resolve-RepoRoot {
+  param([string]$Path)
+
+  $resolved = Resolve-Path -Path $Path -ErrorAction Stop
+  $fullPath = $resolved.Path
+  if (-not (Test-Path (Join-Path $fullPath ".git"))) {
+    throw "Not a git repository: $fullPath"
+  }
+  if (-not (Test-Path (Join-Path $fullPath "pyproject.toml"))) {
+    throw "pyproject.toml not found. Refusing to run outside tatemono-map repo: $fullPath"
+  }
+  return $fullPath
+}
+
+$REPO = Resolve-RepoRoot -Path $RepoPath
+Set-Location $REPO
+
+$PY = Join-Path $REPO ".venv\Scripts\python.exe"
 if (-not (Test-Path $PY)) {
-  python -m venv (Join-Path $RepoPath ".venv")
+  python -m venv (Join-Path $REPO ".venv")
 }
 
 & $PY -m pip install --upgrade pip
-& $PY -m pip install -r (Join-Path $RepoPath "requirements.txt")
-& $PY -m pip install -r (Join-Path $RepoPath "requirements-pdf.txt")
-& $PY -m pip install -r (Join-Path $RepoPath "requirements-dev.txt")
-& $PY -m pip install -e $RepoPath
+& $PY -m pip install -r (Join-Path $REPO "requirements.txt")
+& $PY -m pip install -r (Join-Path $REPO "requirements-pdf.txt")
+& $PY -m pip install -r (Join-Path $REPO "requirements-dev.txt")
+& $PY -m pip install -e $REPO
 
 "[OK] setup completed: $PY"
