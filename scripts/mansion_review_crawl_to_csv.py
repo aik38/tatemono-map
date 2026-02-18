@@ -210,11 +210,30 @@ def parse_max_page(html: str) -> int:
         if txt.isdigit():
             max_page = max(max_page, int(txt))
     for href_node in tree.css("a[href]"):
-        href = href_node.attributes.get("href", "")
+        href = href_node.attributes.get("href") or ""
+        if not href:
+            continue
         m = re.search(r"_(\d+)\.html", href)
         if m:
             max_page = max(max_page, int(m.group(1)))
     return max_page
+
+
+def _write_fetch_error_debug(debug_dir: Path, out_dir: Path, kind: str, city_id: str, page: int, url: str, err: Exception) -> str:
+    debug_name = f"{kind}_{city_id}_page{page}_fetch_error.html"
+    debug_path = debug_dir / debug_name
+    error_text = normalize_space(str(err))
+    debug_path.write_text(
+        (
+            "<html><body>"
+            "<h1>Fetch failed</h1>"
+            f"<p>url: {url}</p>"
+            f"<p>error: {error_text}</p>"
+            "</body></html>"
+        ),
+        encoding="utf-8",
+    )
+    return str(debug_path.relative_to(out_dir))
 
 
 def cache_path_for_url(cache_dir: Path, url: str) -> Path:
@@ -318,14 +337,27 @@ def run_crawl(
                     sleep_sec=sleep_sec,
                 )
             except Exception as err:  # noqa: BLE001
-                stats["errors"].append({"kind": kind, "city_id": city_id, "page": 1, "url": page1_url, "error": str(err)})
+                debug_html = _write_fetch_error_debug(debug_dir, out_dir, kind, city_id, 1, page1_url, err)
+                stats["errors"].append(
+                    {
+                        "kind": kind,
+                        "city_id": city_id,
+                        "page": 1,
+                        "url": page1_url,
+                        "error": f"fetch failed: {err}",
+                        "debug_html": debug_html,
+                    }
+                )
                 continue
 
             if from_cache:
                 stats["cache_hits"] += 1
 
-            detected_pages = parse_max_page(html)
-            total_pages = max_pages if max_pages > 0 else max(detected_pages, 1)
+            if max_pages > 0:
+                total_pages = max_pages
+            else:
+                detected_pages = parse_max_page(html)
+                total_pages = max(detected_pages, 1)
 
             for page in range(1, total_pages + 1):
                 page_url = build_city_page_url(kind, city_id, page)
@@ -344,8 +376,16 @@ def run_crawl(
                         if from_cache_page:
                             stats["cache_hits"] += 1
                     except Exception as err:  # noqa: BLE001
+                        debug_html = _write_fetch_error_debug(debug_dir, out_dir, kind, city_id, page, page_url, err)
                         stats["errors"].append(
-                            {"kind": kind, "city_id": city_id, "page": page, "url": page_url, "error": str(err)}
+                            {
+                                "kind": kind,
+                                "city_id": city_id,
+                                "page": page,
+                                "url": page_url,
+                                "error": f"fetch failed: {err}",
+                                "debug_html": debug_html,
+                            }
                         )
                         continue
 
