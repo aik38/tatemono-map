@@ -30,7 +30,6 @@ secrets/**
 tmp/**
 !tmp/manual/
 !tmp/manual/.gitkeep
-!tmp/manual/README.md
 !tmp/manual/inputs/
 !tmp/manual/inputs/.gitkeep
 !tmp/manual/inputs/pdf_zips/
