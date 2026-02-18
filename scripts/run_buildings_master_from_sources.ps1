@@ -2,7 +2,8 @@ param(
   [string]$RepoPath = (Resolve-Path (Join-Path $PSScriptRoot "..") | Select-Object -ExpandProperty Path),
   [string]$PdfFinalCsv = "",
   [string]$MansionReviewUniqCsv = "",
-  [string]$OutDir = ""
+  [string]$OutDir = "",
+  [string]$OverridesCsv = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -19,18 +20,6 @@ function Resolve-RepoRoot {
     throw "pyproject.toml not found. Refusing to run outside tatemono-map repo: $fullPath"
   }
   return $fullPath
-}
-
-function Normalize-Text {
-  param([string]$Value)
-  if ($null -eq $Value) { return "" }
-  $s = $Value.Replace("　", " ").Trim().ToLowerInvariant()
-  return ([regex]::Replace($s, "\s+", " "))
-}
-
-function Build-Key {
-  param([string]$BuildingName, [string]$Address)
-  return "$(Normalize-Text $BuildingName)|$(Normalize-Text $Address)"
 }
 
 function Find-LatestPdfFinalCsv {
@@ -73,114 +62,27 @@ if ([string]::IsNullOrWhiteSpace($OutDir)) {
 }
 New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
 
-$pdfRows = Import-Csv $PdfFinalCsv
-$mrRows = Import-Csv $MansionReviewUniqCsv
-
-# 1) raw: final.csv を建物キーで集約
-$rawMap = @{}
-foreach ($row in $pdfRows) {
-  $bn = ("" + $row.building_name).Trim()
-  $ad = ("" + $row.address).Trim()
-  $key = Build-Key -BuildingName $bn -Address $ad
-  if ([string]::IsNullOrWhiteSpace($key.Replace("|", ""))) { continue }
-
-  if (-not $rawMap.ContainsKey($key)) {
-    $rawMap[$key] = [ordered]@{
-      building_name = $bn
-      address = $ad
-      source = "pdf_pipeline"
-      source_rows = 0
-      mr_detail_url_evidence = ""
-    }
-  }
-  $rawMap[$key].source_rows = [int]$rawMap[$key].source_rows + 1
-}
-$rawRows = $rawMap.Values | Sort-Object address, building_name
-$rawCsv = Join-Path $OutDir "buildings_master_raw.csv"
-$rawRows | Export-Csv $rawCsv -NoTypeInformation -Encoding utf8BOM
-
-# 2) merged: raw + mansion-review UNIQ を統合
-$mergedMap = @{}
-foreach ($row in $rawRows) {
-  $key = Build-Key -BuildingName $row.building_name -Address $row.address
-  $mergedMap[$key] = [ordered]@{
-    building_name = $row.building_name
-    address = $row.address
-    source = "pdf_pipeline"
-    source_rows = [int]$row.source_rows
-    mr_detail_url_evidence = ""
-  }
+$pyArgs = @(
+  "-m", "tatemono_map.buildings_master.from_sources",
+  "--pdf-final-csv", $PdfFinalCsv,
+  "--mansion-review-uniq-csv", $MansionReviewUniqCsv,
+  "--out-dir", $OutDir
+)
+if (-not [string]::IsNullOrWhiteSpace($OverridesCsv)) {
+  $pyArgs += @("--overrides-csv", $OverridesCsv)
 }
 
-foreach ($row in $mrRows) {
-  $bn = ("" + $row.building_name).Trim()
-  $ad = ("" + $row.address).Trim()
-  $du = ("" + $row.detail_url).Trim()
-  $key = Build-Key -BuildingName $bn -Address $ad
-  if ([string]::IsNullOrWhiteSpace($key.Replace("|", ""))) { continue }
-
-  if (-not $mergedMap.ContainsKey($key)) {
-    $mergedMap[$key] = [ordered]@{
-      building_name = $bn
-      address = $ad
-      source = "mansion_review"
-      source_rows = 0
-      mr_detail_url_evidence = $du
-    }
-  } else {
-    if ($mergedMap[$key].source -notmatch "mansion_review") {
-      $mergedMap[$key].source = "pdf_pipeline+mansion_review"
-    }
-    if (-not [string]::IsNullOrWhiteSpace($du)) {
-      $existing = ("" + $mergedMap[$key].mr_detail_url_evidence).Trim()
-      if ([string]::IsNullOrWhiteSpace($existing)) {
-        $mergedMap[$key].mr_detail_url_evidence = $du
-      }
-    }
-  }
-  $mergedMap[$key].source_rows = [int]$mergedMap[$key].source_rows + 1
+python @pyArgs
+if ($LASTEXITCODE -ne 0) {
+  throw "Failed: python $($pyArgs -join ' ')"
 }
 
-$mergedRows = $mergedMap.Values | Sort-Object address, building_name
-$mergedCsv = Join-Path $OutDir "buildings_master_merged.csv"
-$mergedRows | Export-Csv $mergedCsv -NoTypeInformation -Encoding utf8BOM
-
-# 3) master: 公開向け最終列
-$masterRows = foreach ($row in $mergedRows) {
-  [ordered]@{
-    building_name = $row.building_name
-    address = $row.address
-    source = $row.source
-    source_rows = $row.source_rows
-    mr_detail_url_evidence = $row.mr_detail_url_evidence
-  }
-}
-$masterCsv = Join-Path $OutDir "buildings_master.csv"
-$masterRows | Export-Csv $masterCsv -NoTypeInformation -Encoding utf8BOM
-
-$stats = [ordered]@{
-  generated_at = (Get-Date).ToString("s")
-  inputs = [ordered]@{
-    pdf_final_csv = $PdfFinalCsv
-    mansion_review_uniq_csv = $MansionReviewUniqCsv
-  }
-  counts = [ordered]@{
-    pdf_rows = @($pdfRows).Count
-    mansion_review_rows = @($mrRows).Count
-    raw_unique_buildings = @($rawRows).Count
-    merged_unique_buildings = @($mergedRows).Count
-  }
-  outputs = [ordered]@{
-    out_dir = $OutDir
-    raw_csv = $rawCsv
-    merged_csv = $mergedCsv
-    buildings_master_csv = $masterCsv
-  }
-}
-$statsPath = Join-Path $OutDir "stats.json"
-$stats | ConvertTo-Json -Depth 8 | Set-Content -Path $statsPath -Encoding UTF8
-
-Write-Host "[OK] raw=$rawCsv"
-Write-Host "[OK] merged=$mergedCsv"
-Write-Host "[OK] master=$masterCsv"
-Write-Host "[OK] stats=$statsPath"
+Write-Host "[DONE] buildings master generated: $OutDir"
+Write-Host ""
+Write-Host "Next steps:"
+Write-Host "1) Open suspects: $OutDir\buildings_master_suspects.csv"
+Write-Host "2) Fill overrides template: $OutDir\buildings_master_overrides.template.csv"
+Write-Host "3) Re-run with overrides:"
+Write-Host "   pwsh -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -RepoPath $REPO -PdfFinalCsv '$PdfFinalCsv' -MansionReviewUniqCsv '$MansionReviewUniqCsv' -OutDir '$OutDir' -OverridesCsv '$OutDir\buildings_master_overrides.template.csv'"
+Write-Host "4) Optional geocode enrich:"
+Write-Host "   python -m tatemono_map.enrich.google_geocode --in '$OutDir\buildings_master.csv' --out '$OutDir\buildings_master_geocoded.csv'"
