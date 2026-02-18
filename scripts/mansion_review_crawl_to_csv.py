@@ -65,6 +65,21 @@ def build_city_page_url(kind: str, city_id: str, page: int) -> str:
     return f"{BASE_URL}/{kind}/city/{city_id}{suffix}.html"
 
 
+def _build_city_path_regex(kind: str, city_id: str) -> re.Pattern[str]:
+    return re.compile(rf"/(?:{re.escape(kind)})/city/{re.escape(city_id)}(?:_(\d+))?\.html(?:$|[?#])")
+
+
+def _extract_page_number_from_href(href: str, kind: str, city_id: str) -> int | None:
+    if not href:
+        return None
+    pattern = _build_city_path_regex(kind, city_id)
+    match = pattern.search(href)
+    if not match:
+        return None
+    page_no = match.group(1)
+    return 1 if page_no is None else int(page_no)
+
+
 def _pick_first_text(node: Node, selectors: list[str]) -> str:
     for selector in selectors:
         picked = node.css_first(selector)
@@ -202,21 +217,45 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
     return rows, debug
 
 
-def parse_max_page(html: str) -> int:
+def parse_max_page(html: str, kind: str, city_id: str) -> int:
     tree = HTMLParser(html)
     max_page = 1
-    for node in tree.css("a[href], span, li"):
-        txt = normalize_space(node.text(separator=" "))
-        if txt.isdigit():
-            max_page = max(max_page, int(txt))
     for href_node in tree.css("a[href]"):
-        href = href_node.attributes.get("href") or ""
+        href = normalize_space(href_node.attributes.get("href", ""))
+        page = _extract_page_number_from_href(href, kind, city_id)
+        if page is not None:
+            max_page = max(max_page, page)
+    return max_page
+
+
+def find_next_page_url(html: str, current_url: str, kind: str, city_id: str, current_page: int) -> str | None:
+    tree = HTMLParser(html)
+    current_page_plus_one = current_page + 1
+
+    for anchor in tree.css("a[href]"):
+        href = normalize_space(anchor.attributes.get("href", ""))
         if not href:
             continue
-        m = re.search(r"_(\d+)\.html", href)
-        if m:
-            max_page = max(max_page, int(m.group(1)))
-    return max_page
+        rel = normalize_space(anchor.attributes.get("rel", "")).lower()
+        class_name = normalize_space(anchor.attributes.get("class", "")).lower()
+        text = normalize_space(anchor.text(separator=" ")).lower()
+
+        has_next_hint = (
+            rel == "next"
+            or " next " in f" {class_name} "
+            or "pager-next" in class_name
+            or text in {"次へ", "次", "next", ">", "›", "≫"}
+        )
+        if not has_next_hint:
+            continue
+
+        page = _extract_page_number_from_href(href, kind, city_id)
+        if page is None or page < current_page_plus_one:
+            continue
+        return urljoin(current_url, href)
+
+    guessed_next_url = build_city_page_url(kind, city_id, current_page_plus_one)
+    return guessed_next_url
 
 
 def _write_fetch_error_debug(debug_dir: Path, out_dir: Path, kind: str, city_id: str, page: int, url: str, err: Exception) -> str:
@@ -293,6 +332,7 @@ def run_crawl(
     max_pages: int,
     retry_count: int,
     user_agent: str,
+    auto_max_threshold: int = 200,
 ) -> tuple[Path, Path, dict[str, Any]]:
     if mode != "list":
         raise ValueError(f"Unsupported mode: {mode}. Only mode=list is currently implemented.")
@@ -355,43 +395,45 @@ def run_crawl(
 
             if max_pages > 0:
                 total_pages = max_pages
+                auto_mode = False
+                stats["autopage"] = stats.get("autopage", [])
+                stats["autopage"].append({"kind": kind, "city_id": city_id, "mode": "fixed", "max_pages": total_pages})
             else:
-                detected_pages = parse_max_page(html)
+                detected_pages = parse_max_page(html, kind, city_id)
                 total_pages = max(detected_pages, 1)
+                auto_mode = total_pages <= auto_max_threshold
+                autopage_mode = "max_page_links" if auto_mode else "follow_next"
+                stats["autopage"] = stats.get("autopage", [])
+                stats["autopage"].append(
+                    {
+                        "kind": kind,
+                        "city_id": city_id,
+                        "mode": autopage_mode,
+                        "detected_max_page": total_pages,
+                        "threshold": auto_max_threshold,
+                    }
+                )
 
-            for page in range(1, total_pages + 1):
-                page_url = build_city_page_url(kind, city_id, page)
-                if page == 1:
-                    page_html = html
-                else:
-                    time.sleep(sleep_sec)
-                    try:
-                        page_html, from_cache_page = fetch_html(
-                            session,
-                            page_url,
-                            cache_dir,
-                            retry_count=retry_count,
-                            sleep_sec=sleep_sec,
-                        )
-                        if from_cache_page:
-                            stats["cache_hits"] += 1
-                    except Exception as err:  # noqa: BLE001
-                        debug_html = _write_fetch_error_debug(debug_dir, out_dir, kind, city_id, page, page_url, err)
-                        stats["errors"].append(
-                            {
-                                "kind": kind,
-                                "city_id": city_id,
-                                "page": page,
-                                "url": page_url,
-                                "error": f"fetch failed: {err}",
-                                "debug_html": debug_html,
-                            }
-                        )
-                        continue
+            page = 1
+            page_url = page1_url
+            page_html = html
+            cache_hit_for_log = from_cache
+            prev_detail_urls: set[str] | None = None
+            should_continue = True
+
+            while should_continue:
+                if max_pages > 0 and page > total_pages:
+                    break
+                if max_pages == 0 and auto_mode and page > total_pages:
+                    break
 
                 rows, parse_debug = parse_list_page(page_html, page_url, kind, city_id, page)
                 stats["pages_total"] += 1
                 all_rows.extend(rows)
+
+                detail_urls = {row.detail_url for row in rows if row.detail_url}
+                same_as_previous = prev_detail_urls is not None and detail_urls == prev_detail_urls
+                zero_rows = len(rows) == 0
 
                 if not rows:
                     debug_name = f"{kind}_{city_id}_page{page}.html"
@@ -411,10 +453,63 @@ def run_crawl(
 
                 print(
                     f"[INFO] kind={kind} city_id={city_id} page={page}/{total_pages} "
-                    f"rows={len(rows)} cache_hit={from_cache if page == 1 else from_cache_page}"
+                    f"rows={len(rows)} cache_hit={cache_hit_for_log}"
                 )
 
+                if max_pages == 0 and not auto_mode:
+                    if zero_rows:
+                        break
+                    if same_as_previous:
+                        break
+
+                prev_detail_urls = detail_urls
+
+                next_page = page + 1
+
+                if max_pages > 0:
+                    if next_page > total_pages:
+                        break
+                    next_url = build_city_page_url(kind, city_id, next_page)
+                elif auto_mode:
+                    if next_page > total_pages:
+                        break
+                    next_url = build_city_page_url(kind, city_id, next_page)
+                else:
+                    next_url = find_next_page_url(page_html, page_url, kind, city_id, page)
+                    if not next_url:
+                        break
+
                 time.sleep(sleep_sec)
+                try:
+                    next_html, from_cache_page = fetch_html(
+                        session,
+                        next_url,
+                        cache_dir,
+                        retry_count=retry_count,
+                        sleep_sec=sleep_sec,
+                    )
+                    if from_cache_page:
+                        stats["cache_hits"] += 1
+                except Exception as err:  # noqa: BLE001
+                    debug_html = _write_fetch_error_debug(debug_dir, out_dir, kind, city_id, next_page, next_url, err)
+                    stats["errors"].append(
+                        {
+                            "kind": kind,
+                            "city_id": city_id,
+                            "page": next_page,
+                            "url": next_url,
+                            "error": f"fetch failed: {err}",
+                            "debug_html": debug_html,
+                        }
+                    )
+                    break
+
+                page = next_page
+                page_url = next_url
+                page_html = next_html
+                cache_hit_for_log = from_cache_page
+
+                should_continue = True
 
     stats["rows_total"] = len(all_rows)
 
