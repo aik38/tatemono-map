@@ -32,18 +32,32 @@ tmp/
         <timestamp>/mansion_review_list_<timestamp>.csv            # 自動巡回(list)→CSV
         <timestamp>/stats.json
         <timestamp>/debug/*.html
+        combined/
+          mansion_review_list_COMBINED_<timestamp>.csv
+          mansion_review_master_UNIQ_<timestamp>.csv
       buildings_master/
-        buildings_master.csv              # 合算の最終成果物（固定名）
+        buildings_master.csv              # 既存 merge スクリプトの固定出力
+        <timestamp>/
+          buildings_master_raw.csv        # 空室(final.csv)の建物単位集約
+          buildings_master_merged.csv     # 空室+MR統合(重複除去前後を含む成果)
+          buildings_master.csv            # 次工程入力用の建物マスター
+          stats.json
   pdf_pipeline/
     work/                                 # PDF 一時作業領域
     out/
-      <timestamp>/final.csv               # PDF ZIP → CSV 成果物
+      <timestamp>/
+        final.csv                         # 空室リスト（抽出結果の集約。建物DBではない）
+        manifest.csv
+        qc_report.txt
+        stats.csv
+        per_pdf/
 ```
 
 ## 3. スクリプトと既定 I/O（固定）
 - `scripts/run_pdf_zip_latest.ps1`
   - 入力: `Downloads` の最新 `リアプロ-*.zip` / `ウラックス-*.zip`（必要に応じて `tmp/manual/inputs/pdf_zips/` に保管）
-  - 出力: `tmp/pdf_pipeline/out/<timestamp>/final.csv`
+  - 出力: `tmp/pdf_pipeline/out/<timestamp>/`（`final.csv`, `manifest.csv`, `qc_report.txt`, `stats.csv`, `per_pdf/`）
+  - 補足: `final.csv` は空室リスト（抽出結果の集約）であり、建物DBそのものではない。
 - `scripts/run_mansion_review_html.ps1`
   - 入力: `tmp/manual/inputs/html_saved/`
   - 出力: `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_<timestamp>.csv`
@@ -53,6 +67,10 @@ tmp/
 - `scripts/run_merge_building_masters.ps1`
   - 入力: `tmp/manual/inputs/buildings_master/buildings_master_primary.csv` + `buildings_master_secondary.csv`
   - 出力: `tmp/manual/outputs/buildings_master/buildings_master.csv`
+- `scripts/run_buildings_master_from_sources.ps1`
+  - 入力（既定）: `tmp/pdf_pipeline/out` の latest `final.csv` + `tmp/manual/outputs/mansion_review/combined` の latest `mansion_review_master_UNIQ_*.csv`
+  - 出力: `tmp/manual/outputs/buildings_master/<timestamp>/buildings_master_raw.csv`, `buildings_master_merged.csv`, `buildings_master.csv`, `stats.json`
+  - 重複除去キー: `building_name + address`（正規化）／mansion-review は `mr_detail_url_evidence` を保持
 
 ## 4. 迷わない実行手順（Quickstart と同一）
 
@@ -65,14 +83,25 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_mans
 pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_merge_building_masters.ps1") -RepoPath $REPO
 ```
 
+pdf_pipeline の最新 out を探す PowerShell 一発コマンド:
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$latestOut = Get-ChildItem (Join-Path $REPO "tmp\pdf_pipeline\out") -Directory |
+  Sort-Object LastWriteTime -Desc | Select-Object -First 1 -ExpandProperty FullName
+$latestOut
+```
+
 
 ## 4-1. データ収集（mansion-review）
 対象は `mansion-review.jp` の city 一覧（分譲=`mansion` / 賃貸=`chintai`）。
 
-- URL 1ページ目: `https://www.mansion-review.jp/{kind}/city/{city_id}.html`
-- URL 2ページ目以降: `https://www.mansion-review.jp/{kind}/city/{city_id}_{n}.html`（`n>=2`）
+- 型（分譲）: `https://www.mansion-review.jp/mansion/city/{city_id}.html`
+- 型（賃貸）: `https://www.mansion-review.jp/chintai/city/{city_id}.html`
+- 2ページ目以降: `.../{city_id}_2.html`, `.../{city_id}_3.html` の形式
 - `kind`: `mansion` または `chintai`
-- `city_id` 例: `1619=小倉北区`, `1616=門司区`
+- `city_id` 例（運用前提）: `1616=門司区`, `1619=小倉北区`
+- 期待ページ数の例: `mansion` は `1616=7`, `1619=14` / `chintai` は `1616=12`, `1619=52`
 
 目視確認用 URL（そのままブラウザで確認可）:
 
@@ -211,13 +240,40 @@ $uniq | Group-Object kind, city_id | Sort-Object Name | Select-Object Count, Nam
 例: `UNIQ ROWS = 2557`（`kind,city_id` 内訳はコマンド出力で確認）
 
 ### 補足（運用上の注意）
-- `cache_hit=True/False` はキャッシュ利用の有無。`False` は失敗ではなく「キャッシュ未命中でWeb取得した」という意味。
+- `cache_hit=True/False` はキャッシュ利用の有無。`False` は失敗ではなく「キャッシュ未命中でWeb取得した」という意味。`False` が多くても `rows_total > 0` なら収集成功。
 - `MaxPages=0` は自動検出モード。現状は誤検出リスクがあるため、当面は `MaxPages` 明示指定を推奨。
 - 実測ページ数 `7/14/12/52` は 2026-02-18 時点の目安で、将来増減しうる。
 
 ### 手動保存HTMLを使う場合
 - 既存の `run_mansion_review_html.ps1` は互換維持されており利用可能。
 - 手動保存するなら **HTML のみ** で十分（完全保存でも動くが不要）。
+
+## 4-2. 次の工程：空室リスト → 建物DB（重複なし）
+
+全体像（入力→出力）:
+1. **入力**: `tmp/pdf_pipeline/out/<timestamp>/final.csv`（空室リスト）と `tmp/manual/outputs/mansion_review/combined/mansion_review_master_UNIQ_<timestamp>.csv`
+2. **正規化**: `building_name` / `address` の空白・全角空白・大文字小文字を正規化
+3. **候補生成**: `final.csv` から建物単位候補（`buildings_master_raw.csv`）を生成
+4. **マージ**: mansion-review 側を突合し `building_name+address` キーで重複除去（証跡として `mr_detail_url_evidence` 保持）
+5. **建物マスターCSV**: `buildings_master.csv` を作成
+6. **SQLite取り込み → dist生成**: 既存の DB 取り込み/レンダリング手順（`docs/spec.md` と README Quickstart）に従って反映
+
+正本スクリプト（latest 自動検出）:
+- `scripts/run_buildings_master_from_sources.ps1`
+  - 既定入力: `tmp/pdf_pipeline/out` の latest `final.csv`、`tmp/manual/outputs/mansion_review/combined` の latest `mansion_review_master_UNIQ_*.csv`
+  - 既定出力: `tmp/manual/outputs/buildings_master/<timestamp>/buildings_master_raw.csv`, `buildings_master_merged.csv`, `buildings_master.csv`, `stats.json`
+
+一発コマンド:
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_buildings_master_from_sources.ps1") -RepoPath $REPO
+```
+
+既存互換フロー（固定名CSVを事前配置する運用）:
+- `scripts/run_merge_building_masters.ps1`
+  - 既定入力: `tmp/manual/inputs/buildings_master/buildings_master_primary.csv` + `buildings_master_secondary.csv`
+  - 既定出力: `tmp/manual/outputs/buildings_master/buildings_master.csv`
 
 ## 5. GitHub ↔ ローカル同期（repo 外から実行可）
 
