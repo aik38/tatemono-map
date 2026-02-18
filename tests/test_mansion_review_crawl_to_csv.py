@@ -1,6 +1,18 @@
+import importlib.util
 from pathlib import Path
+import sys
 
-from scripts.mansion_review_crawl_to_csv import BASE_URL, parse_list_page, parse_max_page
+import pytest
+
+MODULE_PATH = Path("scripts/mansion_review_crawl_to_csv.py")
+SPEC = importlib.util.spec_from_file_location("mansion_review_crawl_to_csv", MODULE_PATH)
+assert SPEC and SPEC.loader
+crawl = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = crawl
+SPEC.loader.exec_module(crawl)
+BASE_URL = crawl.BASE_URL
+parse_list_page = crawl.parse_list_page
+parse_max_page = crawl.parse_max_page
 
 
 def _read_fixture(name: str) -> str:
@@ -51,3 +63,64 @@ def test_parse_list_page_extracts_required_fields_and_urljoin() -> None:
 def test_parse_max_page_from_fixture() -> None:
     html = _read_fixture("chintai_1619_page1_min.html")
     assert parse_max_page(html) == 55
+
+
+def test_parse_max_page_ignores_empty_href_and_href_without_value() -> None:
+    html = """
+    <html><body>
+      <ul class="pagination">
+        <li><a href>Prev</a></li>
+        <li><a href="">1</a></li>
+        <li><a href="/chintai/city/1619_3.html">3</a></li>
+      </ul>
+    </body></html>
+    """
+    assert parse_max_page(html) == 3
+
+
+def test_parse_max_page_without_pagination_returns_one() -> None:
+    html = "<html><body><div>no pagination</div></body></html>"
+    assert parse_max_page(html) == 1
+
+
+def test_run_crawl_with_fixed_max_pages_skips_parse_max_page(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    calls: list[str] = []
+
+    def fake_parse_max_page(_html: str) -> int:
+        calls.append("called")
+        raise AssertionError("parse_max_page must not be called when max_pages > 0")
+
+    class FakeSession:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+
+    def fake_fetch_html(*_args, **_kwargs):
+        return (
+            """
+            <html><body>
+              <section class="property-card">
+                <h2>dummy</h2><a href="/chintai/1">detail</a><dd class="address">addr</dd>
+              </section>
+            </body></html>
+            """,
+            False,
+        )
+
+    monkeypatch.setattr(crawl, "parse_max_page", fake_parse_max_page)
+    monkeypatch.setattr(crawl.requests, "Session", FakeSession)
+    monkeypatch.setattr(crawl, "fetch_html", fake_fetch_html)
+
+    _out_dir, _csv, stats = crawl.run_crawl(
+        city_ids=["1619"],
+        kinds=["chintai"],
+        mode="list",
+        out_root=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        sleep_sec=0,
+        max_pages=1,
+        retry_count=0,
+        user_agent="ua",
+    )
+
+    assert calls == []
+    assert stats["pages_total"] == 1
