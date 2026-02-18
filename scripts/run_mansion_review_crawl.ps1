@@ -39,4 +39,8 @@ if (-not (Test-Path $PY)) { throw ".venv python not found: $PY. Run scripts/setu
 <#
 Example:
 pwsh scripts/run_mansion_review_crawl.ps1 -CityIds "1616,1619" -Kinds "mansion,chintai" -Mode list -SleepSec 0.7 -MaxPages 0
+
+Notes:
+-MaxPages 0 : 自動ページング（ページネーションリンク推定。異常値時は次へ追跡で安全停止）
+-MaxPages N : 明示 N ページまで収集（既知ページ数の確実運用）
 #>

@@ -68,9 +68,23 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_merg
 
 ## 4-1. mansion-review 推奨運用（全ページ自動収集）
 - **基本は `run_mansion_review_crawl.ps1` を使った自動収集**。小倉北区/門司区の 1 ページ目〜最終ページまで巡回し、一覧カードを構造化して CSV 化する。
-- `-MaxPages 0` の場合は 1 ページ目のページネーションから最終ページを自動推定する。
+- `-MaxPages 0` の場合は 1 ページ目の**ページネーションリンク**から最終ページを自動推定する（数字テキストは見ない）。推定値が異常に大きい場合は、`次へ` リンク追跡 + 同一ページ検知で安全停止する。
 - `stats.json` で `pages_total` / `rows_total` / `zero_extract_pages` を確認する。
 - `zero_extract_pages` が 1 件でもある場合は `debug/*.html` を見てセレクタ不一致を調査する。
+
+### 実行例（推奨: 自動）
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_mansion_review_crawl.ps1") `
+  -RepoPath $REPO -CityIds "1616,1619" -Kinds "mansion,chintai" -Mode list -SleepSec 0.7 -MaxPages 0
+```
+
+### 実行例（確実: 明示ページ数）
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_mansion_review_crawl.ps1") `
+  -RepoPath $REPO -CityIds "1616,1619" -Kinds "mansion,chintai" -Mode list -SleepSec 0.7 -MaxPages 52
+```
+
+- 既知のページ数（例: 7 / 14 / 12 / 52）がある運用では、`-MaxPages` 明示指定が最も確実。
 
 ### 手動保存HTMLを使う場合
 - 既存の `run_mansion_review_html.ps1` は互換維持されており利用可能。
