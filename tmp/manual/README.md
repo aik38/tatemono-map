@@ -23,5 +23,5 @@
   - PDF ZIP → CSV の成果物。
 
 ## 追跡ポリシー
-- `tmp/manual` / `tmp/pdf_pipeline` は `.gitkeep` 以外原則 `.gitignore` 対象。
+- `tmp/manual/README.md` と `.gitkeep` は追跡可。`tmp/manual` / `tmp/pdf_pipeline` の生成物は原則 `.gitignore` 対象。
 - 詳細な実行手順は `docs/runbook.md` を正本とする。
