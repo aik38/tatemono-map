@@ -140,6 +140,50 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_buil
   -OverridesCsv (Join-Path $OUT "buildings_master_overrides.template.csv")
 ```
 
+重複統合を「削除なし」で安全に再現する一発手順（UI編集CSV → overrides/alias生成 → 再生成）:
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$OUT = Get-ChildItem (Join-Path $REPO "tmp\manual\outputs\buildings_master") -Directory |
+  Sort-Object LastWriteTime -Desc | Select-Object -First 1 -ExpandProperty FullName
+$UI = Join-Path $OUT "buildings_master_ui_edited.csv"  # merge_to_evidence 列を編集済みのCSV
+
+python (Join-Path $REPO "tools\merge_overrides_from_ui.py") `
+  --input-csv $UI `
+  --overrides-csv (Join-Path $OUT "buildings_master_overrides.csv") `
+  --alias-csv (Join-Path $OUT "building_key_aliases.csv")
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_buildings_master_from_sources.ps1") `
+  -RepoPath $REPO `
+  -OutDir $OUT `
+  -OverridesCsv (Join-Path $OUT "buildings_master_overrides.csv")
+
+python -m tatemono_map.normalize.building_summaries `
+  --db-path (Join-Path $REPO "data\public\public.sqlite3") `
+  --alias-csv (Join-Path $OUT "building_key_aliases.csv")
+
+# 任意: 静的HTML再生成
+python -m tatemono_map.render.build --db-path (Join-Path $REPO "data\public\public.sqlite3") --output-dir (Join-Path $REPO "dist") --version all
+```
+
+DoD確認（統合対象の listings 件数が統合前後で一致、または増加）:
+
+```powershell
+$DB = Join-Path $REPO "data\public\public.sqlite3"
+$OLD = "old_key_1","old_key_2"   # 負け側キー群
+$NEW = "new_key"                   # 勝者キー
+
+sqlite3 $DB @"
+SELECT
+  (SELECT COUNT(*) FROM listings WHERE building_key IN ('old_key_1','old_key_2')) AS before_old_total,
+  (SELECT COUNT(*) FROM listings WHERE building_key = 'new_key') AS before_new_total,
+  (SELECT COUNT(*) FROM listings WHERE building_key IN ('old_key_1','old_key_2','new_key')) AS union_total;
+"@
+
+# alias 適用で building_summaries を再構築した後、new_key 側の vacancy_count が union_total 以上ならOK
+sqlite3 $DB "SELECT building_key, vacancy_count FROM building_summaries WHERE building_key='new_key';"
+```
+
 Google Geocoding 補強（任意）:
 
 ```powershell

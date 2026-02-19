@@ -295,6 +295,7 @@ def run(pdf_csv: Path, mr_csv: Path, out_dir: Path, overrides_csv: Path | None =
             {
                 "source": str(row["source"]),
                 "evidence_url_or_id": str(row["evidence_url_or_id"]),
+                "building_key": str(row["building_key"]),
                 "building_name_override": "",
                 "address_override": "",
                 "ignore_flag": "",
@@ -302,20 +303,27 @@ def run(pdf_csv: Path, mr_csv: Path, out_dir: Path, overrides_csv: Path | None =
             }
         )
 
-    overrides_map: dict[tuple[str, str], dict[str, str]] = {}
+    overrides_map_by_evidence: dict[tuple[str, str], dict[str, str]] = {}
+    overrides_map_by_key: dict[tuple[str, str], dict[str, str]] = {}
     if overrides_csv and overrides_csv.exists():
         for row in _load_csv(overrides_csv):
             src = (row.get("source") or "").strip()
             ev = (row.get("evidence_url_or_id") or "").strip()
+            bkey = (row.get("building_key") or "").strip()
             if src and ev:
-                overrides_map[(src, ev)] = row
+                overrides_map_by_evidence[(src, ev)] = row
+            if src and bkey:
+                overrides_map_by_key[(src, bkey)] = row
 
-    primary_order = {"mansion_review": 0, "pdf_pipeline": 1}
+    primary_order = {"pdf_pipeline": 0, "mansion_review": 1}
 
     merged_candidates: dict[str, dict[str, object]] = {}
     for row in raw_rows:
-        key = (str(row["source"]), str(row["evidence_url_or_id"]))
-        override = overrides_map.get(key)
+        source = str(row["source"])
+        key = (source, str(row["evidence_url_or_id"]))
+        override = overrides_map_by_evidence.get(key)
+        if not override:
+            override = overrides_map_by_key.get((source, str(row["building_key"])))
         if override and (override.get("ignore_flag") or "").strip().lower() in {"1", "true", "yes", "y"}:
             continue
 
@@ -431,12 +439,24 @@ def run(pdf_csv: Path, mr_csv: Path, out_dir: Path, overrides_csv: Path | None =
         [
             "source",
             "evidence_url_or_id",
+            "building_key",
             "building_name_override",
             "address_override",
             "ignore_flag",
             "note",
         ],
-        overrides_rows,
+        [
+            {
+                "source": row["source"],
+                "evidence_url_or_id": row["evidence_url_or_id"],
+                "building_key": row["building_key"],
+                "building_name_override": row["building_name_override"],
+                "address_override": row["address_override"],
+                "ignore_flag": row["ignore_flag"],
+                "note": row["note"],
+            }
+            for row in overrides_rows
+        ],
     )
     _write_csv(
         out_dir / "buildings_master_merged_primary_wins.csv",

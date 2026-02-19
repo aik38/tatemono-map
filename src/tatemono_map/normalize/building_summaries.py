@@ -1,13 +1,33 @@
 from __future__ import annotations
 
 import argparse
+import csv
+from pathlib import Path
 
 from tatemono_map.db.repo import connect, replace_building_summary
 from tatemono_map.util.text import normalize_text
 
 
-def rebuild(db_path: str) -> int:
+def _load_alias_map(alias_csv: str) -> dict[str, str]:
+    if not alias_csv:
+        return {}
+    path = Path(alias_csv)
+    if not path.exists():
+        raise FileNotFoundError(f"alias csv not found: {alias_csv}")
+    with path.open("r", encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames is None:
+            raise ValueError(f"CSV header missing: {alias_csv}")
+        return {
+            (row.get("old_building_key") or "").strip(): (row.get("new_building_key") or "").strip()
+            for row in reader
+            if (row.get("old_building_key") or "").strip() and (row.get("new_building_key") or "").strip()
+        }
+
+
+def rebuild(db_path: str, alias_csv: str = "") -> int:
     conn = connect(db_path)
+    alias_map = _load_alias_map(alias_csv)
 
     conn.execute(
         """
@@ -40,7 +60,8 @@ def rebuild(db_path: str) -> int:
     ).fetchall()
     grouped: dict[str, list] = {}
     for row in rows:
-        grouped.setdefault(row["building_key"], []).append(row)
+        canonical_key = alias_map.get(row["building_key"], row["building_key"])
+        grouped.setdefault(canonical_key, []).append(row)
 
     count = 0
     for building_key, items in grouped.items():
@@ -81,8 +102,9 @@ def rebuild(db_path: str) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db-path", default="data/tatemono_map.sqlite3")
+    parser.add_argument("--alias-csv", default="")
     args = parser.parse_args()
-    n = rebuild(args.db_path)
+    n = rebuild(args.db_path, alias_csv=args.alias_csv)
     print(f"rebuilt building_summaries: {n}")
 
 
