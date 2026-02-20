@@ -5,8 +5,18 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repo = (Resolve-Path $RepoPath).Path
+if (-not (Test-Path (Join-Path $repo ".git"))) {
+  throw "Not a git repository: $repo"
+}
+if (-not (Test-Path (Join-Path $repo "pyproject.toml"))) {
+  throw "pyproject.toml not found. Refusing to run outside tatemono-map repo: $repo"
+}
+
 $venvPython = Join-Path $repo ".venv\Scripts\python.exe"
-$PY = if (Test-Path $venvPython) { $venvPython } else { "python" }
+if (-not (Test-Path $venvPython)) {
+  throw "Python executable not found: $venvPython`nRun scripts/setup.ps1 first."
+}
+
 $env:PYTHONPATH = Join-Path $repo "src"
 
 $dbMain = Join-Path $repo "data\tatemono_map.sqlite3"
@@ -14,17 +24,15 @@ $dbPublic = Join-Path $repo "data\public\public.sqlite3"
 $aliasCsv = Join-Path $repo "tmp\manual\inputs\building_key_aliases.csv"
 $masterCsv = Join-Path $repo "tmp\manual\inputs\buildings_master.csv"
 
-& $PY -m tatemono_map.normalize.building_summaries `
+& $venvPython -m tatemono_map.normalize.building_summaries `
   --db-path $dbMain `
   --alias-csv $aliasCsv `
   --buildings-master-csv $masterCsv
 if ($LASTEXITCODE -ne 0) { throw "normalize.building_summaries failed" }
 
-$env:TATEMONO_MAIN_DB = $dbMain
-$env:TATEMONO_PUBLIC_DB = $dbPublic
-
-& $PY - <<'PY'
+$pyScript = @'
 import os
+import re
 import sqlite3
 from pathlib import Path
 
@@ -52,20 +60,39 @@ with sqlite3.connect(public_db) as conn:
         raise SystemExit("failed to read building_summaries schema from source db")
 
     conn.execute("DROP TABLE IF EXISTS main.building_summaries")
-    import re
-    create_main_sql = re.sub(r"^CREATE TABLE(?: IF NOT EXISTS)?\s+building_summaries", "CREATE TABLE main.building_summaries", create_sql[0], count=1)
+    create_main_sql = re.sub(
+        r"^CREATE TABLE(?: IF NOT EXISTS)?\\s+building_summaries",
+        "CREATE TABLE main.building_summaries",
+        create_sql[0],
+        count=1,
+    )
     conn.execute(create_main_sql)
     conn.execute("INSERT INTO main.building_summaries SELECT * FROM src.building_summaries")
     conn.execute("DETACH DATABASE src")
     conn.commit()
 
-with sqlite3.connect(public_db) as conn:
-    listings = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0] if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='listings'").fetchone() else 0
-    distinct_keys = conn.execute("SELECT COUNT(DISTINCT building_key) FROM listings").fetchone()[0] if conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='listings'").fetchone() else 0
-    summaries = conn.execute("SELECT COUNT(*) FROM building_summaries").fetchone()[0]
+with sqlite3.connect(main_db) as conn:
+    listings_count_main = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
+    summaries_count_main = conn.execute("SELECT COUNT(*) FROM building_summaries").fetchone()[0]
 
-print(f"listings={listings}")
-print(f"distinct_building_key={distinct_keys}")
-print(f"building_summaries={summaries}")
-PY
-if ($LASTEXITCODE -ne 0) { throw "public.sqlite3 copy failed" }
+with sqlite3.connect(public_db) as conn:
+    summaries_count_public = conn.execute("SELECT COUNT(*) FROM building_summaries").fetchone()[0]
+
+print(f"listings count (main): {listings_count_main}")
+print(f"building_summaries count (main): {summaries_count_main}")
+print(f"building_summaries count (public): {summaries_count_public}")
+'@
+
+$env:TATEMONO_MAIN_DB = $dbMain
+$env:TATEMONO_PUBLIC_DB = $dbPublic
+$tempPy = Join-Path $env:TEMP ("publish_public_{0}.py" -f ([guid]::NewGuid().ToString("N")))
+Set-Content -LiteralPath $tempPy -Value $pyScript -Encoding UTF8
+try {
+  & $venvPython $tempPy
+  if ($LASTEXITCODE -ne 0) { throw "public.sqlite3 copy failed" }
+}
+finally {
+  if (Test-Path -LiteralPath $tempPy) {
+    Remove-Item -LiteralPath $tempPy -Force
+  }
+}

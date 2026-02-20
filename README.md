@@ -41,7 +41,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\sync.ps1" -RepoPath $REPO
 
 ### 2) dist を生成（MVP 最短本線）
 ```powershell
-python -m tatemono_map.render.build --db-path "$REPO\data\public\public.sqlite3" --output-dir "$REPO\dist" --version all
+python -m tatemono_map.render.build --db-path "$REPO\data\public\public.sqlite3" --output-dir "$REPO\dist" --version v1
 ```
 
 ### 3) 生成物をローカルで確認
@@ -52,6 +52,11 @@ Start-Process "$REPO\dist\index.html"
 ### 4) 公開先（GitHub Pages）
 - 公開対象は `dist/` 生成物です（公開方法の詳細は runbook / リポジトリ設定に従う）。
 - Pages の運用詳細は [`docs/runbook.md`](docs/runbook.md) を参照。
+
+### UIテンプレ方針（運用固定）
+- GitHub Pages のルート(`/`)は **v1固定**（`templates`）で運用します。
+- `--version all` は `dist/` 直下に v2（`templates_v2`）が出るため、本番運用では使いません。
+- v2 は開発確認用です。必要時のみローカルで `--version v2` を使って確認してください。
 
 ---
 
@@ -163,7 +168,7 @@ python -m tatemono_map.normalize.building_summaries `
   --alias-csv (Join-Path $OUT "building_key_aliases.csv")
 
 # 任意: 静的HTML再生成
-python -m tatemono_map.render.build --db-path (Join-Path $REPO "data\public\public.sqlite3") --output-dir (Join-Path $REPO "dist") --version all
+python -m tatemono_map.render.build --db-path (Join-Path $REPO "data\public\public.sqlite3") --output-dir (Join-Path $REPO "dist") --version v1
 ```
 
 DoD確認（統合対象の listings 件数が統合前後で一致、または増加）:
@@ -290,3 +295,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\publish_
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "push.ps1") -RepoPath $REPO -Message "chore: publish updated public sqlite"
 ```
+
+## 公開DB差し替え（alias反映）最短手順
+1. `tmp/manual/inputs/buildings_master.csv` と `tmp/manual/inputs/building_key_aliases.csv` を配置
+2. `scripts/publish_public.ps1` を実行して `data/public/public.sqlite3` を更新
+3. `push.ps1` で commit/push（`public.sqlite3` と workflow/コード変更がある場合）
+4. GitHub Actions が `dist` をビルドして Pages へ deploy

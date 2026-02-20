@@ -159,7 +159,8 @@ git status
 
 $gitStatus = git status --porcelain
 if (-not $gitStatus) {
-    throw 'No changes to commit.'
+    Write-Host 'No changes to commit.'
+    exit 0
 }
 
 git add -A
