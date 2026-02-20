@@ -270,3 +270,25 @@ Get-ChildItem (Join-Path $env:USERPROFILE "*") -Directory | Where-Object Name -l
 ```
 
 `$REPO\.git` と `$REPO\pyproject.toml` が両方 `True` になるパスだけを使ってください。
+
+## MVP v1（建物網羅）
+`tmp/manual/inputs/buildings_master.csv` を建物の母集団（空室0件を含む）として `building_summaries` を再構築し、`tmp/manual/inputs/building_key_aliases.csv` を名寄せ辞書として適用します。`dist` は `building_summaries` から生成されます。
+
+PowerShell（推奨: 一発実行）:
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\mvp_v1_rebuild_dist.ps1") -RepoPath $REPO
+```
+
+PowerShell（個別コマンド）:
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$env:PYTHONPATH = Join-Path $REPO "src"
+python -m tatemono_map.normalize.building_summaries `
+  --db-path (Join-Path $REPO "data\tatemono_map.sqlite3") `
+  --alias-csv (Join-Path $REPO "tmp\manual\inputs\building_key_aliases.csv") `
+  --buildings-master-csv (Join-Path $REPO "tmp\manual\inputs\buildings_master.csv")
+python -m tatemono_map.render.build --db-path (Join-Path $REPO "data\tatemono_map.sqlite3") --output-dir (Join-Path $REPO "dist") --version all
+```
