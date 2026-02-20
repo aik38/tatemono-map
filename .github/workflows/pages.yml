@@ -62,7 +62,7 @@ jobs:
         run: |
           rm -rf dist
           # ✅ ここが重要：public DBを明示してビルド
-          python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist
+          python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v1
           touch dist/.nojekyll
 
       - name: Basic sanity check
@@ -107,3 +107,4 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
