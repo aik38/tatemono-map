@@ -61,7 +61,7 @@ jobs:
           TATEMONO_MAP_LINE_CTA_URL: ${{ vars.TATEMONO_MAP_LINE_CTA_URL }}
         run: |
           rm -rf dist
-          # ✅ ここが重要：public DBを明示してビルド
+          # Build v1 only to keep Pages root UI stable
           python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v1
           touch dist/.nojekyll
 
@@ -70,7 +70,7 @@ jobs:
           test -f dist/index.html
           test -d dist/b
 
-      # ✅ 「PagesのHTMLが0件」を再発させないための最重要チェック
+      # Guard against empty building list deployments
       - name: Assert building list includes entries
         run: |
           python - <<'PY'

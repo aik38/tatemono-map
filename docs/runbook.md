@@ -56,6 +56,22 @@ tmp/
         per_pdf/
 ```
 
+## 2-1. 公開用DB更新（alias反映）
+- 公開DBは `data/public/public.sqlite3`（tracked）を正とする。
+- `scripts/publish_public.ps1` は以下を順に実施する。
+  1. repo 妥当性チェック（`.git` / `pyproject.toml`）
+  2. `\.venv\Scripts\python.exe` を利用（未作成なら `scripts/setup.ps1` を案内して停止）
+  3. `data/tatemono_map.sqlite3` に対して `python -m tatemono_map.normalize.building_summaries --alias-csv --buildings-master-csv` を実行
+  4. `building_summaries` テーブルのみを main DB から public DB へ `DROP -> CREATE -> INSERT` でコピー
+  5. 件数ログ（`listings count (main)` / `building_summaries count (main)` / `building_summaries count (public)`）を表示
+
+再現コマンド（PowerShell 7）:
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\publish_public.ps1") -RepoPath $REPO
+```
+
 ## 3. スクリプトと既定 I/O（固定）
 - `scripts/run_pdf_zip_latest.ps1`
   - 入力: `Downloads` の最新 `リアプロ-*.zip` / `ウラックス-*.zip`（必要に応じて `tmp/manual/inputs/pdf_zips/` に保管）
@@ -297,6 +313,17 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "sync.ps1") -Repo
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "push.ps1") -RepoPath $REPO -Message "your commit message" -SensitiveColumnPolicy strict
 ```
+
+## 5-1. 公開更新（publish_public → Actions deploy → スマホ確認）
+
+- GitHub Pages の `dist` ビルドと deploy は **Actions が実施**する。`dist/` は git 管理外（`.gitignore`）のため、手元で生成した `dist` を commit しない。
+
+手順（毎回同じ）:
+1. `tmp/manual/inputs/buildings_master.csv` と `tmp/manual/inputs/building_key_aliases.csv` を更新
+2. `scripts/publish_public.ps1` を実行して `data/public/public.sqlite3` を更新
+3. `push.ps1` で commit/push（`public.sqlite3` と必要なコード変更のみ）
+4. GitHub Actions `pages.yml` が `--version v1` で `dist` をビルドし Pages deploy
+5. デプロイ後にスマホで `/`（建物一覧）を開き、UI崩れがないことを確認
 
 ## 6. 事故防止ガード
 - `.gitignore` で `secrets/**`, `.tmp/**`, ルート `/*.csv`, `tmp/**（.gitkeep と tmp/manual/README.md のみ例外）` を無視。
