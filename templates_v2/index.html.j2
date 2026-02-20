@@ -9,7 +9,7 @@
   .intro { padding: 26px; margin-bottom: 18px; }
   .intro p { margin: 8px 0 0; color: var(--muted); }
   .controls { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; margin-bottom: 16px; }
-  .counts { margin: -2px 0 14px; color: var(--muted); font-size: .92rem; min-height: 1.2em; }
+  .counts { margin: -2px 0 14px; color: var(--muted); font-size: .92rem; white-space: nowrap; }
   .counts strong { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
   .field { display: grid; gap: 6px; }
   .field label { font-size: .82rem; color: var(--muted); font-weight: 600; }
@@ -61,7 +61,7 @@
     </div>
   </section>
 
-  <p id="result-counts" class="counts" aria-live="polite">表示中 <strong id="result-count-visible"></strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant"></strong></p>
+  <p id="result-counts" class="counts" aria-live="polite">表示中 <strong id="result-count-visible">{{ total_buildings_formatted }}件</strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant">{{ total_vacant_formatted }}件</strong></p>
 
   <ul id="building-list" aria-live="polite">
     {% for b in buildings %}
@@ -186,13 +186,18 @@
     });
 
     const visibleVacancies = visible.reduce((sum, card) => sum + card.vacancies, 0);
-    visibleCount.textContent = `${formatCount(visible.length)}件`;
-    totalCount.textContent = `（全${formatCount(totalBuildings)}件）`;
-    vacantCount.textContent = `${formatCount(visibleVacancies)}件`;
-    if (currentQuery === '') {
-      visibleCount.textContent = `${formatCount(totalBuildings)}件`;
-      totalCount.textContent = '';
-      vacantCount.textContent = `${formatCount(totalVacancies)}件`;
+    const nextVisible = currentQuery === '' ? `${formatCount(totalBuildings)}件` : `${formatCount(visible.length)}件`;
+    const nextTotal = currentQuery === '' ? '' : `（全${formatCount(totalBuildings)}件）`;
+    const nextVacant = currentQuery === '' ? `${formatCount(totalVacancies)}件` : `${formatCount(visibleVacancies)}件`;
+
+    if (visibleCount.textContent !== nextVisible) {
+      visibleCount.textContent = nextVisible;
+    }
+    if (totalCount.textContent !== nextTotal) {
+      totalCount.textContent = nextTotal;
+    }
+    if (vacantCount.textContent !== nextVacant) {
+      vacantCount.textContent = nextVacant;
     }
     empty.hidden = visible.length !== 0;
   }

@@ -99,7 +99,19 @@ def _build_dist_version(
     index_tpl = env.get_template("index.html.j2")
     building_tpl = env.get_template("building.html.j2")
 
-    (output_dir / "index.html").write_text(index_tpl.render(buildings=buildings), encoding="utf-8")
+    total_buildings = len(buildings)
+    total_vacant = sum((b.get("vacancy_count") or 0) for b in buildings)
+
+    (output_dir / "index.html").write_text(
+        index_tpl.render(
+            buildings=buildings,
+            total_buildings=total_buildings,
+            total_vacant=total_vacant,
+            total_buildings_formatted=f"{total_buildings:,}",
+            total_vacant_formatted=f"{total_vacant:,}",
+        ),
+        encoding="utf-8",
+    )
 
     for b in buildings:
         maps_url = None

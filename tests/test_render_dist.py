@@ -221,9 +221,9 @@ def test_build_dist_versions_v2_index_search_update_pipeline(tmp_path):
     assert "function update()" in index_v2
     assert "const normalizeText" in index_v2
     assert "currentQuery = normalizeText(input.value)" in index_v2
-    assert "visibleCount.textContent =" in index_v2
-    assert "totalCount.textContent =" in index_v2
-    assert "vacantCount.textContent =" in index_v2
+    assert "if (visibleCount.textContent !== nextVisible)" in index_v2
+    assert "if (totalCount.textContent !== nextTotal)" in index_v2
+    assert "if (vacantCount.textContent !== nextVacant)" in index_v2
     assert "visible.forEach((card) => {" in index_v2
     assert "list.appendChild(card.el)" in index_v2
     assert "input.addEventListener('change', update)" in index_v2
@@ -246,7 +246,31 @@ def test_build_dist_versions_v2_index_counts_container_has_cls_guard(tmp_path):
 
     index_v2 = (out / "index.html").read_text(encoding="utf-8")
     assert 'id="result-counts"' in index_v2
-    assert '.counts { margin: -2px 0 14px; color: var(--muted); font-size: .92rem; min-height: 1.2em; }' in index_v2
+    assert '.counts { margin: -2px 0 14px; color: var(--muted); font-size: .92rem; white-space: nowrap; }' in index_v2
+
+
+def test_build_dist_versions_v2_index_renders_counts_with_initial_values(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("初期件数A", "福岡県北九州市小倉北区", 70000, 25.0, "1K", "2026-11-01", "ulucks", "initial-a"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("初期件数B", "福岡県北九州市門司区", 73000, 26.0, "1DK", "2026-11-02", "ulucks", "initial-b"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+    assert 'id="result-count-visible">2件</strong>' in index_v2
+    assert 'id="result-count-vacant">2件</strong>' in index_v2
+    assert '.counts { margin: -2px 0 14px; color: var(--muted); font-size: .92rem; white-space: nowrap; }' in index_v2
+
 
 def test_build_dist_versions_v2_index_has_search_ranking_logic(tmp_path):
     db = tmp_path / "test.sqlite3"
