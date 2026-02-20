@@ -52,6 +52,10 @@ tmp/**
 !tmp/pdf_pipeline/out/
 !tmp/pdf_pipeline/out/.gitkeep
 
+# raw/manual source inputs must stay local-only
+/tmp/manual/ulucks_pdf_raw.csv
+/tmp/manual/inputs/raw/**
+
 # generated CSVs in repository root
 /*.csv
 

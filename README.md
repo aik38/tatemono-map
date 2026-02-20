@@ -271,24 +271,22 @@ Get-ChildItem (Join-Path $env:USERPROFILE "*") -Directory | Where-Object Name -l
 
 `$REPO\.git` と `$REPO\pyproject.toml` が両方 `True` になるパスだけを使ってください。
 
-## MVP v1（建物網羅）
-`tmp/manual/inputs/buildings_master.csv` を建物の母集団（空室0件を含む）として `building_summaries` を再構築し、`tmp/manual/inputs/building_key_aliases.csv` を名寄せ辞書として適用します。`dist` は `building_summaries` から生成されます。
+## 公開用DB（sanitized artifact）
+GitHub Pages の公開元データは **`data/public/public.sqlite3` のみ** です。Pages ビルドもこの DB を直接読み込みます。
 
-PowerShell（推奨: 一発実行）:
+- `data/public/public.sqlite3` はコミット対象（公開用成果物）
+- 生データ（PDF / 元URL / 収集直後CSV など）はコミット禁止
+
+## 公開更新（1コマンド）
+`tmp/manual/inputs/buildings_master.csv` と `tmp/manual/inputs/building_key_aliases.csv` を使って `building_summaries` を再構築し、`data/public/public.sqlite3` へ反映するには以下を実行します。
 
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\mvp_v1_rebuild_dist.ps1") -RepoPath $REPO
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\publish_public.ps1") -RepoPath $REPO
 ```
 
-PowerShell（個別コマンド）:
+その後に push:
 
 ```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-$env:PYTHONPATH = Join-Path $REPO "src"
-python -m tatemono_map.normalize.building_summaries `
-  --db-path (Join-Path $REPO "data\tatemono_map.sqlite3") `
-  --alias-csv (Join-Path $REPO "tmp\manual\inputs\building_key_aliases.csv") `
-  --buildings-master-csv (Join-Path $REPO "tmp\manual\inputs\buildings_master.csv")
-python -m tatemono_map.render.build --db-path (Join-Path $REPO "data\tatemono_map.sqlite3") --output-dir (Join-Path $REPO "dist") --version all
+pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "push.ps1") -RepoPath $REPO -Message "chore: publish updated public sqlite"
 ```
