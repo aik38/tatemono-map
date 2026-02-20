@@ -231,7 +231,7 @@ def test_build_dist_versions_v2_index_search_update_pipeline(tmp_path):
 
 
 
-def test_build_dist_versions_v2_index_counts_placeholder_present(tmp_path):
+def test_build_dist_versions_v2_index_counts_container_has_cls_guard(tmp_path):
     db = tmp_path / "test.sqlite3"
     out = tmp_path / "dist"
     conn = connect(db)
@@ -246,8 +246,7 @@ def test_build_dist_versions_v2_index_counts_placeholder_present(tmp_path):
 
     index_v2 = (out / "index.html").read_text(encoding="utf-8")
     assert 'id="result-counts"' in index_v2
-    assert 'id="result-count-visible">—件</strong>' in index_v2
-    assert 'id="result-count-vacant">—件</strong>' in index_v2
+    assert '.counts { margin: -2px 0 14px; color: var(--muted); font-size: .92rem; min-height: 1.2em; }' in index_v2
 
 def test_build_dist_versions_v2_index_has_search_ranking_logic(tmp_path):
     db = tmp_path / "test.sqlite3"
