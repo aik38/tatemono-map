@@ -56,12 +56,15 @@ Get-ChildItem $extractUlucks -Recurse -File -Filter *.pdf | ForEach-Object {
 & $PY -m tatemono_map.cli.pdf_batch_run --realpro-dir $realproPdfs --ulucks-dir $ulucksPdfs --out-dir $out --qc-mode $QcMode
 
 $finalCsv = Join-Path $out "final.csv"
+$masterImportCsv = Join-Path $out "master_import.csv"
 $statsCsv = Join-Path $out "stats.csv"
 if (-not (Test-Path $finalCsv)) { throw "final.csv was not generated: $finalCsv" }
+Copy-Item -Path $finalCsv -Destination $masterImportCsv -Force
 if (-not (Test-Path $statsCsv)) { throw "stats.csv was not generated: $statsCsv" }
 
 $finalCount = (Import-Csv $finalCsv).Count
 $warnCount = ((Import-Csv $statsCsv) | Where-Object { $_.status -eq "WARN" }).Count
 "[OK] out=$out"
+"[OK] files=final.csv, master_import.csv, manifest.csv, qc_report.txt, stats.csv"
 "[OK] final_rows=$finalCount"
 "[OK] stats_warn_files=$warnCount"

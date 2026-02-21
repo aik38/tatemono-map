@@ -88,7 +88,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\publish_
   - 入力: `tmp/manual/inputs/buildings_master/buildings_master_primary.csv` + `buildings_master_secondary.csv`
   - 出力: `tmp/manual/outputs/buildings_master/buildings_master.csv`
 - `scripts/run_buildings_master_from_sources.ps1`
-  - 入力（既定）: `tmp/pdf_pipeline/out` の latest `final.csv` + `tmp/manual/outputs/mansion_review/combined` の latest `mansion_review_master_UNIQ_*.csv`
+  - 入力（既定）: `tmp/pdf_pipeline/out` の latest `master_import.csv`（無ければ `final.csv`） + `tmp/manual/outputs/mansion_review/combined` の latest `mansion_review_master_UNIQ_*.csv`
   - 出力: `tmp/manual/outputs/buildings_master/<timestamp>/buildings_master_raw.csv`, `buildings_master_keys.csv`, `buildings_master_suspects.csv`, `buildings_master_overrides.template.csv`, `buildings_master_merged_primary_wins.csv`, `buildings_master.csv`, `stats.json`
   - 重複除去: ソース内dedup（mansion-reviewは`detail_url`）後、`normalized_address + normalized_building_name` の安定キーで高信頼結合。弱住所/欠損/衝突は suspects に分離
 
@@ -271,7 +271,7 @@ $uniq | Group-Object kind, city_id | Sort-Object Name | Select-Object Count, Nam
 ## 4-2. 次の工程：空室リスト → 建物DB（重複なし）
 
 全体像（入力→出力）:
-1. **入力**: `tmp/pdf_pipeline/out/<timestamp>/final.csv`（空室リスト）と `tmp/manual/outputs/mansion_review/combined/mansion_review_master_UNIQ_<timestamp>.csv`
+1. **入力**: `tmp/pdf_pipeline/out/<timestamp>/master_import.csv`（空室リスト。中身は `final.csv` と同一）と `tmp/manual/outputs/mansion_review/combined/mansion_review_master_UNIQ_<timestamp>.csv`
 2. **正規化**: `normalize_address_jp()` / `normalize_building_name()` で揺れを統一（数字の推測補完はしない）
 3. **候補生成**: `buildings_master_raw.csv` と `buildings_master_keys.csv` を生成
 4. **要確認抽出**: `weak_address`, `missing_address`, `name_conflict_same_address`, `key_collision`, `suspicious_name` を `buildings_master_suspects.csv` に出力
@@ -280,7 +280,7 @@ $uniq | Group-Object kind, city_id | Sort-Object Name | Select-Object Count, Nam
 
 正本スクリプト（latest 自動検出）:
 - `scripts/run_buildings_master_from_sources.ps1`
-  - 既定入力: `tmp/pdf_pipeline/out` の latest `final.csv`、`tmp/manual/outputs/mansion_review/combined` の latest `mansion_review_master_UNIQ_*.csv`
+  - 既定入力: `tmp/pdf_pipeline/out` の latest `master_import.csv`（無ければ `final.csv`）、`tmp/manual/outputs/mansion_review/combined` の latest `mansion_review_master_UNIQ_*.csv`
   - 既定出力: `tmp/manual/outputs/buildings_master/<timestamp>/buildings_master_raw.csv`, `buildings_master_keys.csv`, `buildings_master_suspects.csv`, `buildings_master_overrides.template.csv`, `buildings_master_merged_primary_wins.csv`, `buildings_master.csv`, `stats.json`
 
 一発コマンド:

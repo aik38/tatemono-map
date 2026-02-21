@@ -69,8 +69,9 @@ Start-Process "$REPO\dist\index.html"
 
 ### Ulucks / RealPro（pdf_pipeline）成果物の場所
 - 出力ルート: `tmp/pdf_pipeline/out/<timestamp>/`
-- 主要成果物: `final.csv`, `manifest.csv`, `qc_report.txt`, `stats.csv`, `per_pdf/`
+- 主要成果物: `final.csv`, `master_import.csv`, `manifest.csv`, `qc_report.txt`, `stats.csv`, `per_pdf/`
 - `final.csv` は **空室リスト（抽出結果の集約）** であり、建物DBそのものではありません（建物DB化は runbook の「次の工程」を実施）。
+- 下流の入口ファイルは `master_import.csv` を優先して使用してください（中身は `final.csv` と同一、`final.csv` は互換 fallback）。
 
 ```powershell
 # 最新 out を 1 発で特定

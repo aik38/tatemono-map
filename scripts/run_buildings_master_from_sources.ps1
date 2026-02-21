@@ -24,12 +24,19 @@ function Resolve-RepoRoot {
 
 function Find-LatestPdfFinalCsv {
   param([string]$Repo)
-  $matches = Get-ChildItem (Join-Path $Repo "tmp/pdf_pipeline/out") -Recurse -File -Filter "final.csv" -ErrorAction SilentlyContinue |
+  $outRoot = Join-Path $Repo "tmp/pdf_pipeline/out"
+  $masterMatches = Get-ChildItem $outRoot -Recurse -File -Filter "master_import.csv" -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending
-  if (-not $matches -or $matches.Count -eq 0) {
-    throw "final.csv not found under tmp/pdf_pipeline/out"
+  if ($masterMatches -and $masterMatches.Count -gt 0) {
+    return $masterMatches[0].FullName
   }
-  return $matches[0].FullName
+
+  $finalMatches = Get-ChildItem $outRoot -Recurse -File -Filter "final.csv" -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending
+  if (-not $finalMatches -or $finalMatches.Count -eq 0) {
+    throw "master_import.csv/final.csv not found under tmp/pdf_pipeline/out"
+  }
+  return $finalMatches[0].FullName
 }
 
 function Find-LatestMansionReviewUniqCsv {
@@ -53,7 +60,7 @@ if ([string]::IsNullOrWhiteSpace($MansionReviewUniqCsv)) {
   $MansionReviewUniqCsv = Find-LatestMansionReviewUniqCsv -Repo $REPO
 }
 
-if (-not (Test-Path $PdfFinalCsv)) { throw "PDF final.csv not found: $PdfFinalCsv" }
+if (-not (Test-Path $PdfFinalCsv)) { throw "PDF CSV not found: $PdfFinalCsv" }
 if (-not (Test-Path $MansionReviewUniqCsv)) { throw "Mansion-review UNIQ CSV not found: $MansionReviewUniqCsv" }
 
 if ([string]::IsNullOrWhiteSpace($OutDir)) {

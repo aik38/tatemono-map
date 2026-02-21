@@ -30,3 +30,6 @@ if (-not $realpro) { throw "Not found: リアプロ-*.zip in $DownloadsDir" }
 if (-not $ulucks) { throw "Not found: ウラックス-*.zip in $DownloadsDir" }
 
 & (Join-Path $REPO "scripts/run_pdf_zip.ps1") -RepoPath $REPO -RealproZip $realpro.FullName -UlucksZip $ulucks.FullName -QcMode $QcMode
+
+Write-Host ("[INFO] out-root: {0}" -f (Join-Path $REPO "tmp/pdf_pipeline/out"))
+Write-Host "[INFO] expected files per run: final.csv, master_import.csv, manifest.csv, qc_report.txt, stats.csv"
