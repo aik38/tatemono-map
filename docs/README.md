@@ -1,24 +1,21 @@
 # docs index
 
-README から最初に読むべきドキュメントを整理した索引です。
+このディレクトリは、運用判断に必要な文書の入口です。  
+迷ったら以下の順で読んでください。
 
-## Recommended reading order
-1. [spec.md](spec.md)
-   - システムの目的、正本（canonical）概念、非ゴールを定義。
-2. [runbook.md](runbook.md)
-   - 初回 seed と週次 1 コマンド運用の手順。
-3. [data_contract.md](data_contract.md)
-   - 入力 CSV と公開成果物の契約。
-4. [wbs.md](wbs.md)
-   - 運用・改善タスクのフェーズ管理。
+## 推奨読書順
+1. [../PLAN.md](../PLAN.md)  
+   プロジェクト方針（目的・優先順位・変更管理ルール）。
+2. [spec.md](spec.md)  
+   守るべき仕様（正本定義、責務分担、禁止事項、更新ポリシー）。
+3. [runbook.md](runbook.md)  
+   初回投入・週次更新・運用時チェックの実行手順。
+4. [wbs.md](wbs.md)  
+   Phase 0-6 の工程管理と DoD。
+5. [data_contract.md](data_contract.md)  
+   入出力データの契約（CSV/DB/配信物）。
 
-## Other docs
-- [frontend_versions.md](frontend_versions.md)
-  - フロントエンド関連の変更メモ。
-- [manual_pdf_ingest.md](manual_pdf_ingest.md)
-  - PDF 処理の補足手順。
-- [ulucks_phase_a.md](ulucks_phase_a.md)
-  - Ulucks 向け作業メモ。
-
-> 注意: このリポジトリの現行運用は `buildings` canonical DB を中心にした seed + weekly update です。
-> 旧来の `buildings_master` 再構築フローは現行 runbook では採用しません。
+## 補助ドキュメント
+- [frontend_versions.md](frontend_versions.md): フロント関連の履歴メモ。
+- [manual_pdf_ingest.md](manual_pdf_ingest.md): PDF取り込みの補助手順。
+- [ulucks_phase_a.md](ulucks_phase_a.md): Ulucks 作業メモ。

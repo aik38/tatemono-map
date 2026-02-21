@@ -1,54 +1,41 @@
-# spec
+# spec（運用仕様の正本）
 
-## What this system is
-このシステムは、北九州賃貸データ向けの **建物単位 canonical database + 公開配信基盤** です。
+## 1. システム定義
+このシステムは、Google Maps / Street View と連携可能な不動産データベース母艦です。  
+北九州はパイロット地域であり、対象地域は将来拡張されます。
 
-- 正本: SQLite `buildings` テーブル
-- 取り込み対象: 複数ソースの空室情報（listing）
-- 目的: 建物との突合結果を公開 DB / 静的 HTML として継続配信
+## 2. 目的
+- 建物単位で情報を統合し、媒体差分に強いデータ基盤を維持する。
+- 週次更新を定型化して、運用の属人化を減らす。
+- MVP は賃貸空室に集中し、将来は売買査定/解体比較導線へ拡張する。
 
-## Why
-- ソースごとの表記ゆれを吸収し、建物単位で一貫した公開情報を提供するため。
-- 週次オペレーションを 1 コマンド化し、属人化を減らすため。
+## 3. Canonical source of truth
+- 正本は DB の `buildings` テーブル。
+- `listings` はソース由来の派生データとして扱う。
+- canonical 項目（例: `canonical_name`, `canonical_address`）は手動判断を保護し、自動更新しない。
 
-## Non-goals
-- `buildings_master` の全件再生成を運用フローに戻さない。
-- `canonical_name` / `canonical_address` を自動更新しない。
+## 4. ロール分割（責務）
+- 自動処理の責務
+  - listing の取り込み・正規化・突合。
+  - 新規建物候補の生成。
+  - 公開用データ（public DB / 静的出力）の更新。
+- 人手判断の責務
+  - canonical 項目の確定・修正。
+  - suspects / unmatched の解消判断。
+  - 運用ルールの変更承認。
 
-## Canonical rules
-- `buildings` が唯一の canonical source of truth。
-- seed / weekly ingest は新規建物追加と listing 更新を行う。
-- canonical 値の修正は手動判断で行う（自動上書き禁止）。
+## 5. 公開サマリー項目（最低限）
+- 建物IDと建物名（canonical）。
+- 住所/座標（確定済みの canonical 値）。
+- 空室関連の派生情報（最新更新日を含む）。
+- データ更新時刻と生成元のトレーサビリティ。
 
-## Data model overview
-- `buildings`
-  - canonical 建物情報。
-- `listings`
-  - ソース由来の募集情報（derived）。
-- `building_sources` など
-  - aliases / evidence を保持。
-- 公開成果物
-  - `data/public/public.sqlite3`
-  - `dist/`
-- review 出力
-  - `tmp/review/new_buildings_*.csv`
-  - `tmp/review/suspects_*.csv`
-  - `tmp/review/unmatched_listings_*.csv`
+## 6. 禁止事項
+- `buildings_master` の再構築を現行運用の正規フローに戻すこと。
+- canonical 項目をバッチで自動上書きすること。
+- review 未解決データを確定値として公開反映すること。
 
-## Processing flow
-
-```text
-Sources -> normalize -> ingest listings -> match -> publish_public -> render.build
-                 \-> tmp/review/*.csv (needs review)
-
-Seed CSV -> seed_from_ui -> buildings (canonical, protected)
-```
-
-## Operations contract
-- 初回投入: `scripts/seed_buildings_from_ui.ps1`
-- 週次更新: `scripts/weekly_update.ps1`
-- 公開 DB 更新: `scripts/publish_public.ps1`（weekly 内で実行）
-- 出力先:
-  - `tmp/review/`
-  - `data/public/public.sqlite3`
-  - `dist/`
+## 7. 更新ポリシー
+- 仕様変更時は、PLAN → spec → runbook/README/wbs の順で整合更新する。
+- 週次運用で発見した例外は runbook に追記し、恒久ルール化する場合は spec に昇格する。
+- 矛盾が出た場合は PLAN と本 spec を優先し、README は入口情報として追随する。
