@@ -1,3 +1,12 @@
+"""
+DEPRECATED LEGACY PIPELINE
+This script belongs to the old buildings_master rebuild flow.
+Supported workflow is canonical registry:
+  scripts/seed_buildings_from_ui.ps1 (one-time)
+  scripts/weekly_update.ps1 (weekly)
+See docs/legacy/runbook_buildings_master.md for legacy usage.
+"""
+
 from __future__ import annotations
 
 import argparse

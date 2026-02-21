@@ -1,5 +1,14 @@
+# =============================================
+# DEPRECATED LEGACY PIPELINE
+# This script belongs to the old buildings_master rebuild flow.
+# Supported workflow is canonical registry:
+#   scripts/seed_buildings_from_ui.ps1 (one-time)
+#   scripts/weekly_update.ps1 (weekly)
+# See docs/legacy/runbook_buildings_master.md for legacy usage.
+# =============================================
+
 param(
-  [string]$RepoPath = (Resolve-Path (Join-Path $PSScriptRoot "..") | Select-Object -ExpandProperty Path),
+  [string]$RepoPath = (Resolve-Path (Join-Path $PSScriptRoot "../..") | Select-Object -ExpandProperty Path),
   [string]$PrimaryCsv = "",
   [string]$SecondaryCsv = "",
   [string]$OutCsv = "",
@@ -42,7 +51,7 @@ if (-not (Test-Path $PrimaryCsv)) { throw "Primary CSV not found: $PrimaryCsv" }
 if (-not (Test-Path $SecondaryCsv)) { throw "Secondary CSV not found: $SecondaryCsv" }
 
 $args = @(
-  (Join-Path $REPO "scripts/merge_building_masters_primary_wins.py"),
+  (Join-Path $REPO "scripts/legacy/merge_building_masters_primary_wins.py"),
   "--primary", $PrimaryCsv,
   "--secondary", $SecondaryCsv,
   "--out", $OutCsv
