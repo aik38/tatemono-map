@@ -1,6 +1,7 @@
 param(
     [string]$RepoPath = (Join-Path $env:USERPROFILE 'tatemono-map'),
     [string]$Message,
+    [switch]$AutoCommit,
     [ValidateSet('warn', 'strict')]
     [string]$SensitiveColumnPolicy = 'warn'
 )
@@ -12,4 +13,4 @@ if (-not (Test-Path -LiteralPath $scriptPath)) {
     throw "Required script not found: $scriptPath"
 }
 
-& $scriptPath -RepoPath $RepoPath -Message $Message -SensitiveColumnPolicy $SensitiveColumnPolicy
+& $scriptPath -RepoPath $RepoPath -Message $Message -AutoCommit:$AutoCommit -SensitiveColumnPolicy $SensitiveColumnPolicy

@@ -1,11 +1,33 @@
 # tatemono-map
 
+## 開発同期（GitHub↔ローカル）
+
+> `setup` と `weekly_update` は開発同期には含めません。日々の同期は以下 3 コマンドのみを使います。
+
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/setup.ps1 -RepoPath "$PWD"
-pwsh -NoProfile -ExecutionPolicy Bypass -File ./sync.ps1 -RepoPath "$PWD"
-pwsh -NoProfile -ExecutionPolicy Bypass -File ./push.ps1 -RepoPath "$PWD"
-pwsh -NoProfile -ExecutionPolicy Bypass -File ./scripts/weekly_update.ps1 -RepoPath "$PWD" -DbPath ./data/tatemono_map.sqlite3
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -File "$REPO\sync.ps1" -RepoPath $REPO
+git -C $REPO push
+git -C $REPO status -sb
 ```
+
+## 初回セットアップ（最初だけ）
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -File "$REPO\scripts\setup.ps1" -RepoPath $REPO
+```
+
+- `scripts/setup.ps1` は `.venv` と requirements のハッシュを見て、変更がなければ `pip install` をスキップします。
+
+## 週次運用（空室更新）
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -File "$REPO\scripts\weekly_update.ps1" -RepoPath $REPO -DbPath "$REPO\data\tatemono_map.sqlite3"
+```
+
+- 公開データ反映が必要な場合は `scripts/publish_public.ps1` を利用してください（`data/public/public.sqlite3` の更新内容を確認してから実行）。
 
 ## What / Why
 このリポジトリは、Google Maps / Street View と連携可能な「不動産データベース母艦」を作るための基盤です。  

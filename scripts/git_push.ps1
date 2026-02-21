@@ -1,6 +1,7 @@
 param(
     [string]$RepoPath = (Join-Path $env:USERPROFILE 'tatemono-map'),
     [string]$Message,
+    [switch]$AutoCommit,
     [ValidateSet('warn', 'strict')]
     [string]$SensitiveColumnPolicy = 'warn'
 )
@@ -118,10 +119,6 @@ function Test-SensitiveColumns {
     Write-Warning $message
 }
 
-if ([string]::IsNullOrWhiteSpace($Message)) {
-    throw 'Commit message is required. Use -Message "your commit message".'
-}
-
 $resolvedRepoPath = Resolve-RepoRoot -RequestedRepoPath $RepoPath
 Set-Location $resolvedRepoPath
 
@@ -155,14 +152,37 @@ if ($trackedRootCsv) {
 
 Test-SensitiveColumns -RepoRoot $resolvedRepoPath -Policy $SensitiveColumnPolicy
 
-git status
+$workingTreeChanges = git status --porcelain
+if (-not $AutoCommit) {
+    git status -sb
+    if ($workingTreeChanges) {
+        throw "Auto-commit is disabled by default. Commit manually, or re-run with -AutoCommit -Message '<message>'."
+    }
 
-$gitStatus = git status --porcelain
-if (-not $gitStatus) {
-    Write-Host 'No changes to commit.'
+    Write-Host '[INFO] Working tree is clean. Running git push for existing local commits.' -ForegroundColor Cyan
+    git push
     exit 0
 }
 
-git add -A
+if ([string]::IsNullOrWhiteSpace($Message)) {
+    throw 'Commit message is required when -AutoCommit is set. Use -Message "your commit message".'
+}
+
+git add -A -- . ':(exclude)src/tatemono_map.egg-info/**' ':(exclude)tmp/**' ':(exclude)dist/**'
+
+$stagedChanges = git diff --cached --name-status
+if (-not $stagedChanges) {
+    Write-Host '[INFO] No commitable changes after excluding generated paths (src/tatemono_map.egg-info/, tmp/, dist/).' -ForegroundColor Yellow
+    exit 0
+}
+
+Write-Host '[INFO] The following files will be committed:' -ForegroundColor Cyan
+$stagedChanges | ForEach-Object { Write-Host "  $_" }
+
+$publicDbStaged = git diff --cached --name-only -- 'data/public/public.sqlite3'
+if ($publicDbStaged) {
+    Write-Warning 'data/public/public.sqlite3 is staged. Verify this is intentional before pushing.'
+}
+
 git commit -m $Message
 git push

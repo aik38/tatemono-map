@@ -1,6 +1,7 @@
 param(
     [string]$RepoPath,
     [string]$Message,
+    [switch]$AutoCommit,
     [ValidateSet('warn', 'strict')]
     [string]$SensitiveColumnPolicy = 'warn'
 )
