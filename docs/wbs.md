@@ -1,150 +1,39 @@
-# tatemono-map WBS（工程管理表）
+# tatemono-map WBS
 
-> このドキュメントは、tatemono-map プロジェクトの
-> **設計思想・実装順・完了条件を固定するための工程表（WBS）** である。
-> 実装の自由度は認めるが、この順序と制約は変更しない。
+README/spec/runbook を前提にした運用・改善の工程管理です。
 
----
+## Phase 0: Canonical-first onboarding fix
+- README と docs の入口整備
+- canonical ルール（`buildings` 正本 / no auto-overwrite）を明文化
+- 週次 1 コマンド運用を標準化
 
-## Phase 0：思想・仕様・運用の固定（ブレ防止）
+**DoD**
+- README から目的・データフロー・実行コマンドが辿れる
+- `docs/README.md` で読む順序が明確
 
-### 目的（Why）
-- 実装前に「何を作らないか」を明確にし、暴走を防ぐ
-- 人が変わっても判断基準が変わらない状態を作る
+## Phase 1: Initial data readiness
+- 手動確認済み seed CSV の品質担保
+- `seed_buildings_from_ui.ps1` の idempotent 運用確認
 
-### やること（What）
-- プロジェクト憲法（絶対条件）の明文化
-- 既存ドキュメントの役割分担を確定（spec / data_contract / runbook / wbs）
-- WBS を正本として確定
+**DoD**
+- seed 再実行で重複投入が起きない
+- canonical 値が自動変更されない
 
-### 完了条件（DoD）
-- docs/spec.md が仕様の正本として成立
-- docs/data_contract.md が取得・正規化ルールを定義
-- docs/runbook.md が運用ルールを定義
-- docs/wbs.md が存在し、全体工程が一望できる
+## Phase 2: Weekly update stability
+- `weekly_update.ps1` の定常運用
+- review CSV を使った未解決データの後追い導線整備
 
----
+**DoD**
+- 週次 1 コマンドで `data/public/public.sqlite3` と `dist/` が更新される
+- `tmp/review/` の CSV が運用判断に使える
 
-## Phase 1：API / DB の最小構成（PoC）
+## Phase 3: Data quality loop
+- unmatched/suspects の継続トリアージ
+- alias/evidence の蓄積と再発防止
 
-### 目的（Why）
-- 「動く最小単位」を作り、机上設計で終わらせない
-- 将来拡張ではなく、今の判断材料を得る
+**DoD**
+- 未解決率がトラッキングされ、改善施策が回っている
 
-### やること（What）
-- SQLite DB の導入
-- 建物サマリーの最小テーブル設計
-- FastAPI から DB を参照できる状態を作る
-
-### 完了条件（DoD）
-- DB に建物データを保存できる（insert / upsert）
-- `/health` が正常応答する（{"ok": true}）
-- `/b/{building_key}` が DB を参照する
-- データが無くても API が落ちない（404固定ではなく「準備中」でも可）
-- ローカルで `scripts/dev.ps1` で起動できる（READMEの最短ルートに一致）
-- `scripts/dev_setup.ps1` / `scripts/run_api.ps1` は補助的な手順（非推奨）
-
-### 制約（憲法）
-- 号室・参照元URL・元付/管理会社情報・見積内訳（PDF）は **Web出力禁止**（DB保持はOK）
-- 空室ステータスは「空室あり / 満室」の2値のみ
-
----
-
-## Phase 2：静的HTML生成（SEO土台）
-
-### 目的（Why）
-- API を直接叩かせず、Web は「図鑑」として完結させる
-- LINE 誘導の母艦（入口）を作る
-
-### やること（What）
-- 静的 HTML 生成 CLI の実装（例：`python -m tatemono_map.render.build`）
-- index と建物ページの生成（dist/ 配下）
-- テンプレート固定（建物ページは「公開サマリー」だけ）
-- （注）Google Maps / Street View のUIは後続で追加してよい（MVPでは任意）
-
-### 完了条件（DoD）
-- dist/index.html が生成される（建物リンク一覧だけでOK）
-- dist/b/{building_key}.html が生成される
-- Web出力禁止情報が一切含まれない（号室/参照元URL/会社情報/PDF）
-- 最終更新日時が必ず表示される
-- 生成手順が docs/runbook.md から辿れる（リンクまたは記載）
-
----
-
-## Phase 3：更新運用の証明（週2回更新）
-
-### 目的（Why）
-- 「運用できるか」を技術で証明する
-- 手動運用に耐えない設計を排除する
-
-### やること（What）
-- ingest スクリプトの段階的実装
-  - Phase 3-1：スタブデータで upsert（週2更新の流れを証明）
-  - Phase 3-2：Gmail取得 → URL抽出 → HTML取得/抽出 → DB upsert（後回し可）
-
-### 完了条件（DoD）
-- `scripts/run_ingest.ps1` 実行で DB が更新される
-- last_updated が更新される
-- 更新が失敗しても Web / API は動き続ける（落とさない）
-- 失敗時の扱いが docs/runbook.md に明文化されている
-
----
-
-## Phase 4：LINE導線の固定（ユーザー向け）
-
-### 目的（Why）
-- Web を「刈り取り装置」にしない（刈り取りはLINE）
-- 申込完結はLINEに集約する
-
-### やること（What）
-- 建物ページに「LINE誘導CTA」を固定（申込完結はWebに置かない）
-- LINEで受け取る最小情報（例：building_key/建物名/希望条件）を定義
-
-### 完了条件（DoD）
-- Web に申込完結が存在しない（フォーム・決済・PDF提供など）
-- 全建物ページからLINEへの導線がある
-- “公開してよい情報/ダメな情報”が崩れない
-
----
-
-## Phase 5：管理者通知と障害時のふるまい（運用向け）
-
-### 目的（Why）
-- 失敗を検知できる状態にする
-- サービス停止を避ける（通知はするが止めない）
-
-### やること（What）
-- 更新失敗時の管理者通知のインターフェースを用意
-  - LINEトークン未設定ならログ出力で代替してよい
-- 例外を握りつぶさず、ただしサービスは止めない（落とさない）
-
-### 完了条件（DoD）
-- 失敗がログ or 通知で観測できる
-- 通知失敗でもサービスは停止しない
-- 運用手順が docs/runbook.md にある
-
----
-
-## Phase 6：拡張（今はやらないが、方針だけ残す）
-
-### 今やらないこと（明示）
-- 本番VPS配置
-- 認証・ログイン機能
-- 号室単位の詳細公開
-- 見積・PDFのダウンロード公開
-- 管理会社向け管理画面
-
-### 後でやりうること（例）
-- 建物ページの地図UI強化（Google Maps / Street View埋め込み等）
-- 取り込み精度向上（抽出ルールの拡張、再試行、監視）
-
-### 完了条件（DoD）
-- 「今やらない理由」が docs に残っている（将来の暴走防止）
-
----
-
-## 全体ルール（重要）
-- フェーズは順番に進める
-- 次フェーズに進む条件は DoD の達成のみ
-- 途中で仕様を足さない（まずDoDを満たす）
-- 迷ったら docs/spec.md と docs/wbs.md に戻る
+## Non-goals in WBS
+- `buildings_master` 再構築フローの復帰
+- canonical 自動上書きの導入
