@@ -3,6 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 from tatemono_map.cli.pdf_batch_run import (
+    MASTER_IMPORT_SCHEMA,
     RealproParser,
     UlucksParser,
     apply_name_and_row_filters,
@@ -14,6 +15,7 @@ from tatemono_map.cli.pdf_batch_run import (
     restore_latin1_cp932_mojibake,
     should_stop_on_qc_failures,
     split_building_and_room,
+    write_master_import_csv,
 )
 
 
@@ -333,3 +335,35 @@ def test_ulucks_address_complements_city_ward_from_ward_hint(tmp_path: Path):
         mod.pdfplumber.open = original_open
 
     assert "北九州市小倉北区" in result.df.iloc[0]["address"]
+
+
+def test_write_master_import_csv_has_expected_columns_and_order(tmp_path: Path):
+    src = pd.DataFrame(
+        [
+            {
+                "file": "sample.pdf",
+                "page": "1",
+                "category": "ulucks",
+                "updated_at": "2026-01-01",
+                "building_name": "テストマンション",
+                "room": "101",
+                "address": "北九州市小倉北区",
+                "rent_man": "6.5",
+                "fee_man": "0.3",
+                "floor": "1",
+                "layout": "1K",
+                "area_sqm": "25.0",
+                "age_years": "10",
+                "structure": "RC",
+                "raw_block": "raw",
+            }
+        ]
+    )
+    out = tmp_path / "master_import.csv"
+
+    write_master_import_csv(src, out)
+
+    written = pd.read_csv(out, encoding="utf-8-sig")
+    assert list(written.columns) == MASTER_IMPORT_SCHEMA
+    assert "file" not in written.columns
+    assert str(written.iloc[0]["building_name"]) == "テストマンション"

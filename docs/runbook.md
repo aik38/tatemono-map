@@ -50,6 +50,7 @@ tmp/
     out/
       <timestamp>/
         final.csv                         # 空室リスト（抽出結果の集約。建物DBではない）
+        master_import.csv                 # master_import 互換CSV（DB取込の正本入力）
         manifest.csv
         qc_report.txt
         stats.csv
@@ -75,8 +76,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\publish_
 ## 3. スクリプトと既定 I/O（固定）
 - `scripts/run_pdf_zip_latest.ps1`
   - 入力: `Downloads` の最新 `リアプロ-*.zip` / `ウラックス-*.zip`（必要に応じて `tmp/manual/inputs/pdf_zips/` に保管）
-  - 出力: `tmp/pdf_pipeline/out/<timestamp>/`（`final.csv`, `manifest.csv`, `qc_report.txt`, `stats.csv`, `per_pdf/`）
-  - 補足: `final.csv` は空室リスト（抽出結果の集約）であり、建物DBそのものではない。
+  - 出力: `tmp/pdf_pipeline/out/<timestamp>/`（`final.csv`, `master_import.csv`, `manifest.csv`, `qc_report.txt`, `stats.csv`, `per_pdf/`）
+  - 補足: `final.csv` は空室リスト（抽出結果の集約）であり、建物DBそのものではない。`master_import.csv` は `tatemono_map.cli.master_import` の直接入力。
 - `scripts/run_mansion_review_html.ps1`
   - 入力: `tmp/manual/inputs/html_saved/`
   - 出力: `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_<timestamp>.csv`
@@ -358,7 +359,7 @@ git reset --soft HEAD~1
 
 ## 8. QC（最低限）
 ```powershell
-$csv = "tmp\pdf_pipeline\out\<timestamp>\final.csv"
+$csv = "tmp\pdf_pipeline\out\<timestamp>\master_import.csv"
 $rows = Import-Csv $csv
 "building_name empty = {0}/{1}" -f (($rows | ? { [string]::IsNullOrWhiteSpace($_.building_name) }).Count), $rows.Count
 "address empty      = {0}/{1}" -f (($rows | ? { [string]::IsNullOrWhiteSpace($_.address) }).Count), $rows.Count

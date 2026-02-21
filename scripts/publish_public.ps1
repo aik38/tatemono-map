@@ -34,10 +34,12 @@ $pyScript = @'
 import os
 import re
 import sqlite3
+import sys
 from pathlib import Path
 
 main_db = Path(os.environ["TATEMONO_MAIN_DB"])
 public_db = Path(os.environ["TATEMONO_PUBLIC_DB"])
+tmp_db = Path(f"{public_db}.tmp")
 
 if not main_db.exists():
     raise SystemExit(f"missing source db: {main_db}")
@@ -50,16 +52,20 @@ with sqlite3.connect(main_db) as src:
     if table is None:
         raise SystemExit("building_summaries missing in source db")
 
-with sqlite3.connect(public_db) as conn:
-    conn.execute("PRAGMA foreign_keys=OFF")
-    conn.execute("ATTACH DATABASE ? AS src", (str(main_db),))
-    create_sql = conn.execute(
-        "SELECT sql FROM src.sqlite_master WHERE type='table' AND name='building_summaries'"
+with sqlite3.connect(main_db) as src:
+    src.execute("PRAGMA busy_timeout=5000")
+    create_sql = src.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='building_summaries'"
     ).fetchone()
     if create_sql is None or not create_sql[0]:
         raise SystemExit("failed to read building_summaries schema from source db")
 
-    conn.execute("DROP TABLE IF EXISTS main.building_summaries")
+if tmp_db.exists():
+    tmp_db.unlink()
+
+with sqlite3.connect(tmp_db) as conn:
+    conn.execute("PRAGMA foreign_keys=OFF")
+    conn.execute("PRAGMA busy_timeout=5000")
     create_main_sql = re.sub(
         r"^CREATE TABLE(?: IF NOT EXISTS)?\\s+building_summaries",
         "CREATE TABLE main.building_summaries",
@@ -67,20 +73,38 @@ with sqlite3.connect(public_db) as conn:
         count=1,
     )
     conn.execute(create_main_sql)
+    conn.execute("ATTACH DATABASE ? AS src", (str(main_db),))
     conn.execute("INSERT INTO main.building_summaries SELECT * FROM src.building_summaries")
-    conn.execute("DETACH DATABASE src")
     conn.commit()
+    conn.execute("DETACH DATABASE src")
+
+try:
+    os.replace(tmp_db, public_db)
+except OSError as exc:
+    if getattr(exc, "winerror", None) == 32:
+        print(
+            "[ERROR] Failed to replace public.sqlite3 because it is locked. "
+            "Close DB Browser / VSCode SQLite extension and rerun scripts/publish_public.ps1.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    raise
 
 with sqlite3.connect(main_db) as conn:
     listings_count_main = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
     summaries_count_main = conn.execute("SELECT COUNT(*) FROM building_summaries").fetchone()[0]
 
 with sqlite3.connect(public_db) as conn:
+    conn.execute("PRAGMA busy_timeout=5000")
     summaries_count_public = conn.execute("SELECT COUNT(*) FROM building_summaries").fetchone()[0]
+    distinct_keys_public = conn.execute(
+        "SELECT COUNT(DISTINCT building_key) FROM building_summaries"
+    ).fetchone()[0]
 
 print(f"listings count (main): {listings_count_main}")
 print(f"building_summaries count (main): {summaries_count_main}")
 print(f"building_summaries count (public): {summaries_count_public}")
+print(f"building_summaries distinct building_key (public): {distinct_keys_public}")
 '@
 
 $env:TATEMONO_MAIN_DB = $dbMain

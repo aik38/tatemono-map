@@ -35,6 +35,23 @@ FINAL_SCHEMA = [
 
 LEGACY_SCHEMA = ["source_property_name", "room_no", "raw_blockfile"]
 
+MASTER_IMPORT_SCHEMA = [
+    "page",
+    "category",
+    "updated_at",
+    "building_name",
+    "room",
+    "address",
+    "rent_man",
+    "fee_man",
+    "floor",
+    "layout",
+    "area_sqm",
+    "age_years",
+    "structure",
+    "raw_block",
+]
+
 BAD_BUILDING_TOKENS = ["》", "号", "NEW"]
 DETACHED_HOUSE_KEYWORDS = ["戸建", "一戸建", "貸家", "一軒家"]
 WARD_NAMES = ["門司区", "小倉北区", "小倉南区", "戸畑区", "八幡東区", "八幡西区", "若松区"]
@@ -641,6 +658,12 @@ def write_csv(df: pd.DataFrame, path: Path, *, legacy_columns: bool = False) -> 
     df.to_csv(path, index=False, encoding="utf-8-sig", lineterminator="\r\n", quoting=csv.QUOTE_ALL, na_rep="")
 
 
+def write_master_import_csv(df: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out = df.reindex(columns=MASTER_IMPORT_SCHEMA)
+    out.to_csv(path, index=False, encoding="utf-8-sig", lineterminator="\r\n", quoting=csv.QUOTE_ALL, na_rep="")
+
+
 def _extract_with_parser(kind: str, path: Path) -> ParseResult:
     parser = next((p for p in PARSERS if p.name == kind), None)
     if parser is None:
@@ -775,7 +798,9 @@ def main() -> int:
     merged = pd.concat(all_dfs, ignore_index=True) if all_dfs else pd.DataFrame([], columns=FINAL_SCHEMA + LEGACY_SCHEMA)
     merged, _ = dedupe(merged)
     write_csv(merged, out_dir / "final.csv", legacy_columns=args.legacy_columns)
+    write_master_import_csv(merged, out_dir / "master_import.csv")
     print(f"[OK] final.csv rows={len(merged)} -> {out_dir / 'final.csv'}")
+    print(f"[OK] master_import.csv rows={len(merged)} -> {out_dir / 'master_import.csv'}")
     return 0
 
 
