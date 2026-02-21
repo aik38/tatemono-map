@@ -31,6 +31,7 @@ FINAL_SCHEMA = [
     "file",
     "page",
     "raw_block",
+    "evidence_id",
 ]
 
 LEGACY_SCHEMA = ["source_property_name", "room_no", "raw_blockfile"]
@@ -50,6 +51,7 @@ MASTER_IMPORT_SCHEMA = [
     "age_years",
     "structure",
     "raw_block",
+    "evidence_id",
 ]
 
 BAD_BUILDING_TOKENS = ["》", "号", "NEW"]
@@ -378,6 +380,7 @@ class UlucksParser:
                                 "file": pdf_path.name,
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
+                                "evidence_id": f"pdf:{path.name}#p={page_num + 1}#i={idx}",
                             }
                         )
         df = pd.DataFrame(rows)
@@ -558,6 +561,7 @@ class RealproParser:
                                 "structure": context[2],
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
+                                "evidence_id": f"pdf:{path.name}#p={page_num + 1}#i={idx}",
                             }
                         )
                     prev_bottom = float(t.bbox[3]) if getattr(t, "bbox", None) else prev_bottom

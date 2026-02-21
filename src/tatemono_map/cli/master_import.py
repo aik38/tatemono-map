@@ -25,6 +25,7 @@ MASTER_COLUMNS = (
     "structure",
     "raw_block",
 )
+MASTER_COLUMNS_WITH_EVIDENCE = MASTER_COLUMNS + ("evidence_id",)
 
 
 def _clean_text(value: str | None) -> str:
@@ -65,7 +66,8 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
 
     with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
-        if tuple(reader.fieldnames or ()) != MASTER_COLUMNS:
+        header = tuple(reader.fieldnames or ())
+        if header not in (MASTER_COLUMNS, MASTER_COLUMNS_WITH_EVIDENCE):
             raise ValueError(f"Unexpected master.csv header: {reader.fieldnames}")
 
         for row in reader:

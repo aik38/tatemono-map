@@ -57,5 +57,6 @@ def test_master_import_replace_and_seed_persistence(tmp_path: Path) -> None:
     ).fetchall()
     conn.close()
 
-    assert len(seed_rows) == 2
+    names = sorted({row["name"] for row in seed_rows})
+    assert names == ["建物A", "建物B"]
     assert all(row["vacancy_count"] == 0 for row in seed_rows)

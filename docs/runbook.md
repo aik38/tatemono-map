@@ -5,6 +5,14 @@
 - 既存 Python 処理は変更せず、**I/O 契約と入口スクリプトを固定**して再現性を担保する。
 - 公開禁止情報（号室、参照元URL、管理会社情報、認証情報、生PDF/ZIP）を公開物へ出さない。
 
+
+## 0-1. 建物正本の固定（canonical registry）
+- `data/tatemono_map.sqlite3` の `buildings` が建物正本。`buildings_master` の週次再生成は行わない。
+- 初回のみ `scripts/seed_buildings_from_ui.ps1` で `tmp/manual/inputs/buildings_seed_ui.csv` を投入。
+- 週次は `scripts/ingest_master_import.ps1` で `tmp/pdf_pipeline/out/<timestamp>/master_import.csv` を吸収。
+- `canonical_name`/`canonical_address` は自動上書き禁止。曖昧・不一致は `tmp/manual/review/*.csv` に記録。
+- 実行順序: `run_pdf_zip_latest` → `ingest_master_import` → `publish_public` → `render.build`。
+
 ## 1. 実行場所非依存の repo 固定
 PowerShell はどの CWD からでも、必ず repo パスをこの形で定義する。
 
