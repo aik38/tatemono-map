@@ -1,377 +1,54 @@
-# Runbook（手動一次資料 → CSV → building master 合算の正本）
+# Runbook（Canonical Registry / Supported）
 
-## 0. 目的と対象
-- 対象は **手動一次資料（PDF ZIP / 保存HTML）を CSV 化し、building master を作る運用** のみ。
-- 既存 Python 処理は変更せず、**I/O 契約と入口スクリプトを固定**して再現性を担保する。
-- 公開禁止情報（号室、参照元URL、管理会社情報、認証情報、生PDF/ZIP）を公開物へ出さない。
+## 0. 目的
 
+本 runbook は **canonical buildings registry を正ルートとして運用する手順**のみを扱います。  
+`buildings_master` 再生成系は legacy 扱いで、通常運用には使用しません。
 
-## 0-1. 建物正本の固定（canonical registry）
-- `data/tatemono_map.sqlite3` の `buildings` が建物正本。`buildings_master` の週次再生成は行わない。
-- 初回のみ `scripts/seed_buildings_from_ui.ps1` で `tmp/manual/inputs/buildings_seed_ui.csv` を投入。
-- 週次は `scripts/ingest_master_import.ps1` で `tmp/pdf_pipeline/out/<timestamp>/master_import.csv` を吸収。
-- `canonical_name`/`canonical_address` は自動上書き禁止。曖昧・不一致は `tmp/manual/review/*.csv` に記録。
-- 実行順序: `run_pdf_zip_latest` → `ingest_master_import` → `publish_public` → `render.build`。
+- legacy 手順: [`docs/legacy/runbook_buildings_master.md`](legacy/runbook_buildings_master.md)
 
-## 1. 実行場所非依存の repo 固定
-PowerShell はどの CWD からでも、必ず repo パスをこの形で定義する。
+## 1. 前提
 
-```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-```
+- PowerShell 7 を使用
+- リポジトリルートで実行（または絶対パス指定）
+- `data/public/public.sqlite3` を DB Viewer などで開いたままにしない（lock 回避）
 
-- `sync.ps1` / `push.ps1` / `scripts/*.ps1` は `-RepoPath` を受け取り、repo 妥当性（`.git` と `pyproject.toml`）を検証する。
-- `-RepoPath` 未指定時は `Join-Path $env:USERPROFILE "tatemono-map"` を既定値とする。
+## 2. One-time seed（初回のみ）
 
-## 2. 固定 I/O 契約（ディレクトリ）
+`buildings` テーブルを初期化するため、UIレビュー済みCSVを投入します。
 
-```text
-tmp/
-  manual/
-    inputs/
-      pdf_zips/                           # 手動入手した PDF ZIP（Ulucks / RealPro）
-      html_saved/                         # mansion-review 等の保存 HTML
-      buildings_master/
-        buildings_master_primary.csv      # 合算の主系入力（固定名）
-        buildings_master_secondary.csv    # 合算の従系入力（固定名）
-    outputs/
-      mansion_review/
-        <timestamp>/mansion_review_<timestamp>.csv                 # 保存HTML→CSV
-        <timestamp>/mansion_review_list_<timestamp>.csv            # 自動巡回(list)→CSV
-        <timestamp>/stats.json
-        <timestamp>/debug/*.html
-        combined/
-          mansion_review_list_COMBINED_<timestamp>.csv
-          mansion_review_master_UNIQ_<timestamp>.csv
-      buildings_master/
-        buildings_master.csv              # 既存 merge スクリプトの固定出力
-        <timestamp>/
-          buildings_master_raw.csv        # 空室(final.csv)の建物単位集約
-          buildings_master_keys.csv       # 正規化キー単位の集約
-          buildings_master_suspects.csv   # 要確認行（reason code付き）
-          buildings_master_overrides.template.csv  # 人力補正テンプレート
-          buildings_master_merged_primary_wins.csv # overrides適用後マージ成果
-          buildings_master.csv            # 次工程入力用の建物マスター
-          stats.json
-  pdf_pipeline/
-    work/                                 # PDF 一時作業領域
-    out/
-      <timestamp>/
-        final.csv                         # 空室リスト（抽出結果の集約。建物DBではない）
-        master_import.csv                 # master_import 互換CSV（DB取込の正本入力）
-        manifest.csv
-        qc_report.txt
-        stats.csv
-        per_pdf/
-```
-
-## 2-1. 公開用DB更新（alias反映）
-- 公開DBは `data/public/public.sqlite3`（tracked）を正とする。
-- `scripts/publish_public.ps1` は以下を順に実施する。
-  1. repo 妥当性チェック（`.git` / `pyproject.toml`）
-  2. `\.venv\Scripts\python.exe` を利用（未作成なら `scripts/setup.ps1` を案内して停止）
-  3. `data/tatemono_map.sqlite3` に対して `python -m tatemono_map.normalize.building_summaries --alias-csv --buildings-master-csv` を実行
-  4. `building_summaries` テーブルのみを main DB から public DB へ `DROP -> CREATE -> INSERT` でコピー
-  5. 件数ログ（`listings count (main)` / `building_summaries count (main)` / `building_summaries count (public)`）を表示
-
-再現コマンド（PowerShell 7）:
+- スクリプト: `scripts/seed_buildings_from_ui.ps1`
+- 入力: `tmp/manual/inputs/buildings_seed_ui.csv`
 
 ```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\publish_public.ps1") -RepoPath $REPO
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\seed_buildings_from_ui.ps1 `
+  -DbPath data\tatemono_map.sqlite3 `
+  -CsvPath tmp\manual\inputs\buildings_seed_ui.csv
 ```
 
-## 3. スクリプトと既定 I/O（固定）
-- `scripts/run_pdf_zip_latest.ps1`
-  - 入力: `Downloads` の最新 `リアプロ-*.zip` / `ウラックス-*.zip`（必要に応じて `tmp/manual/inputs/pdf_zips/` に保管）
-  - 出力: `tmp/pdf_pipeline/out/<timestamp>/`（`final.csv`, `master_import.csv`, `manifest.csv`, `qc_report.txt`, `stats.csv`, `per_pdf/`）
-  - 補足: `final.csv` は空室リスト（抽出結果の集約）であり、建物DBそのものではない。`master_import.csv` は `tatemono_map.cli.master_import` の直接入力。
-- `scripts/run_mansion_review_html.ps1`
-  - 入力: `tmp/manual/inputs/html_saved/`
-  - 出力: `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_<timestamp>.csv`
-- `scripts/run_mansion_review_crawl.ps1`
-  - 入力: city_id/kind 指定（HTTP 自動巡回。手動保存HTMLは不要）
-  - 出力: `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_list_<timestamp>.csv` + `stats.json` + `debug/*.html`
-- `scripts/run_merge_building_masters.ps1`
-  - 入力: `tmp/manual/inputs/buildings_master/buildings_master_primary.csv` + `buildings_master_secondary.csv`
-  - 出力: `tmp/manual/outputs/buildings_master/buildings_master.csv`
-- `scripts/run_buildings_master_from_sources.ps1`
-  - 入力（既定）: `tmp/pdf_pipeline/out` の latest `master_import.csv`（無ければ `final.csv`） + `tmp/manual/outputs/mansion_review/combined` の latest `mansion_review_master_UNIQ_*.csv`
-  - 出力: `tmp/manual/outputs/buildings_master/<timestamp>/buildings_master_raw.csv`, `buildings_master_keys.csv`, `buildings_master_suspects.csv`, `buildings_master_overrides.template.csv`, `buildings_master_merged_primary_wins.csv`, `buildings_master.csv`, `stats.json`
-  - 重複除去: ソース内dedup（mansion-reviewは`detail_url`）後、`normalized_address + normalized_building_name` の安定キーで高信頼結合。弱住所/欠損/衝突は suspects に分離
+## 3. Weekly update（唯一の正規コマンド）
 
-## 4. 迷わない実行手順（Quickstart と同一）
+週次更新は次の1コマンドを実行します。
 
 ```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\setup.ps1") -RepoPath $REPO
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_pdf_zip_latest.ps1") -RepoPath $REPO
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_mansion_review_html.ps1") -RepoPath $REPO
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_mansion_review_crawl.ps1") -RepoPath $REPO -CityIds "1616,1619" -Kinds "mansion,chintai" -Mode list -MaxPages 0
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_merge_building_masters.ps1") -RepoPath $REPO
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\weekly_update.ps1
 ```
 
-pdf_pipeline の最新 out を探す PowerShell 一発コマンド:
+`weekly_update.ps1` は以下を順番に実行します。
+1. `scripts/run_pdf_zip_latest.ps1`
+2. `scripts/ingest_master_import.ps1`
+3. `scripts/publish_public.ps1`
+4. `python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version all`
 
-```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-$latestOut = Get-ChildItem (Join-Path $REPO "tmp\pdf_pipeline\out") -Directory |
-  Sort-Object LastWriteTime -Desc | Select-Object -First 1 -ExpandProperty FullName
-$latestOut
-```
+## 4. 成果物
 
+- 公開DB: `data/public/public.sqlite3`
+- 静的サイト: `dist/`
+- 週次取り込みの入力: `tmp/pdf_pipeline/out/<timestamp>/master_import.csv`
+- レビュー用出力（必要時）: `tmp/manual/review/*.csv`
 
-## 4-1. データ収集（mansion-review）
-対象は `mansion-review.jp` の city 一覧（分譲=`mansion` / 賃貸=`chintai`）。
+## 5. 運用ポリシー
 
-- 型（分譲）: `https://www.mansion-review.jp/mansion/city/{city_id}.html`
-- 型（賃貸）: `https://www.mansion-review.jp/chintai/city/{city_id}.html`
-- 2ページ目以降: `.../{city_id}_2.html`, `.../{city_id}_3.html` の形式
-- `kind`: `mansion` または `chintai`
-- `city_id` 例（運用前提）: `1616=門司区`, `1619=小倉北区`
-- 期待ページ数の例: `mansion` は `1616=7`, `1619=14` / `chintai` は `1616=12`, `1619=52`
-
-目視確認用 URL（そのままブラウザで確認可）:
-
-- 540件 分譲マンション 小倉北区
-  - https://www.mansion-review.jp/mansion/city/1619.html
-  - https://www.mansion-review.jp/mansion/city/1619_2.html
-  - https://www.mansion-review.jp/mansion/city/1619_3.html
-- 270件 分譲マンション 門司区
-  - https://www.mansion-review.jp/mansion/city/1616.html
-  - https://www.mansion-review.jp/mansion/city/1616_2.html
-  - https://www.mansion-review.jp/mansion/city/1616_3.html
-- 2049件 賃貸物件 小倉北区
-  - https://www.mansion-review.jp/chintai/city/1619.html
-  - https://www.mansion-review.jp/chintai/city/1619_2.html
-  - https://www.mansion-review.jp/chintai/city/1619_3.html
-- 477件 賃貸物件 門司区
-  - https://www.mansion-review.jp/chintai/city/1616.html
-  - https://www.mansion-review.jp/chintai/city/1616_2.html
-  - https://www.mansion-review.jp/chintai/city/1616_3.html
-
-使用スクリプト:
-
-- PowerShell wrapper: `scripts/run_mansion_review_crawl.ps1`
-- 本体: `scripts/mansion_review_crawl_to_csv.py`
-- 出力先:
-  - `tmp/manual/outputs/mansion_review/<timestamp>/mansion_review_list_<timestamp>.csv`
-  - `tmp/manual/outputs/mansion_review/<timestamp>/stats.json`
-  - 結合出力: `tmp/manual/outputs/mansion_review/combined/`
-
-### Quickstart（確実に通った一発コマンド）
-PowerShell 7.5.4 前提。`$env:USERPROFILE\tatemono-map` を repo パスとして固定し、4ジョブを順番に実行する。
-
-```powershell
-$ErrorActionPreference="Stop"
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-$PS1  = Join-Path $REPO "scripts\run_mansion_review_crawl.ps1"
-
-# 分譲: 1616=7p, 1619=14p / 賃貸: 1616=12p, 1619=52p
-$jobs = @(
-  @{CityIds="1616"; Kinds="mansion"; MaxPages=7},
-  @{CityIds="1619"; Kinds="mansion"; MaxPages=14},
-  @{CityIds="1616"; Kinds="chintai"; MaxPages=12},
-  @{CityIds="1619"; Kinds="chintai"; MaxPages=52}
-)
-
-foreach ($j in $jobs) {
-  pwsh -NoProfile -ExecutionPolicy Bypass -File $PS1 `
-    -RepoPath $REPO `
-    -CityIds  $j.CityIds `
-    -Kinds    $j.Kinds `
-    -Mode     "list" `
-    -SleepSec 0.7 `
-    -MaxPages $j.MaxPages
-}
-```
-
-### 検算（収集できたか確認）
-最新4CSVをまとめて件数と内訳を確認する。実行例として `FILES = 4`、`TOTAL ROWS = 3340` が得られる。
-
-> 重複チェックは `building_url` ではなく `detail_url` を使うこと（CSV列に `building_url` は無い）。
-
-```powershell
-$ErrorActionPreference="Stop"
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-$root = Join-Path $REPO "tmp\manual\outputs\mansion_review"
-
-$csvs = Get-ChildItem $root -Recurse -File -Filter "mansion_review_list_*.csv" |
-  Where-Object { $_.Name -notlike "*COMBINED*" } |
-  Sort-Object LastWriteTime -Desc | Select-Object -First 4
-
-$all = foreach ($c in $csvs) { Import-Csv $c.FullName }
-
-"FILES = $($csvs.Count)"
-"TOTAL ROWS = $($all.Count)"
-$all | Group-Object kind, city_id | Sort-Object Name | Select-Object Count, Name
-
-$dupGroups = $all | Group-Object { (($_.detail_url ?? "")).Trim() } |
-  Where-Object { $_.Name -ne "" -and $_.Count -gt 1 }
-
-"dup detail_url groups = $($dupGroups.Count)"
-"unique detail_url = $(@($all | Where-Object detail_url | Select-Object -Expand detail_url | Sort-Object -Unique).Count)"
-```
-
-例: `dup detail_url groups = 750` / `unique detail_url = 2557`
-
-### 結合CSVの作成
-最新4CSVを結合し、`combined/mansion_review_list_COMBINED_YYYYMMDD_HHMMSS.csv` を作成する。
-
-```powershell
-$ErrorActionPreference="Stop"
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-$root = Join-Path $REPO "tmp\manual\outputs\mansion_review"
-$outDir = Join-Path $root "combined"
-New-Item -ItemType Directory -Force $outDir | Out-Null
-
-$csvs = Get-ChildItem $root -Recurse -File -Filter "mansion_review_list_*.csv" |
-  Where-Object { $_.Name -notlike "*COMBINED*" } |
-  Sort-Object LastWriteTime -Desc | Select-Object -First 4
-
-$all = foreach ($c in $csvs) { Import-Csv $c.FullName }
-
-$out = Join-Path $outDir ("mansion_review_list_COMBINED_{0}.csv" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
-$all | Export-Csv $out -NoTypeInformation -Encoding utf8BOM
-"COMBINED = $out"
-"TOTAL ROWS = $($all.Count)"
-```
-
-### ユニーク化（detail_url で建物マスター化）
-`detail_url` が空の行を除外し、`detail_url` でユニーク化した master CSV を作成する。
-
-```powershell
-$ErrorActionPreference="Stop"
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-$root = Join-Path $REPO "tmp\manual\outputs\mansion_review"
-$outDir = Join-Path $root "combined"
-New-Item -ItemType Directory -Force $outDir | Out-Null
-
-$csvs = Get-ChildItem $root -Recurse -File -Filter "mansion_review_list_*.csv" |
-  Where-Object { $_.Name -notlike "*COMBINED*" } |
-  Sort-Object LastWriteTime -Desc | Select-Object -First 4
-
-$all = foreach ($c in $csvs) { Import-Csv $c.FullName }
-
-$uniq = $all |
-  Where-Object { ($_.detail_url ?? "").Trim() -ne "" } |
-  Sort-Object detail_url -Unique
-
-$out = Join-Path $outDir ("mansion_review_master_UNIQ_{0}.csv" -f (Get-Date -Format "yyyyMMdd_HHmmss"))
-$uniq | Export-Csv $out -NoTypeInformation -Encoding utf8BOM
-
-"UNIQ OUT = $out"
-"UNIQ ROWS = $($uniq.Count)"
-$uniq | Group-Object kind, city_id | Sort-Object Name | Select-Object Count, Name
-```
-
-例: `UNIQ ROWS = 2557`（`kind,city_id` 内訳はコマンド出力で確認）
-
-### 補足（運用上の注意）
-- `cache_hit=True/False` はキャッシュ利用の有無。`False` は失敗ではなく「キャッシュ未命中でWeb取得した」という意味。`False` が多くても `rows_total > 0` なら収集成功。
-- `MaxPages=0` は自動検出モード。現状は誤検出リスクがあるため、当面は `MaxPages` 明示指定を推奨。
-- 実測ページ数 `7/14/12/52` は 2026-02-18 時点の目安で、将来増減しうる。
-
-### 手動保存HTMLを使う場合
-- 既存の `run_mansion_review_html.ps1` は互換維持されており利用可能。
-- 手動保存するなら **HTML のみ** で十分（完全保存でも動くが不要）。
-
-## 4-2. 次の工程：空室リスト → 建物DB（重複なし）
-
-全体像（入力→出力）:
-1. **入力**: `tmp/pdf_pipeline/out/<timestamp>/master_import.csv`（空室リスト。中身は `final.csv` と同一）と `tmp/manual/outputs/mansion_review/combined/mansion_review_master_UNIQ_<timestamp>.csv`
-2. **正規化**: `normalize_address_jp()` / `normalize_building_name()` で揺れを統一（数字の推測補完はしない）
-3. **候補生成**: `buildings_master_raw.csv` と `buildings_master_keys.csv` を生成
-4. **要確認抽出**: `weak_address`, `missing_address`, `name_conflict_same_address`, `key_collision`, `suspicious_name` を `buildings_master_suspects.csv` に出力
-5. **人力補正反映**: `buildings_master_overrides.template.csv` を編集し再実行すると `buildings_master_merged_primary_wins.csv` / `buildings_master.csv` を再現可能に生成
-6. **SQLite取り込み → dist生成**: 既存の DB 取り込み/レンダリング手順（`docs/spec.md` と README Quickstart）に従って反映
-
-正本スクリプト（latest 自動検出）:
-- `scripts/run_buildings_master_from_sources.ps1`
-  - 既定入力: `tmp/pdf_pipeline/out` の latest `master_import.csv`（無ければ `final.csv`）、`tmp/manual/outputs/mansion_review/combined` の latest `mansion_review_master_UNIQ_*.csv`
-  - 既定出力: `tmp/manual/outputs/buildings_master/<timestamp>/buildings_master_raw.csv`, `buildings_master_keys.csv`, `buildings_master_suspects.csv`, `buildings_master_overrides.template.csv`, `buildings_master_merged_primary_wins.csv`, `buildings_master.csv`, `stats.json`
-
-一発コマンド:
-
-```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "scripts\run_buildings_master_from_sources.ps1") -RepoPath $REPO
-```
-
-
-任意補強（Google Geocoding）:
-- `python -m tatemono_map.enrich.google_geocode`
-  - 必須環境変数: `GOOGLE_MAPS_API_KEY`
-  - 既定キャッシュ: `tmp/cache/google_geocode.sqlite`
-  - 既定レート制限: `--qps 5`（5QPS以下）
-  - 既定動作: 弱い/曖昧住所のみ補強。`--force-all` で全件
-
-既存互換フロー（固定名CSVを事前配置する運用）:
-- `scripts/run_merge_building_masters.ps1`
-  - 既定入力: `tmp/manual/inputs/buildings_master/buildings_master_primary.csv` + `buildings_master_secondary.csv`
-  - 既定出力: `tmp/manual/outputs/buildings_master/buildings_master.csv`
-
-## 5. GitHub ↔ ローカル同期（repo 外から実行可）
-
-```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "sync.ps1") -RepoPath $REPO
-```
-
-```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "push.ps1") -RepoPath $REPO -Message "your commit message" -SensitiveColumnPolicy strict
-```
-
-## 5-1. 公開更新（publish_public → Actions deploy → スマホ確認）
-
-- GitHub Pages の `dist` ビルドと deploy は **Actions が実施**する。`dist/` は git 管理外（`.gitignore`）のため、手元で生成した `dist` を commit しない。
-
-手順（毎回同じ）:
-1. `tmp/manual/inputs/buildings_master.csv` と `tmp/manual/inputs/building_key_aliases.csv` を更新
-2. `scripts/publish_public.ps1` を実行して `data/public/public.sqlite3` を更新
-3. `push.ps1` で commit/push（`public.sqlite3` と必要なコード変更のみ）
-4. GitHub Actions `pages.yml` が `--version v1` で `dist` をビルドし Pages deploy
-5. デプロイ後にスマホで `/`（建物一覧）を開き、UI崩れがないことを確認
-
-## 6. 事故防止ガード
-- `.gitignore` で `secrets/**`, `.tmp/**`, ルート `/*.csv`, `tmp/**（.gitkeep と tmp/manual/README.md のみ例外）` を無視。
-- `scripts/git_push.ps1` が push 前に以下を検査。
-  - tracked に `secrets/**` / `.tmp/**` / `tmp/**（.gitkeep と tmp/manual/README.md 以外）` がある → **失敗**
-  - tracked にルート `*.csv` がある → **失敗**
-  - CSV ヘッダに `room_no`, `unit`, `号室`, `source_url` などがある → `warn` or `strict`
-
-
-## 6-1. tmp/manual 配下の扱い（tracked 許可/禁止）
-- `tmp/manual/README.md` はガイダンス文書として **tracked 許可**。
-- `tmp/manual` 配下の生成物（CSV/zip/html など）は **tracked 禁止**。
-- 固定ディレクトリ維持用の `.gitkeep` は tracked 許可。
-
-## 7. 事故った時の復旧手順
-
-### 7-1. 誤って追跡されたファイルを index から外す
-```powershell
-git rm --cached -r secrets .tmp tmp
-git rm --cached *.csv
-```
-
-### 7-2. 直前コミットを戻す（未 push の場合）
-```powershell
-git reset --soft HEAD~1
-```
-
-### 7-3. すでに push 済みの場合
-- 対象コミットを `git revert` して履歴で打ち消す。
-- 漏えいした認証情報は **即時 rotate**（API key / password / token）。
-- 公開物に混入した URL や号室情報は削除し、再生成・再配布する。
-
-## 8. QC（最低限）
-```powershell
-$csv = "tmp\pdf_pipeline\out\<timestamp>\master_import.csv"
-$rows = Import-Csv $csv
-"building_name empty = {0}/{1}" -f (($rows | ? { [string]::IsNullOrWhiteSpace($_.building_name) }).Count), $rows.Count
-"address empty      = {0}/{1}" -f (($rows | ? { [string]::IsNullOrWhiteSpace($_.address) }).Count), $rows.Count
-```
-
-- `stats.csv` の `status / warning_count / reasons` を必ず確認。
-- 欠損率が高い場合は一次資料の品質・抽出ルールを優先確認する。
+- `canonical_name` / `canonical_address` は自動上書きしない
+- 週次処理で判定不能な候補は review CSV に逃がし、処理は継続する
+- `buildings_master.csv` を「正本」として編集・再生成する運用は行わない
