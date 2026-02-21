@@ -7,8 +7,8 @@ from pathlib import Path
 
 from tatemono_map.db.repo import connect
 
-from .common import normalize_address, normalize_name
-
+from .matcher import match_building
+from .normalization import normalize_building_input
 
 UI_EVIDENCE_COLUMNS = ("evidence_url_or_id", "evidence_id", "source_id")
 
@@ -34,15 +34,14 @@ def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tu
     with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         for row in reader:
-            raw_name = _pick(row, "building_name", "canonical_name", "name")
-            raw_address = _pick(row, "address", "canonical_address")
             evidence_id = _pick(row, *UI_EVIDENCE_COLUMNS)
             merge_to = (row.get("merge_to_evidence") or "").strip()
-            if not raw_name and not raw_address:
+            normalized = normalize_building_input(
+                _pick(row, "building_name", "canonical_name", "name"),
+                _pick(row, "address", "canonical_address"),
+            )
+            if not normalized.raw_name and not normalized.raw_address:
                 continue
-
-            norm_name = normalize_name(raw_name)
-            norm_address = normalize_address(raw_address)
 
             winner_id = ""
             if merge_to:
@@ -53,7 +52,10 @@ def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tu
                 if winner:
                     winner_id = winner[0]
 
-            building_id = winner_id or _deterministic_building_id(norm_name, norm_address)
+            match = match_building(conn, normalized.normalized_name, normalized.normalized_address)
+            building_id = winner_id or match.building_id or _deterministic_building_id(
+                normalized.normalized_name, normalized.normalized_address
+            )
             existing = conn.execute("SELECT 1 FROM buildings WHERE building_id=?", (building_id,)).fetchone()
             if existing is None:
                 conn.execute(
@@ -63,9 +65,26 @@ def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tu
                         norm_name, norm_address, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     """,
-                    (building_id, raw_name, raw_address, norm_name, norm_address),
+                    (
+                        building_id,
+                        normalized.raw_name,
+                        normalized.raw_address,
+                        normalized.normalized_name,
+                        normalized.normalized_address,
+                    ),
                 )
                 inserted += 1
+            else:
+                conn.execute(
+                    """
+                    UPDATE buildings
+                    SET norm_name=COALESCE(NULLIF(norm_name, ''), ?),
+                        norm_address=COALESCE(NULLIF(norm_address, ''), ?),
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE building_id=?
+                    """,
+                    (normalized.normalized_name, normalized.normalized_address, building_id),
+                )
 
             if evidence_id:
                 conn.execute(
@@ -78,7 +97,7 @@ def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tu
                         raw_address=excluded.raw_address,
                         extracted_at=CURRENT_TIMESTAMP
                     """,
-                    (source, evidence_id, building_id, raw_name, raw_address),
+                    (source, evidence_id, building_id, normalized.raw_name, normalized.raw_address),
                 )
                 attached += 1
 

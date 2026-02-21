@@ -10,7 +10,8 @@ from pathlib import Path
 from tatemono_map.cli.master_import import _clean_text, _fallback_updated_at, _parse_area, _parse_man_to_yen
 from tatemono_map.db.repo import connect
 
-from .common import fuzzy_score, normalize_address, normalize_name, ward_or_city
+from .matcher import match_building
+from .normalization import normalize_building_input
 
 MASTER_COLUMNS = (
     "page",
@@ -30,6 +31,18 @@ MASTER_COLUMNS = (
     "evidence_id",
 )
 MASTER_COLUMNS_LEGACY = MASTER_COLUMNS[:-1]
+
+REVIEW_COLUMNS = [
+    "source_kind",
+    "source_id",
+    "name",
+    "address",
+    "normalized_name",
+    "normalized_address",
+    "reason",
+    "candidate_building_ids",
+    "candidate_scores",
+]
 
 
 @dataclass
@@ -63,48 +76,41 @@ def _listing_key(row: dict[str, str]) -> str:
     return hashlib.sha1(material.encode("utf-8")).hexdigest()
 
 
-def _match_building_id(conn, norm_name: str, norm_address: str, place_id: str, raw_address: str) -> str | None:
-    if place_id:
-        row = conn.execute("SELECT building_id FROM buildings WHERE google_place_id=?", (place_id,)).fetchone()
-        if row:
-            return row[0]
-
-    row = conn.execute(
-        "SELECT building_id FROM buildings WHERE norm_name=? AND norm_address=?",
-        (norm_name, norm_address),
-    ).fetchone()
-    if row:
-        return row[0]
-
-    anchor = ward_or_city(raw_address)
-    cands = conn.execute(
-        "SELECT building_id, norm_name, norm_address, canonical_address FROM buildings WHERE norm_name <> '' OR norm_address <> ''"
-    ).fetchall()
-    best_id = None
-    best_score = 0.0
-    for cand in cands:
-        cand_anchor = ward_or_city(cand[3] or cand[2])
-        if anchor and cand_anchor and anchor != cand_anchor:
-            continue
-        score = fuzzy_score(norm_name, norm_address, cand[1] or "", cand[2] or "")
-        if score > best_score:
-            best_score = score
-            best_id = cand[0]
-
-    if best_id and best_score >= 0.95:
-        return best_id
-    return None
+def _to_review_row(
+    *,
+    source_kind: str,
+    source_id: str,
+    normalized_name: str,
+    normalized_address: str,
+    raw_name: str,
+    raw_address: str,
+    reason: str,
+    candidate_ids: list[str],
+    candidate_scores: list[float],
+) -> dict[str, str]:
+    return {
+        "source_kind": source_kind,
+        "source_id": source_id,
+        "name": raw_name,
+        "address": raw_address,
+        "normalized_name": normalized_name,
+        "normalized_address": normalized_address,
+        "reason": reason,
+        "candidate_building_ids": "|".join(candidate_ids[:3]),
+        "candidate_scores": "|".join(str(score) for score in candidate_scores[:3]),
+    }
 
 
 def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_import") -> Report:
     conn = connect(db_path)
     report = Report()
     source_url = f"file:{Path(csv_path).name}"
-    now = datetime.now().strftime("%Y%m%d")
-    review_dir = Path("tmp/manual/review")
+    now = datetime.now().strftime("%Y%m%d_%H%M%S")
+    review_dir = Path("tmp/review")
     review_dir.mkdir(parents=True, exist_ok=True)
     new_rows: list[dict[str, str]] = []
     suspect_rows: list[dict[str, str]] = []
+    unmatched_rows: list[dict[str, str]] = []
 
     with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
@@ -117,19 +123,33 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
             if category == "seed":
                 continue
 
-            raw_name = _clean_text(row.get("building_name"))
-            raw_address = _clean_text(row.get("address"))
-            if not raw_name and not raw_address:
+            normalized = normalize_building_input(_clean_text(row.get("building_name")), _clean_text(row.get("address")))
+            evidence_id = _row_evidence_id(row, source_url)
+            if not normalized.raw_name and not normalized.raw_address:
                 report.unresolved += 1
+                unmatched_rows.append(
+                    _to_review_row(
+                        source_kind=source,
+                        source_id=evidence_id,
+                        normalized_name=normalized.normalized_name,
+                        normalized_address=normalized.normalized_address,
+                        raw_name=normalized.raw_name,
+                        raw_address=normalized.raw_address,
+                        reason="missing_name_and_address",
+                        candidate_ids=[],
+                        candidate_scores=[],
+                    )
+                )
                 continue
 
-            norm_name = normalize_name(raw_name)
-            norm_address = normalize_address(raw_address)
-            place_id = _clean_text(row.get("google_place_id"))
-            building_id = _match_building_id(conn, norm_name, norm_address, place_id, raw_address)
+            match = match_building(conn, normalized.normalized_name, normalized.normalized_address)
+            building_id = match.building_id
 
-            if not building_id:
-                building_id = hashlib.sha1(f"{norm_name}|{norm_address}".encode("utf-8")).hexdigest()[:32]
+            if not building_id and match.reason == "unmatched":
+                building_id = hashlib.sha1(
+                    f"{normalized.normalized_name}|{normalized.normalized_address}".encode("utf-8")
+                ).hexdigest()[:32]
+                before = conn.total_changes
                 conn.execute(
                     """
                     INSERT OR IGNORE INTO buildings(
@@ -137,34 +157,71 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                         norm_name, norm_address, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     """,
-                    (building_id, raw_name, raw_address, norm_name, norm_address),
+                    (
+                        building_id,
+                        normalized.raw_name,
+                        normalized.raw_address,
+                        normalized.normalized_name,
+                        normalized.normalized_address,
+                    ),
                 )
-                report.newly_added += 1
-                new_rows.append({"building_id": building_id, "raw_name": raw_name, "raw_address": raw_address})
+                if conn.total_changes > before:
+                    report.newly_added += 1
+                new_rows.append(
+                    _to_review_row(
+                        source_kind=source,
+                        source_id=evidence_id,
+                        normalized_name=normalized.normalized_name,
+                        normalized_address=normalized.normalized_address,
+                        raw_name=normalized.raw_name,
+                        raw_address=normalized.raw_address,
+                        reason="new_building_added",
+                        candidate_ids=[],
+                        candidate_scores=[],
+                    )
+                )
 
-            evidence_id = _row_evidence_id(row, source_url)
-            conn.execute(
-                """
-                INSERT INTO building_sources(source, evidence_id, building_id, raw_name, raw_address, extracted_at)
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT(source, evidence_id) DO UPDATE SET
-                  building_id=excluded.building_id,
-                  raw_name=excluded.raw_name,
-                  raw_address=excluded.raw_address,
-                  extracted_at=CURRENT_TIMESTAMP
-                """,
-                (source, evidence_id, building_id, raw_name, raw_address),
-            )
-
-            canonical = conn.execute("SELECT canonical_address FROM buildings WHERE building_id=?", (building_id,)).fetchone()
-            if canonical and canonical[0] and ward_or_city(canonical[0]) and ward_or_city(raw_address) and ward_or_city(canonical[0]) != ward_or_city(raw_address):
+            if not building_id:
+                report.unresolved += 1
                 suspect_rows.append(
-                    {
-                        "building_id": building_id,
-                        "canonical_address": canonical[0],
-                        "raw_address": raw_address,
-                        "evidence_id": evidence_id,
-                    }
+                    _to_review_row(
+                        source_kind=source,
+                        source_id=evidence_id,
+                        normalized_name=normalized.normalized_name,
+                        normalized_address=normalized.normalized_address,
+                        raw_name=normalized.raw_name,
+                        raw_address=normalized.raw_address,
+                        reason=match.reason,
+                        candidate_ids=match.candidate_ids,
+                        candidate_scores=match.candidate_scores,
+                    )
+                )
+                unmatched_rows.append(
+                    _to_review_row(
+                        source_kind=source,
+                        source_id=evidence_id,
+                        normalized_name=normalized.normalized_name,
+                        normalized_address=normalized.normalized_address,
+                        raw_name=normalized.raw_name,
+                        raw_address=normalized.raw_address,
+                        reason="building_id_unresolved",
+                        candidate_ids=match.candidate_ids,
+                        candidate_scores=match.candidate_scores,
+                    )
+                )
+
+            if building_id:
+                conn.execute(
+                    """
+                    INSERT INTO building_sources(source, evidence_id, building_id, raw_name, raw_address, extracted_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(source, evidence_id) DO UPDATE SET
+                      building_id=excluded.building_id,
+                      raw_name=excluded.raw_name,
+                      raw_address=excluded.raw_address,
+                      extracted_at=CURRENT_TIMESTAMP
+                    """,
+                    (source, evidence_id, building_id, normalized.raw_name, normalized.raw_address),
                 )
 
             listing_key = _listing_key(row)
@@ -204,8 +261,8 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                 (
                     listing_key,
                     building_id,
-                    raw_name,
-                    raw_address,
+                    normalized.raw_name,
+                    normalized.raw_address,
                     _clean_text(row.get("room")),
                     rent_yen,
                     maint_yen,
@@ -226,16 +283,23 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
     if new_rows:
         out_new = review_dir / f"new_buildings_{now}.csv"
         with out_new.open("w", encoding="utf-8-sig", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=["building_id", "raw_name", "raw_address"])
+            writer = csv.DictWriter(fh, fieldnames=REVIEW_COLUMNS)
             writer.writeheader()
             writer.writerows(new_rows)
 
     if suspect_rows:
         out_sus = review_dir / f"suspects_{now}.csv"
         with out_sus.open("w", encoding="utf-8-sig", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=["building_id", "canonical_address", "raw_address", "evidence_id"])
+            writer = csv.DictWriter(fh, fieldnames=REVIEW_COLUMNS)
             writer.writeheader()
             writer.writerows(suspect_rows)
+
+    if unmatched_rows:
+        out_unmatched = review_dir / f"unmatched_listings_{now}.csv"
+        with out_unmatched.open("w", encoding="utf-8-sig", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=REVIEW_COLUMNS)
+            writer.writeheader()
+            writer.writerows(unmatched_rows)
 
     return report
 
