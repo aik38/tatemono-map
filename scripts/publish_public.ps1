@@ -17,17 +17,10 @@ if (-not (Test-Path $venvPython)) {
   throw "Python executable not found: $venvPython`nRun scripts/setup.ps1 first."
 }
 
-$env:PYTHONPATH = Join-Path $repo "src"
-
 $dbMain = Join-Path $repo "data\tatemono_map.sqlite3"
 $dbPublic = Join-Path $repo "data\public\public.sqlite3"
-$aliasCsv = Join-Path $repo "tmp\manual\inputs\building_key_aliases.csv"
-$masterCsv = Join-Path $repo "tmp\manual\inputs\buildings_master.csv"
 
-& $venvPython -m tatemono_map.normalize.building_summaries `
-  --db-path $dbMain `
-  --alias-csv $aliasCsv `
-  --buildings-master-csv $masterCsv
+& $venvPython -m tatemono_map.normalize.building_summaries --db-path $dbMain
 if ($LASTEXITCODE -ne 0) { throw "normalize.building_summaries failed" }
 
 $pyScript = @'
@@ -35,6 +28,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 main_db = Path(os.environ["TATEMONO_MAIN_DB"])
@@ -78,17 +72,24 @@ with sqlite3.connect(tmp_db) as conn:
     conn.commit()
     conn.execute("DETACH DATABASE src")
 
-try:
-    os.replace(tmp_db, public_db)
-except OSError as exc:
-    if getattr(exc, "winerror", None) == 32:
-        print(
-            "[ERROR] Failed to replace public.sqlite3 because it is locked. "
-            "Close DB Browser / VSCode SQLite extension and rerun scripts/publish_public.ps1.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1)
-    raise
+retries = 3
+for attempt in range(1, retries + 1):
+    try:
+        os.replace(tmp_db, public_db)
+        break
+    except OSError as exc:
+        lock_hit = getattr(exc, "winerror", None) == 32 or "used by another process" in str(exc).lower()
+        if not lock_hit or attempt == retries:
+            if lock_hit:
+                print(
+                    "[ERROR] Failed to replace public.sqlite3 because it is locked. "
+                    "DB Browser for SQLite や VSCode の SQLite 拡張がファイルを掴んでいる可能性があります。"
+                    "それらを閉じてから scripts/publish_public.ps1 を再実行してください。",
+                    file=sys.stderr,
+                )
+                raise SystemExit(1)
+            raise
+        time.sleep(1.0)
 
 with sqlite3.connect(main_db) as conn:
     listings_count_main = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
