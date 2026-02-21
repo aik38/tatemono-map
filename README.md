@@ -2,38 +2,46 @@
 
 ## 開発同期（GitHub↔ローカル）
 
-> `setup` と `weekly_update` は開発同期には含めません。日々の同期は以下 3 コマンドのみを使います。
-
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -File "$REPO\sync.ps1" -RepoPath $REPO
-git -C $REPO push
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\sync.ps1" -RepoPath $REPO
 git -C $REPO status -sb
+git -C $REPO push
 ```
 
 ## 初回セットアップ（最初だけ）
 
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -File "$REPO\scripts\setup.ps1" -RepoPath $REPO
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\setup.ps1" -RepoPath $REPO
 ```
 
-- `scripts/setup.ps1` は `.venv` と requirements のハッシュを見て、変更がなければ `pip install` をスキップします。
+- `scripts/setup.ps1` は冪等（idempotent）です。
+- `.venv` と requirements フィンガープリント（ハッシュ）が前回と同じ場合、`pip install` / `pip install -e` をスキップします。
 
 ## 週次運用（空室更新）
 
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -File "$REPO\scripts\weekly_update.ps1" -RepoPath $REPO -DbPath "$REPO\data\tatemono_map.sqlite3"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\weekly_update.ps1" -RepoPath $REPO -DbPath "$REPO\data\tatemono_map.sqlite3"
 ```
 
-- 公開データ反映が必要な場合は `scripts/publish_public.ps1` を利用してください（`data/public/public.sqlite3` の更新内容を確認してから実行）。
+- 週次は 1 コマンドで再現可能です。
+- `weekly_update` は `buildings` を再構築しません（空室取り込み + 建物同定 + review CSV + 公開生成）。
+- review CSV は `tmp/review/` に出力されます（`new_buildings` / `suspects` / `unmatched_listings`）。
+
+## 公開反映（必要時）
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\publish_public.ps1" -RepoPath $REPO
+```
 
 ## What / Why
-このリポジトリは、Google Maps / Street View と連携可能な「不動産データベース母艦」を作るための基盤です。  
+このリポジトリは、Google Maps / Street View（ストリートビュー）と連携可能な「不動産データベース母艦」を作るための基盤です。  
 北九州は**パイロット地域**であり、固定ターゲットではありません。  
-MVP は賃貸空室データの整備を中心に進めますが、将来的には売買査定や解体比較のリード獲得にも拡張します。  
-正本は `buildings` テーブルで、手動判断した canonical 値は自動上書きしません。
+MVP は賃貸空室データの整備を中心に進めますが、将来的には売却査定や解体比較のリード獲得にも拡張します。  
+正本（Canonical Source of Truth）は SQLite の `buildings` テーブルです。
 
 ## Non-goals（このPRDでやらないこと）
 - UI テンプレートや見た目の最適化を先行しない。

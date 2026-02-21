@@ -152,6 +152,11 @@ if ($trackedRootCsv) {
 
 Test-SensitiveColumns -RepoRoot $resolvedRepoPath -Policy $SensitiveColumnPolicy
 
+$publicDbStagedAny = git diff --cached --name-only -- 'data/public/public.sqlite3'
+if ($publicDbStagedAny) {
+    Write-Warning 'data/public/public.sqlite3 is staged. Verify this is intentional before pushing.'
+}
+
 $workingTreeChanges = git status --porcelain
 if (-not $AutoCommit) {
     git status -sb

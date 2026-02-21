@@ -1,19 +1,19 @@
-# docs index
+# docs index（ドキュメント入口）
 
 このディレクトリは、運用判断に必要な文書の入口です。  
 迷ったら以下の順で読んでください。
 
 ## 推奨読書順
-1. [../PLAN.md](../PLAN.md)  
-   プロジェクト方針（目的・優先順位・変更管理ルール）。
+1. [wbs.md](wbs.md)  
+   WBS（Work Breakdown Structure / 作業分解構成）。工程、DoD（Definition of Done / 完了条件）、禁止事項の正本。
 2. [spec.md](spec.md)  
-   守るべき仕様（正本定義、責務分担、禁止事項、更新ポリシー）。
+   運用仕様の正本。canonical 方針、責務、禁止事項、更新ポリシー。
 3. [runbook.md](runbook.md)  
-   初回投入・週次更新・運用時チェックの実行手順。
-4. [wbs.md](wbs.md)  
-   Phase 0-6 の工程管理と DoD。
+   実運用手順。初回 seed、週次 1 コマンド運用、レビュー CSV 対応手順。
+4. [../PLAN.md](../PLAN.md)  
+   プロジェクト方針（目的、優先順位、変更管理ルール）。
 5. [data_contract.md](data_contract.md)  
-   入出力データの契約（CSV/DB/配信物）。
+   入出力データ契約（CSV/DB/配信物）。
 
 ## 補助ドキュメント
 - [frontend_versions.md](frontend_versions.md): フロント関連の履歴メモ。
