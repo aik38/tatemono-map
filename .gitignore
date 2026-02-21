@@ -16,6 +16,7 @@ data/
 !data/public/public.sqlite3
 
 # build artifacts
+src/tatemono_map.egg-info/
 dist/
 dist_tmp/
 dist__tmp/
@@ -27,6 +28,7 @@ secrets/**
 .tmp/**
 
 # tmp artifacts (allow only tracked guidance files)
+tmp/
 tmp/**
 !tmp/manual/
 !tmp/manual/README.md
