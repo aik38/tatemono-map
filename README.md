@@ -302,3 +302,37 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $REPO "push.ps1") -Repo
 2. `scripts/publish_public.ps1` を実行して `data/public/public.sqlite3` を更新
 3. `push.ps1` で commit/push（`public.sqlite3` と workflow/コード変更がある場合）
 4. GitHub Actions が `dist` をビルドして Pages へ deploy
+
+
+## Canonical buildings registry（週次で戻らない運用）
+
+`buildings` テーブルを建物正本として固定し、`buildings_master` を毎週再生成しない運用に切り替えました。
+
+初回シード（UIレビュー済みCSV）:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\seed_buildings_from_ui.ps1 `
+  -DbPath data\tatemono_map.sqlite3 `
+  -CsvPath tmp\manual\inputs\buildings_seed_ui.csv
+```
+
+週次運用（人手名寄せなし）:
+
+```powershell
+# 1) 最新PDF ZIPを処理
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_pdf_zip_latest.ps1
+
+# 2) master_import.csv を canonical registry へ吸収
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\ingest_master_import.ps1 -DbPath data\tatemono_map.sqlite3
+
+# 3) 公開DB作成
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish_public.ps1
+
+# 4) 静的HTML再生成
+python -m tatemono_map.render.build --db-path data\public\public.sqlite3 --output-dir dist
+```
+
+補足:
+- `canonical_name` / `canonical_address` は週次取り込みで自動上書きしません。
+- 判定不能な新規候補は `tmp/manual/review/new_buildings_YYYYMMDD.csv` と `suspects_YYYYMMDD.csv` に出力し、運用自体は継続します。
+

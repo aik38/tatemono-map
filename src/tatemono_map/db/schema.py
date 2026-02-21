@@ -14,6 +14,50 @@ class TableSchema:
 
 TABLE_SCHEMAS: tuple[TableSchema, ...] = (
     TableSchema(
+        name="buildings",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS buildings (
+            building_id TEXT PRIMARY KEY,
+            canonical_name TEXT,
+            canonical_address TEXT,
+            norm_name TEXT,
+            norm_address TEXT,
+            google_place_id TEXT,
+            google_lat REAL,
+            google_lng REAL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        columns=(
+            "building_id",
+            "canonical_name",
+            "canonical_address",
+            "norm_name",
+            "norm_address",
+            "google_place_id",
+            "google_lat",
+            "google_lng",
+            "created_at",
+            "updated_at",
+        ),
+    ),
+    TableSchema(
+        name="building_sources",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS building_sources (
+            source TEXT NOT NULL,
+            evidence_id TEXT NOT NULL,
+            building_id TEXT NOT NULL,
+            raw_name TEXT,
+            raw_address TEXT,
+            extracted_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(source, evidence_id)
+        )
+        """,
+        columns=("source", "evidence_id", "building_id", "raw_name", "raw_address", "extracted_at"),
+    ),
+    TableSchema(
         name="raw_sources",
         ddl="""
         CREATE TABLE IF NOT EXISTS raw_sources (
