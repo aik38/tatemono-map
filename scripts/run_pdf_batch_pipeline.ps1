@@ -42,7 +42,13 @@ python -m tatemono_map.cli.pdf_batch_run `
   --out-dir $OutDir
 
 if ($Open) {
-  if (Test-Path (Join-Path $OutDir "final.csv")) { Start-Process (Join-Path $OutDir "final.csv") }
+  $masterImportCsv = Join-Path $OutDir "master_import.csv"
+  $finalCsv = Join-Path $OutDir "final.csv"
+  if (Test-Path $masterImportCsv) {
+    Start-Process $masterImportCsv
+  } elseif (Test-Path $finalCsv) {
+    Start-Process $finalCsv
+  }
   if (Test-Path (Join-Path $OutDir "qc_report.txt")) { Start-Process (Join-Path $OutDir "qc_report.txt") }
   if (Test-Path (Join-Path $OutDir "stats.csv")) { Start-Process (Join-Path $OutDir "stats.csv") }
 }
