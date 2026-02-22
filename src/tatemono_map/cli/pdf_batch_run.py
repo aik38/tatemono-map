@@ -423,7 +423,7 @@ class RealproParser:
     name = "realpro"
 
     def detect_kind(self, first_page_text: str, metadata: Dict[str, Any]) -> DetectResult:
-        t = normalize_pdf_text(first_page_text)
+        t = nfkc(first_page_text)
         has_room_col = "号室名" in t
         has_rent_col = "賃料" in t
         if has_room_col and not has_rent_col:
@@ -499,13 +499,26 @@ class RealproParser:
         context_bottom = min(top + REALPRO_CONTEXT_INNER_BAND_PX, bottom)
         if context_bottom <= prev_bottom:
             return "", "", "", float("nan")
-        words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
-        block_words = [
-            w
-            for w in words
-            if prev_bottom <= float(w.get("top", 0.0)) <= context_bottom and float(w.get("top", 0.0)) >= 50.0
-        ]
-        lines = self._words_to_lines(block_words)
+        if hasattr(page, "extract_words"):
+            words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
+            block_words = [
+                w
+                for w in words
+                if prev_bottom <= float(w.get("top", 0.0)) <= context_bottom and float(w.get("top", 0.0)) >= 50.0
+            ]
+            lines = self._words_to_lines(block_words)
+        else:
+            fallback_text = page.extract_text() if hasattr(page, "extract_text") else ""
+            raw_lines = str(fallback_text or "").splitlines()
+            lines = []
+            for raw_line in raw_lines:
+                line = raw_line
+                if is_mojibake(line):
+                    line = restore_latin1_cp932_mojibake(line)
+                line = nfkc(line)
+                if not line or is_mojibake(line):
+                    continue
+                lines.append(line)
         return self._extract_context_from_lines(lines, ward_hint)
 
     def parse(self, pdf_path: Path) -> ParseResult:
