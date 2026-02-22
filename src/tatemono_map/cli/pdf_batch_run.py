@@ -424,15 +424,17 @@ class RealproParser:
 
     def detect_kind(self, first_page_text: str, metadata: Dict[str, Any]) -> DetectResult:
         t = nfkc(first_page_text)
+        lines = [nfkc(line) for line in str(first_page_text or "").splitlines() if nfkc(line)]
         has_room_col = "号室名" in t
         has_rent_col = "賃料" in t
+        has_valid_header_line = any(("号室名" in line and "賃料" in line and "珍料" not in line) for line in lines)
         if has_room_col and not has_rent_col:
             return DetectResult(kind="non_vacancy", reason="realpro_missing_rent_header")
         score = 0
         for tok in ["リアプロ", "空室一覧表", "号室名", "賃料", "管理費"]:
             if tok in t:
                 score += 1
-        kind = "realpro" if (has_room_col and has_rent_col and score >= 3) else "non_vacancy"
+        kind = "realpro" if (has_room_col and has_rent_col and has_valid_header_line and score >= 3) else "non_vacancy"
         return DetectResult(kind=kind, reason=f"realpro_score={score}")
 
     def _extract_contexts(self, lines: List[str]) -> List[Tuple[str, str, str, float]]:
@@ -510,7 +512,7 @@ class RealproParser:
         else:
             fallback_text = page.extract_text() if hasattr(page, "extract_text") else ""
             raw_lines = str(fallback_text or "").splitlines()
-            lines = []
+            pseudo_words: List[Dict[str, Any]] = []
             for raw_line in raw_lines:
                 line = raw_line
                 if is_mojibake(line):
@@ -518,7 +520,8 @@ class RealproParser:
                 line = nfkc(line)
                 if not line or is_mojibake(line):
                     continue
-                lines.append(line)
+                pseudo_words.append({"text": line, "x0": 0.0, "top": 0.0})
+            lines = self._words_to_lines(pseudo_words)
         return self._extract_context_from_lines(lines, ward_hint)
 
     def parse(self, pdf_path: Path) -> ParseResult:
