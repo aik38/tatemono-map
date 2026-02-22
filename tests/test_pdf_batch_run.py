@@ -1,6 +1,6 @@
 from pathlib import Path
 
-import pandas as pd
+pd = __import__("pytest").importorskip("pandas")
 
 from tatemono_map.cli.pdf_batch_run import (
     MASTER_IMPORT_SCHEMA,

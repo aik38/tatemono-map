@@ -1,8 +1,22 @@
-from pathlib import Path
+import importlib.util
+import sys
 
 import pytest
 
-from scripts.mansion_review_fetch_mansion_cities1616_1619 import extract_rows_from_html
+from tests.conftest import repo_path
+
+pytest.importorskip("bs4")
+
+MODULE_PATH = repo_path("scripts", "mansion_review_fetch_mansion_cities1616_1619.py")
+if not MODULE_PATH.exists():
+    pytest.skip("mansion-review scripts are optional and not present", allow_module_level=True)
+
+SPEC = importlib.util.spec_from_file_location("mansion_review_fetch_mansion_cities1616_1619", MODULE_PATH)
+assert SPEC and SPEC.loader
+module = importlib.util.module_from_spec(SPEC)
+sys.modules[SPEC.name] = module
+SPEC.loader.exec_module(module)
+extract_rows_from_html = module.extract_rows_from_html
 
 
 @pytest.mark.parametrize(
@@ -13,7 +27,7 @@ from scripts.mansion_review_fetch_mansion_cities1616_1619 import extract_rows_fr
     ],
 )
 def test_extract_rows_from_fixture_minimum_urls(fixture_name: str, city_id: int, city_name: str, min_urls: int) -> None:
-    fixture = Path("tests/fixtures/mansion_review") / fixture_name
+    fixture = repo_path("tests", "fixtures", "mansion_review", fixture_name)
     if not fixture.exists():
         pytest.skip(
             "TODO: tests/fixtures/mansion_review/*.html を追加後に有効化。"

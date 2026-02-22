@@ -3,14 +3,21 @@ from pathlib import Path
 
 import importlib.util
 
+import pytest
+
 from tatemono_map.db.schema import SchemaMismatchError, ensure_schema
+from tests.conftest import repo_path
 
 
 def _load_migrate():
-    script_path = Path("scripts/migrate_to_canonical.py").resolve()
+    script_path = repo_path("scripts", "migrate_to_canonical.py")
+    if not script_path.exists():
+        pytest.skip("migration script not present; test skipped", allow_module_level=True)
     spec = importlib.util.spec_from_file_location("migrate_to_canonical", script_path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
+    import sys
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module.migrate
 

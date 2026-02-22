@@ -10,10 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
-import pandas as pd
-from pypdf import PdfReader
-
-import pdfplumber
+from importlib import import_module
 
 FINAL_SCHEMA = [
     "category",
@@ -61,6 +58,28 @@ WARD_RE = "|".join(WARD_NAMES)
 REALPRO_CONTEXT_INNER_BAND_PX = 60.0
 
 REALPRO_TABLE_HEADER_TOKENS = ["号室名", "賃料", "共益費", "間取", "面積", "敷金", "礼金", "管理費"]
+
+
+def _PdfReader():
+    return import_module("pypdf").PdfReader
+
+
+class _LazyModule:
+    def __init__(self, module_name: str):
+        self._module_name = module_name
+
+    def __getattr__(self, name: str):
+        return getattr(import_module(self._module_name), name)
+
+
+pdfplumber = _LazyModule("pdfplumber")
+
+class _LazyPandas:
+    def __getattr__(self, name: str):
+        return getattr(import_module("pandas"), name)
+
+
+pd = _LazyPandas()
 
 
 @dataclass
@@ -141,7 +160,7 @@ def sha256_file(path: Path) -> str:
 
 
 def page_count_fast(path: Path) -> int:
-    r = PdfReader(str(path))
+    r = _PdfReader()(str(path))
     return len(r.pages)
 
 
@@ -583,7 +602,7 @@ PARSERS: Sequence[VacancyParser] = [UlucksParser(), RealproParser()]
 def detect_pdf_kind(path: Path) -> DetectResult:
     first = ""
     try:
-        r = PdfReader(str(path))
+        r = _PdfReader()(str(path))
         if r.pages:
             first = normalize_pdf_text(r.pages[0].extract_text() or "")
     except Exception:

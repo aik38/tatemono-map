@@ -1,18 +1,28 @@
-from pathlib import Path
+import importlib.util
 
 import pytest
 
+from tests.conftest import repo_path
+
 pytest.importorskip("bs4")
 
-from scripts.mansion_review_fetch_chintai_cities1616_1619 import (
-    city_page_url,
-    extract_building_links,
-    extract_rows_from_city_html,
-)
+MODULE_PATH = repo_path("scripts", "mansion_review_fetch_chintai_cities1616_1619.py")
+if not MODULE_PATH.exists():
+    pytest.skip("mansion-review scripts are optional and not present", allow_module_level=True)
+
+SPEC = importlib.util.spec_from_file_location("mansion_review_fetch_chintai_cities1616_1619", MODULE_PATH)
+assert SPEC and SPEC.loader
+module = importlib.util.module_from_spec(SPEC)
+import sys
+sys.modules[SPEC.name] = module
+SPEC.loader.exec_module(module)
+city_page_url = module.city_page_url
+extract_building_links = module.extract_building_links
+extract_rows_from_city_html = module.extract_rows_from_city_html
 
 
 def test_extract_rows_from_city_page_table() -> None:
-    city_html = Path("tests/fixtures/mansion_review/chintai_city_with_table.html").read_text(encoding="utf-8")
+    city_html = repo_path("tests", "fixtures", "mansion_review", "chintai_city_with_table.html").read_text(encoding="utf-8")
 
     rows = extract_rows_from_city_html(
         city_html,
