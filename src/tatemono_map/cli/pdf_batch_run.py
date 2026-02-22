@@ -141,7 +141,8 @@ def restore_latin1_cp932_mojibake(text: Any) -> str:
         return src
     src_jp = len(re.findall(r"[ぁ-んァ-ン一-龥]", src))
     fixed_jp = len(re.findall(r"[ぁ-んァ-ン一-龥]", fixed))
-    return fixed if fixed_jp > src_jp else src
+    out = fixed if fixed_jp > src_jp else src
+    return out.replace("珍料", "賃料")
 
 
 def normalize_pdf_text(text: Any) -> str:
@@ -258,6 +259,18 @@ def apply_name_and_row_filters(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, Dic
     out["building_name"] = [t[0] for t in split_pairs]
     out["room_no"] = [t[1] for t in split_pairs]
 
+    def _strip_room_suffix(name: str) -> str:
+        s = nfkc(name)
+        patterns = [
+            r"[\s　]*\d{2,4}[\s　]*号室\s*$",
+            r"[\s　]*[（(][\s　]*\d{2,4}[\s　]*号室[\s　]*[）)]\s*$",
+        ]
+        for pat in patterns:
+            s = re.sub(pat, "", s)
+        return s.strip()
+
+    out["building_name"] = out["building_name"].astype(str).map(_strip_room_suffix)
+
     detached_mask = out["source_property_name"].map(classify_detached_house)
     dropped = int(detached_mask.sum())
     out = out.loc[~detached_mask].copy()
@@ -369,7 +382,7 @@ class UlucksParser:
                     if not ("物件名" in header and "号室" in header and "賃料" in header):
                         continue
                     idx = {h: header.index(h) for h in header if h}
-                    for r in tb[1:]:
+                    for row_i, r in enumerate(tb[1:], start=1):
                         if not r or all(normalize_pdf_text(c) == "" for c in r):
                             continue
                         r = list(r) + [None] * (len(header) - len(r))
@@ -399,7 +412,7 @@ class UlucksParser:
                                 "file": pdf_path.name,
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
-                                "evidence_id": f"pdf:{path.name}#p={page_num + 1}#i={idx}",
+                                "evidence_id": f"pdf:{pdf_path.name}#p={pi}#i={row_i}",
                             }
                         )
         df = pd.DataFrame(rows)
@@ -410,12 +423,17 @@ class RealproParser:
     name = "realpro"
 
     def detect_kind(self, first_page_text: str, metadata: Dict[str, Any]) -> DetectResult:
-        score = 0
         t = normalize_pdf_text(first_page_text)
+        has_room_col = "号室名" in t
+        has_rent_col = "賃料" in t
+        if has_room_col and not has_rent_col:
+            return DetectResult(kind="non_vacancy", reason="realpro_missing_rent_header")
+        score = 0
         for tok in ["リアプロ", "空室一覧表", "号室名", "賃料", "管理費"]:
             if tok in t:
                 score += 1
-        return DetectResult(kind="realpro" if score >= 3 else "non_vacancy", reason=f"realpro_score={score}")
+        kind = "realpro" if (has_room_col and has_rent_col and score >= 3) else "non_vacancy"
+        return DetectResult(kind=kind, reason=f"realpro_score={score}")
 
     def _extract_contexts(self, lines: List[str]) -> List[Tuple[str, str, str, float]]:
         context = self._extract_context_from_lines(lines, extract_ward_hint(" ".join(lines)))
@@ -500,7 +518,8 @@ class RealproParser:
                 updated = parse_updated_at(text)
                 ward_hint = extract_ward_hint(text)
 
-                page_tables = page.find_tables() or []
+                finder = getattr(page, "find_tables", None)
+                page_tables = (finder() if callable(finder) else []) or []
                 if not page_tables:
                     for tb in page.extract_tables() or []:
                         class _T:
@@ -540,7 +559,7 @@ class RealproParser:
                     if context[0]:
                         last_context = context
 
-                    for r in tb[header_row + 1 :]:
+                    for row_i, r in enumerate(tb[header_row + 1 :], start=1):
                         if not r or all(normalize_pdf_text(c) == "" for c in r):
                             continue
                         r = list(r) + [None] * (len(header) - len(r))
@@ -580,7 +599,7 @@ class RealproParser:
                                 "structure": context[2],
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
-                                "evidence_id": f"pdf:{path.name}#p={page_num + 1}#i={idx}",
+                                "evidence_id": f"pdf:{pdf_path.name}#p={pi}#i={row_i}",
                             }
                         )
                     prev_bottom = float(t.bbox[3]) if getattr(t, "bbox", None) else prev_bottom
