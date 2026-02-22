@@ -17,7 +17,7 @@
 - CSVは資産（seed入力・レビュー用）だが正本ではない。
 
 ### 0.3 禁止事項（これをやったら失格）
-- buildings_master 再構築フローの復活（再生成・CSV正本化・逆流）は禁止。
+- 旧マスター再構築フローの復活（再生成・CSV正本化・逆流）は禁止。
 - 正本（buildings）をCSVに戻す運用は禁止。
 - canonical の自動更新は禁止。
 - Web出力禁止情報を含めるのは禁止（号室、参照元URL、元付/管理会社、PDF、機微情報）。
@@ -105,7 +105,7 @@
 ### What
 - 公開用DB（data/public/public.sqlite3）を **canonical(buildings)+listings** から生成する。
   - 互換のため `building_summaries` 等の公開テーブルは維持（UI/静的HTMLが参照している形を壊さない）。
-- `publish_public` の流れから legacy（buildings_master由来）を排除・隔離。
+- `publish_public` の流れから legacy（旧マスター再構築由来）を排除・隔離。
 - dist（静的HTML）生成は公開DBを参照して作る（禁止情報が混入しない）。
 - Windowsの `public.sqlite3` ロック問題：
   - エラーメッセージを明確化（どのプロセスを閉じるべきか）。
@@ -113,7 +113,7 @@
 
 ### DoD
 - weekly_update → publish_public → render.build が完走し、dist が更新される。
-- public.sqlite3 が canonical由来で生成される（buildings_master依存ゼロ）。
+- public.sqlite3 が canonical由来で生成される（旧マスター再構築依存ゼロ）。
 - Web出力禁止情報が出ない（自動検査またはQC手順がある）。
 - ロック時の復旧手順が runbook に明記されている。
 

@@ -19,3 +19,7 @@
 - [frontend_versions.md](frontend_versions.md): フロント関連の履歴メモ。
 - [manual_pdf_ingest.md](manual_pdf_ingest.md): PDF取り込みの補助手順。
 - [ulucks_phase_a.md](ulucks_phase_a.md): Ulucks 作業メモ。
+
+## Legacy（deprecated）
+- [legacy/README.md](legacy/README.md): 現行 canonical 運用では使わない旧フロー資料。
+- ⚠️ 参照専用です。運用は `scripts/weekly_update.ps1` / `scripts/publish_public.ps1` / building_registry を使用してください。

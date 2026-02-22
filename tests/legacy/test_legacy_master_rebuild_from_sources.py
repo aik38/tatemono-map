@@ -1,8 +1,11 @@
+# DEPRECATED: not used in current canonical workflow; kept only for reference tests for legacy master rebuild.
+# Replacement: tests/test_building_registry.py + scripts/weekly_update.ps1 canonical flow.
+
 from __future__ import annotations
 
 import csv
 
-from tatemono_map.buildings_master.from_sources import normalize_address_jp, normalize_building_name, run
+from tatemono_map.legacy.master_rebuild.from_sources import normalize_address_jp, normalize_building_name, run
 
 
 def _write_csv(path, fieldnames, rows):
@@ -57,10 +60,10 @@ def test_dedup_and_suspects(tmp_path):
     assert stats["counts"]["mansion_review_input_rows"] == 3
     assert stats["counts"]["mansion_review_dedup_rows"] == 2
 
-    suspects = _read_csv(out / "buildings_master_suspects.csv")
+    suspects = _read_csv(out / "legacy_master_rebuild_suspects.csv")
     reasons = "\n".join(row["reason_codes"] for row in suspects)
     assert "weak_address" in reasons
     assert "name_conflict_same_address" in reasons
 
-    merged = _read_csv(out / "buildings_master_merged_primary_wins.csv")
+    merged = _read_csv(out / "legacy_master_rebuild_merged_primary_wins.csv")
     assert any("https://example.com/d/1" in row["evidence_url_or_id"] for row in merged)

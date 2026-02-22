@@ -1,3 +1,8 @@
+"""DEPRECATED: not used in current canonical workflow; kept only for reference.
+
+Use scripts/weekly_update.ps1 and the building_registry pipeline for canonical operations.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -394,7 +399,7 @@ def run(pdf_csv: Path, mr_csv: Path, out_dir: Path, overrides_csv: Path | None =
     ]
 
     _write_csv(
-        out_dir / "buildings_master_raw.csv",
+        out_dir / "legacy_master_rebuild_raw.csv",
         [
             "source",
             "building_name",
@@ -408,7 +413,7 @@ def run(pdf_csv: Path, mr_csv: Path, out_dir: Path, overrides_csv: Path | None =
         raw_rows,
     )
     _write_csv(
-        out_dir / "buildings_master_keys.csv",
+        out_dir / "legacy_master_rebuild_keys.csv",
         [
             "building_key",
             "normalized_address",
@@ -421,7 +426,7 @@ def run(pdf_csv: Path, mr_csv: Path, out_dir: Path, overrides_csv: Path | None =
         sorted(key_rows, key=lambda r: str(r["building_key"])),
     )
     _write_csv(
-        out_dir / "buildings_master_suspects.csv",
+        out_dir / "legacy_master_rebuild_suspects.csv",
         [
             "source",
             "building_name",
@@ -435,7 +440,7 @@ def run(pdf_csv: Path, mr_csv: Path, out_dir: Path, overrides_csv: Path | None =
         suspect_rows,
     )
     _write_csv(
-        out_dir / "buildings_master_overrides.template.csv",
+        out_dir / "legacy_master_rebuild_overrides.template.csv",
         [
             "source",
             "evidence_url_or_id",
@@ -459,7 +464,7 @@ def run(pdf_csv: Path, mr_csv: Path, out_dir: Path, overrides_csv: Path | None =
         ],
     )
     _write_csv(
-        out_dir / "buildings_master_merged_primary_wins.csv",
+        out_dir / "legacy_master_rebuild_merged_primary_wins.csv",
         [
             "building_key",
             "building_name",
@@ -473,7 +478,7 @@ def run(pdf_csv: Path, mr_csv: Path, out_dir: Path, overrides_csv: Path | None =
         merged_rows,
     )
     _write_csv(
-        out_dir / "buildings_master.csv",
+        out_dir / "legacy_master_rebuild.csv",
         ["building_key", "building_name", "address", "source", "evidence_url_or_id"],
         master_rows,
     )
