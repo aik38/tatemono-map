@@ -4,7 +4,11 @@ import sys
 
 import pytest
 
-MODULE_PATH = Path("scripts/mansion_review_crawl_to_csv.py")
+from tests.conftest import repo_path
+
+MODULE_PATH = repo_path("scripts", "mansion_review_crawl_to_csv.py")
+if not MODULE_PATH.exists():
+    pytest.skip("mansion-review scripts are optional and not present", allow_module_level=True)
 SPEC = importlib.util.spec_from_file_location("mansion_review_crawl_to_csv", MODULE_PATH)
 assert SPEC and SPEC.loader
 crawl = importlib.util.module_from_spec(SPEC)
@@ -16,7 +20,7 @@ parse_max_page = crawl.parse_max_page
 
 
 def _read_fixture(name: str) -> str:
-    return Path(f"tests/fixtures/mansion_review/{name}").read_text(encoding="utf-8")
+    return repo_path("tests", "fixtures", "mansion_review", name).read_text(encoding="utf-8")
 
 
 def test_parse_list_page_returns_rows_for_all_fixtures() -> None:

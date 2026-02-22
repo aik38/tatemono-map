@@ -61,6 +61,7 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
 
     seed_count = 0
     vacancy_count = 0
+    seed_summaries: list[dict[str, object]] = []
     touched_buildings: set[str] = set()
     source_url = f"file:{Path(csv_path).name}"
 
@@ -81,23 +82,22 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
             touched_buildings.add(building_key)
 
             if category == "seed":
-                replace_building_summary(
-                    conn,
-                    {
-                        "building_key": building_key,
-                        "name": name,
-                        "raw_name": name,
-                        "address": address,
-                        "rent_yen_min": None,
-                        "rent_yen_max": None,
-                        "area_sqm_min": None,
-                        "area_sqm_max": None,
-                        "layout_types": [],
-                        "move_in_dates": [],
-                        "vacancy_count": 0,
-                        "last_updated": None,
-                    },
-                )
+                summary = {
+                    "building_key": building_key,
+                    "name": name,
+                    "raw_name": name,
+                    "address": address,
+                    "rent_yen_min": None,
+                    "rent_yen_max": None,
+                    "area_sqm_min": None,
+                    "area_sqm_max": None,
+                    "layout_types": [],
+                    "move_in_dates": [],
+                    "vacancy_count": 0,
+                    "last_updated": None,
+                }
+                replace_building_summary(conn, summary)
+                seed_summaries.append(summary)
                 seed_count += 1
                 continue
 
@@ -171,6 +171,12 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
     conn.commit()
     conn.close()
     rebuild(db_path)
+    if vacancy_count == 0 and seed_summaries:
+        conn = connect(db_path)
+        for summary in seed_summaries:
+            replace_building_summary(conn, summary)
+        conn.commit()
+        conn.close()
     return seed_count, vacancy_count, len(touched_buildings)
 
 
