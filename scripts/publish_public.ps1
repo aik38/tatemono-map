@@ -20,6 +20,16 @@ if (-not (Test-Path $venvPython)) {
 $dbMain = Join-Path $repo "data\tatemono_map.sqlite3"
 $dbPublic = Join-Path $repo "data\public\public.sqlite3"
 
+if (Test-Path $dbPublic) {
+  try {
+    $lockProbe = [System.IO.File]::Open($dbPublic, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+    $lockProbe.Close()
+  }
+  catch {
+    throw "public.sqlite3 is locked. DB Browser for SQLite or VSCode SQLite extension may be holding the file. Close them and rerun scripts/publish_public.ps1."
+  }
+}
+
 & $venvPython -m tatemono_map.normalize.building_summaries --db-path $dbMain
 if ($LASTEXITCODE -ne 0) { throw "normalize.building_summaries failed" }
 
@@ -72,7 +82,7 @@ with sqlite3.connect(tmp_db) as conn:
     conn.commit()
     conn.execute("DETACH DATABASE src")
 
-retries = 3
+retries = 10
 for attempt in range(1, retries + 1):
     try:
         os.replace(tmp_db, public_db)
@@ -121,3 +131,6 @@ finally {
     Remove-Item -LiteralPath $tempPy -Force
   }
 }
+
+Write-Host "public.sqlite3 replacement succeeded"
+Get-Item $dbPublic | Format-List FullName,Length,LastWriteTime
