@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tatemono_map.buildings_master.from_sources import normalize_address_jp, normalize_building_name
+from tatemono_map.legacy.master_rebuild.from_sources import normalize_address_jp, normalize_building_name
 
 
 @dataclass(frozen=True)

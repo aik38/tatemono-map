@@ -57,10 +57,10 @@ function Test-PathAllowedInTmp {
         'tmp/manual/inputs/.gitkeep',
         'tmp/manual/inputs/pdf_zips/.gitkeep',
         'tmp/manual/inputs/html_saved/.gitkeep',
-        'tmp/manual/inputs/buildings_master/.gitkeep',
+        'tmp/manual/inputs/legacy_master_rebuild/.gitkeep',
         'tmp/manual/outputs/.gitkeep',
         'tmp/manual/outputs/mansion_review/.gitkeep',
-        'tmp/manual/outputs/buildings_master/.gitkeep',
+        'tmp/manual/outputs/legacy_master_rebuild/.gitkeep',
         'tmp/pdf_pipeline/.gitkeep',
         'tmp/pdf_pipeline/work/.gitkeep',
         'tmp/pdf_pipeline/out/.gitkeep'

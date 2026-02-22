@@ -46,7 +46,7 @@ MVP は賃貸空室データの整備を中心に進めますが、将来的に�
 ## Non-goals（このPRDでやらないこと）
 - UI テンプレートや見た目の最適化を先行しない。
 - `buildings` の canonical 項目を自動更新しない。
-- 旧来の `buildings_master` 再構築フローを現行運用に戻さない。
+- 旧来の「マスター再構築」フローを現行運用に戻さない。
 
 ## Docs
 - ドキュメント入口: [docs/README.md](docs/README.md)

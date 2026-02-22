@@ -79,7 +79,7 @@ def _should_geocode(row: dict[str, str], force_all: bool) -> bool:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Enrich buildings_master.csv with Google Geocoding API")
+    parser = argparse.ArgumentParser(description="Enrich legacy master CSV with Google Geocoding API")
     parser.add_argument("--in", dest="input_csv", required=True)
     parser.add_argument("--out", dest="output_csv", required=True)
     parser.add_argument("--cache", default="tmp/cache/google_geocode.sqlite")
