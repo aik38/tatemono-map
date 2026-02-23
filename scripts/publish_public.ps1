@@ -39,6 +39,8 @@ import re
 import sqlite3
 import sys
 import time
+import ctypes
+from ctypes import wintypes
 from pathlib import Path
 
 main_db = Path(os.environ["TATEMONO_MAIN_DB"])
@@ -67,7 +69,8 @@ with sqlite3.connect(main_db) as src:
 if tmp_db.exists():
     tmp_db.unlink()
 
-with sqlite3.connect(tmp_db) as conn:
+conn = sqlite3.connect(tmp_db)
+try:
     conn.execute("PRAGMA foreign_keys=OFF")
     conn.execute("PRAGMA busy_timeout=5000")
     create_main_sql = re.sub(
@@ -81,6 +84,52 @@ with sqlite3.connect(tmp_db) as conn:
     conn.execute("INSERT INTO main.building_summaries SELECT * FROM src.building_summaries")
     conn.commit()
     conn.execute("DETACH DATABASE src")
+finally:
+    conn.close()
+
+
+def _windows_exclusive_open_status(path: Path) -> str:
+    if os.name != "nt":
+        return "unknown"
+    if not path.exists():
+        return "missing"
+
+    GENERIC_READ = 0x80000000
+    GENERIC_WRITE = 0x40000000
+    OPEN_EXISTING = 3
+    FILE_ATTRIBUTE_NORMAL = 0x80
+    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+
+    create_file = ctypes.windll.kernel32.CreateFileW
+    create_file.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.LPVOID,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    create_file.restype = wintypes.HANDLE
+
+    handle = create_file(
+        str(path),
+        GENERIC_READ | GENERIC_WRITE,
+        0,
+        None,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        None,
+    )
+
+    if handle == INVALID_HANDLE_VALUE:
+        err = ctypes.GetLastError()
+        if err == 32:
+            return "locked"
+        return f"error:{err}"
+
+    ctypes.windll.kernel32.CloseHandle(handle)
+    return "unlocked"
 
 retries = 10
 for attempt in range(1, retries + 1):
@@ -91,6 +140,12 @@ for attempt in range(1, retries + 1):
         lock_hit = getattr(exc, "winerror", None) == 32 or "used by another process" in str(exc).lower()
         if not lock_hit or attempt == retries:
             if lock_hit:
+                tmp_state = _windows_exclusive_open_status(tmp_db)
+                public_state = _windows_exclusive_open_status(public_db)
+                print(
+                    f"[ERROR] WinError 32 lock diagnostic: tmp_db={tmp_state}, public_db={public_state}",
+                    file=sys.stderr,
+                )
                 print(
                     "[ERROR] Failed to replace public.sqlite3 because it is locked. "
                     "DB Browser for SQLite や VSCode の SQLite 拡張がファイルを掴んでいる可能性があります。"
