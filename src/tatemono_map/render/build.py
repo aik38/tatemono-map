@@ -103,8 +103,8 @@ def _build_summary_date(building: dict) -> datetime | None:
 def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     conn = connect(db_path)
     canonical_buildings_count = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
-    summary_buildings_count = conn.execute("SELECT COUNT(*) FROM building_summaries").fetchone()[0]
-    buildings_count = canonical_buildings_count
+    summary_buildings_count = conn.execute("SELECT COUNT(DISTINCT building_key) FROM building_summaries").fetchone()[0]
+    buildings_count = summary_buildings_count if canonical_buildings_count == 0 else canonical_buildings_count
     vacancy_total = conn.execute("SELECT COALESCE(SUM(vacancy_count), 0) FROM building_summaries").fetchone()[0]
     buildings = conn.execute(
         """
