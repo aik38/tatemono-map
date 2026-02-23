@@ -100,10 +100,12 @@ def _build_summary_date(building: dict) -> datetime | None:
     return _parse_date(building.get("last_updated")) or _parse_date(building.get("updated_at"))
 
 
-def _load_buildings(db_path: str) -> tuple[list[dict], int, int]:
+def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     conn = connect(db_path)
     canonical_buildings_count = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
     summary_buildings_count = conn.execute("SELECT COUNT(*) FROM building_summaries").fetchone()[0]
+    buildings_count = canonical_buildings_count
+    vacancy_total = conn.execute("SELECT COALESCE(SUM(vacancy_count), 0) FROM building_summaries").fetchone()[0]
     buildings = conn.execute(
         """
         SELECT
@@ -124,7 +126,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int]:
         building["updated_epoch"] = int(summary_date.timestamp()) if summary_date else -1
         building_list.append(_sanitize_building(building))
     conn.close()
-    return building_list, canonical_buildings_count, summary_buildings_count
+    return building_list, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total
 
 
 def _build_dist_version(
@@ -133,6 +135,8 @@ def _build_dist_version(
     *,
     canonical_buildings_count: int,
     summary_buildings_count: int,
+    buildings_count: int,
+    vacancy_total: int,
     template_root: str,
     line_cta_url: str,
     line_deep_link_url: str,
@@ -163,6 +167,10 @@ def _build_dist_version(
             summary_buildings_count=summary_buildings_count,
             canonical_buildings_count_formatted=f"{canonical_buildings_count:,}",
             summary_buildings_count_formatted=f"{summary_buildings_count:,}",
+            buildings_count=buildings_count,
+            buildings_count_formatted=f"{buildings_count:,}",
+            vacancy_total=vacancy_total,
+            vacancy_total_formatted=f"{vacancy_total:,}",
             latest_data_date=latest_data_date_label,
         ),
         encoding="utf-8",
@@ -190,12 +198,14 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
     line_cta_url = os.getenv("TATEMONO_MAP_LINE_CTA_URL", DEFAULT_LINE_UNIVERSAL_URL).strip() or DEFAULT_LINE_UNIVERSAL_URL
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
 
-    buildings, canonical_buildings_count, summary_buildings_count = _load_buildings(db_path)
+    buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
     _build_dist_version(
         Path(output_dir),
         buildings,
         canonical_buildings_count=canonical_buildings_count,
         summary_buildings_count=summary_buildings_count,
+        buildings_count=buildings_count,
+        vacancy_total=vacancy_total,
         template_root=template_root,
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
@@ -212,12 +222,14 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
 
-    buildings, canonical_buildings_count, summary_buildings_count = _load_buildings(db_path)
+    buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
     _build_dist_version(
         out,
         buildings,
         canonical_buildings_count=canonical_buildings_count,
         summary_buildings_count=summary_buildings_count,
+        buildings_count=buildings_count,
+        vacancy_total=vacancy_total,
         template_root="templates_v2",
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
@@ -227,6 +239,8 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
         buildings,
         canonical_buildings_count=canonical_buildings_count,
         summary_buildings_count=summary_buildings_count,
+        buildings_count=buildings_count,
+        vacancy_total=vacancy_total,
         template_root="templates",
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
