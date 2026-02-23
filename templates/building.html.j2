@@ -3,7 +3,7 @@
 {% block title %}{{ building.name or "建物詳細" }} | tatemono-map{% endblock %}
 
 {% block header_meta %}
-  <a class="muted" href="../index.html" aria-label="一覧に戻る">← 一覧に戻る</a>
+  <a class="muted" href="../index.html" aria-label="建物マップに戻る">← 建物マップに戻る</a>
 {% endblock %}
 
 {% block extra_head %}
@@ -140,7 +140,7 @@
         {% if maps_url %}
           <a class="button button--primary" href="{{ maps_url }}" target="_blank" rel="noopener">Googleマップを開く</a>
         {% endif %}
-        <a class="button" href="../index.html" style="background:#e2e8f0; color:#0f172a;">一覧へ戻る</a>
+        <a class="button" href="../index.html" style="background:#e2e8f0; color:#0f172a;">建物マップへ戻る</a>
       </div>
     </section>
 
@@ -168,7 +168,7 @@
           <dd>{{ building.move_in_dates | join(', ') if building.move_in_dates else '—' }}</dd>
         </div>
         <div class="fact">
-          <dt>最終更新日時</dt>
+          <dt>空室データ取得日</dt>
           <dd>{{ building.last_updated or '—' }}</dd>
         </div>
       </dl>

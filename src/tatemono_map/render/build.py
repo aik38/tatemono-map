@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -59,8 +60,50 @@ def _validate_public_dist(output_dir: Path) -> None:
                 raise RuntimeError(f"forbidden data detected in dist: {html_path} pattern={pattern}")
 
 
-def _load_buildings(db_path: str) -> list[dict]:
+def _parse_date(value: object) -> datetime | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+
+    normalized = text.replace("年", "/").replace("月", "/").replace("日", "")
+    normalized = re.sub(r"\s+", " ", normalized)
+
+    candidates = (
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y/%m/%d %H:%M:%S",
+        "%Y/%m/%d %H:%M",
+        "%Y-%m-%d",
+        "%Y/%m/%d",
+        "%Y-%m",
+        "%Y/%m",
+    )
+    for fmt in candidates:
+        try:
+            return datetime.strptime(normalized, fmt)
+        except ValueError:
+            continue
+
+    match = re.search(r"(\d{4})[/-](\d{1,2})[/-](\d{1,2})", normalized)
+    if not match:
+        return None
+    try:
+        year, month, day = (int(match.group(i)) for i in (1, 2, 3))
+        return datetime(year, month, day)
+    except ValueError:
+        return None
+
+
+def _build_summary_date(building: dict) -> datetime | None:
+    return _parse_date(building.get("last_updated")) or _parse_date(building.get("updated_at"))
+
+
+def _load_buildings(db_path: str) -> tuple[list[dict], int, int]:
     conn = connect(db_path)
+    canonical_buildings_count = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
+    summary_buildings_count = conn.execute("SELECT COUNT(*) FROM building_summaries").fetchone()[0]
     buildings = conn.execute(
         """
         SELECT
@@ -77,15 +120,19 @@ def _load_buildings(db_path: str) -> list[dict]:
         building = dict(row)
         building["layout_types"] = json.loads(building.get("layout_types_json") or "[]")
         building["move_in_dates"] = json.loads(building.get("move_in_dates_json") or "[]")
+        summary_date = _build_summary_date(building)
+        building["updated_epoch"] = int(summary_date.timestamp()) if summary_date else -1
         building_list.append(_sanitize_building(building))
     conn.close()
-    return building_list
+    return building_list, canonical_buildings_count, summary_buildings_count
 
 
 def _build_dist_version(
     output_dir: Path,
     buildings: list[dict],
     *,
+    canonical_buildings_count: int,
+    summary_buildings_count: int,
     template_root: str,
     line_cta_url: str,
     line_deep_link_url: str,
@@ -101,6 +148,9 @@ def _build_dist_version(
 
     total_buildings = len(buildings)
     total_vacant = sum((b.get("vacancy_count") or 0) for b in buildings)
+    parsed_dates = [parsed for parsed in (_build_summary_date(b) for b in buildings) if parsed is not None]
+    latest_data_date = max(parsed_dates, default=None)
+    latest_data_date_label = latest_data_date.strftime("%Y/%m/%d") if latest_data_date else "—"
 
     (output_dir / "index.html").write_text(
         index_tpl.render(
@@ -109,6 +159,11 @@ def _build_dist_version(
             total_vacant=total_vacant,
             total_buildings_formatted=f"{total_buildings:,}",
             total_vacant_formatted=f"{total_vacant:,}",
+            canonical_buildings_count=canonical_buildings_count,
+            summary_buildings_count=summary_buildings_count,
+            canonical_buildings_count_formatted=f"{canonical_buildings_count:,}",
+            summary_buildings_count_formatted=f"{summary_buildings_count:,}",
+            latest_data_date=latest_data_date_label,
         ),
         encoding="utf-8",
     )
@@ -135,10 +190,12 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
     line_cta_url = os.getenv("TATEMONO_MAP_LINE_CTA_URL", DEFAULT_LINE_UNIVERSAL_URL).strip() or DEFAULT_LINE_UNIVERSAL_URL
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
 
-    buildings = _load_buildings(db_path)
+    buildings, canonical_buildings_count, summary_buildings_count = _load_buildings(db_path)
     _build_dist_version(
         Path(output_dir),
         buildings,
+        canonical_buildings_count=canonical_buildings_count,
+        summary_buildings_count=summary_buildings_count,
         template_root=template_root,
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
@@ -155,10 +212,12 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
         shutil.rmtree(out)
     out.mkdir(parents=True, exist_ok=True)
 
-    buildings = _load_buildings(db_path)
+    buildings, canonical_buildings_count, summary_buildings_count = _load_buildings(db_path)
     _build_dist_version(
         out,
         buildings,
+        canonical_buildings_count=canonical_buildings_count,
+        summary_buildings_count=summary_buildings_count,
         template_root="templates_v2",
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
@@ -166,6 +225,8 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
     _build_dist_version(
         out / "v1",
         buildings,
+        canonical_buildings_count=canonical_buildings_count,
+        summary_buildings_count=summary_buildings_count,
         template_root="templates",
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
