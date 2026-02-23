@@ -59,12 +59,17 @@ $finalCsv = Join-Path $out "final.csv"
 $masterImportCsv = Join-Path $out "master_import.csv"
 $statsCsv = Join-Path $out "stats.csv"
 if (-not (Test-Path $finalCsv)) { throw "final.csv was not generated: $finalCsv" }
-Copy-Item -Path $finalCsv -Destination $masterImportCsv -Force
+if (-not (Test-Path $masterImportCsv)) { throw "master_import.csv was not generated: $masterImportCsv" }
 if (-not (Test-Path $statsCsv)) { throw "stats.csv was not generated: $statsCsv" }
 
 $finalCount = (Import-Csv $finalCsv).Count
+$masterRows = Import-Csv $masterImportCsv
+$masterCount = $masterRows.Count
 $warnCount = ((Import-Csv $statsCsv) | Where-Object { $_.status -eq "WARN" }).Count
+$masterHeader = (Get-Content -Path $masterImportCsv -TotalCount 1).Trim("`uFEFF")
 "[OK] out=$out"
 "[OK] files=final.csv, master_import.csv, manifest.csv, qc_report.txt, stats.csv"
 "[OK] final_rows=$finalCount"
+"[OK] master_import_rows=$masterCount"
+"[OK] master_import_header=$masterHeader"
 "[OK] stats_warn_files=$warnCount"
