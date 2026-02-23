@@ -147,7 +147,7 @@
 
   <section class="controls" aria-label="検索と並び替え">
     <div class="field">
-      <label for="search">建物名・住所で絞り込み <span id="hit-count" class="muted" style="display:none;">ヒット 0</span></label>
+      <label for="search">建物名・住所で絞り込み <span id="match-count" class="muted" style="display:none;">0</span></label>
       <input id="search" type="search" placeholder="例: 渋谷 / レジデンス" autocomplete="off" />
     </div>
     <div class="field">
@@ -165,8 +165,7 @@
     {% for b in buildings %}
       <li
         class="card building-card"
-        data-name="{{ (b.name or '')|lower }}"
-        data-address="{{ (b.address or '')|lower }}"
+        data-search="{{ ((b.name or '') ~ ' ' ~ (b.address or ''))|replace('　', ' ')|replace('  ', ' ')|replace('  ', ' ')|trim|lower }}"
         data-updated-epoch="{{ b.updated_epoch if b.updated_epoch is not none else -1 }}"
         data-vacancy="{{ b.vacancy_count if b.vacancy_count is not none else -1 }}"
         data-rent-min="{{ b.rent_yen_min if b.rent_yen_min is not none else 999999999 }}"
@@ -202,21 +201,20 @@
   const list = document.getElementById('building-list');
   const cards = Array.from(list.querySelectorAll('.building-card'));
   const empty = document.getElementById('empty-state');
-  const hitCount = document.getElementById('hit-count');
+  const matchCount = document.getElementById('match-count');
 
   const normalize = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, ' ').trim();
 
   const cardModels = cards.map((card, originalIndex) => ({
     el: card,
-    name: normalize(card.dataset.name),
-    address: normalize(card.dataset.address),
+    search: normalize(card.dataset.search),
     updatedEpoch: Number(card.dataset.updatedEpoch || -1),
     vacancy: Number(card.dataset.vacancy || -1),
     rentMin: Number(card.dataset.rentMin || 999999999),
     originalIndex,
   }));
 
-  const byStableName = (a, b) => a.name.localeCompare(b.name, 'ja') || (a.originalIndex - b.originalIndex);
+  const byStableName = (a, b) => a.search.localeCompare(b.search, 'ja') || (a.originalIndex - b.originalIndex);
 
   const byNumeric = (key, direction = 'asc') => (a, b) => {
     const av = a[key];
@@ -232,31 +230,33 @@
     rent_min_desc: byNumeric('rentMin', 'desc')
   };
 
-  function update() {
+  function applyFilter() {
     const q = normalize(input.value);
-    const sorter = sorters[sortSelect.value] || sorters.updated_desc;
-
-    const sorted = [...cardModels].sort(sorter);
-    for (const card of sorted) {
-      list.appendChild(card.el);
-    }
 
     let visibleCount = 0;
-    for (const card of sorted) {
-      const haystack = `${card.name} ${card.address}`;
-      const show = q === '' || haystack.includes(q);
-      card.el.hidden = !show;
+    for (const card of cardModels) {
+      const show = q === '' || card.search.includes(q);
+      card.el.style.display = show ? '' : 'none';
       if (show) visibleCount += 1;
     }
 
     if (q === '') {
-      hitCount.style.display = 'none';
+      matchCount.style.display = 'none';
     } else {
-      hitCount.style.display = '';
-      hitCount.textContent = `ヒット ${visibleCount}`;
+      matchCount.style.display = 'inline';
+      matchCount.textContent = String(visibleCount);
     }
 
     empty.hidden = visibleCount !== 0;
+  }
+
+  function update() {
+    const sorter = sorters[sortSelect.value] || sorters.updated_desc;
+    const sorted = [...cardModels].sort(sorter);
+    for (const card of sorted) {
+      list.appendChild(card.el);
+    }
+    applyFilter();
   }
 
   input.addEventListener('input', update);
