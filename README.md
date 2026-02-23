@@ -9,7 +9,9 @@ git -C $REPO status -sb
 git -C $REPO push
 ```
 
-## 初回セットアップ（最初だけ）
+## 運用の唯一の正解（Windows / PowerShell 7）
+
+### 1) 初回セットアップ（setup）
 
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
@@ -19,42 +21,62 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\setup.ps1" -RepoPat
 - `scripts/setup.ps1` は冪等（idempotent）です。
 - `.venv` と requirements フィンガープリント（ハッシュ）が前回と同じ場合、`pip install` / `pip install -e` をスキップします。
 
-## 週次運用（空室更新）
+### 2) 初回 seed（buildings投入）
 
-### 入力 ZIP の置き場（推奨）
-- `tmp/manual/inputs/pdf_zips/` に配置します。
-- ファイル名は `リアプロ-*.zip` / `ウラックス-*.zip` を使います。
-- ZIP は `.gitignore` でコミット対象外です（置き場だけ固定）。
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\seed_buildings_from_ui.ps1 `
+  -DbPath .\data\tatemono_map.sqlite3 `
+  -CsvPath .\tmp\manual\inputs\buildings_seed_ui.csv
+```
 
-### 週次 1 コマンド（推奨）
+- 手動確認済み CSV（`buildings_seed_ui.csv`）を canonical DB の `buildings` へ投入します。
+- `canonical_name` / `canonical_address` は自動上書きしません。
+
+### 3) 週次1コマンド（weekly_update）
+
+#### 入力 ZIP の置き場・命名規則（推奨）
+- 置き場: `tmp/manual/inputs/pdf_zips/`
+- 命名: `リアプロ-*.zip` / `ウラックス-*.zip`
+- ZIP はローカル入力物として扱い、コミットしません（`.gitignore`）。
+
+#### 推奨実行例
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\weekly_update.ps1 -RepoPath . -DbPath .\data\tatemono_map.sqlite3 -DownloadsDir .\tmp\manual\inputs\pdf_zips -QcMode warn
 ```
 
-### ZIP 処理を飛ばして実行（master_import.csv 指定）
+#### ZIP処理をスキップして `master_import.csv` を直指定
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\weekly_update.ps1 -RepoPath . -DbPath .\data\tatemono_map.sqlite3 -MasterImportCsv <outdir>\master_import.csv
 ```
 
-- 週次は 1 コマンドで再現可能です。
-- `weekly_update` は `buildings` を再構築しません（空室取り込み + 建物同定 + review CSV + 公開生成）。
-- review CSV は `tmp/review/` に出力されます（`new_buildings` / `suspects` / `unmatched_listings`）。
-## 公開反映（必要時）
+- `weekly_update` は `buildings` を再構築しません（空室取り込み + 建物突合 + review CSV + 公開生成）。
+- review CSV は `tmp/review/` に出力されます（`suspects` / `unmatched_listings` / `new_buildings`）。
+- 推奨トリアージ順は `suspects` → `unmatched_listings` → `new_buildings` です。
+
+### 4) 公開反映（GitHub Pages）
 
 ```powershell
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\publish_public.ps1" -RepoPath $REPO
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish_public.ps1 -RepoPath .
 ```
 
-- GitHub Pages に反映するためにコミットするのは、原則 `data/public/public.sqlite3` のみです。
-- `dist/` はローカルプレビュー用途で、GitHub Pages では CI が `data/public/public.sqlite3` から毎回生成してデプロイします。
-- `git add data/public/public.sqlite3` で ignored と出る場合は、まず以下で ignore ルールを確認します。
+- GitHub Pages への反映で push すべきものは、原則 `data/public/public.sqlite3`（必要なら周辺メタ）です。
+- `dist/` は `.gitignore` 対象のビルド成果物であり、Pages は CI（`.github/workflows/pages.yml`）が `data/public/public.sqlite3` から生成してデプロイします。
+
+`git add data/public/public.sqlite3` で ignored と出る場合は、先に以下で確認します。
 
 ```powershell
 git check-ignore -v data/public/public.sqlite3
 ```
 
-- 追跡済みなら通常どおり commit 可能です。未追跡でどうしても追加できない場合のみ `git add -f data/public/public.sqlite3` を最終手段として使います（通常は不要）。
+- 追跡済みなら通常どおり commit できます。
+- 未追跡でどうしても追加できない場合のみ、最終手段として `git add -f data/public/public.sqlite3` を使います（通常は不要）。
+
+## テスト（推奨）
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe -m pytest -q tests
+```
 
 ## What / Why
 このリポジトリは、Google Maps / Street View（ストリートビュー）と連携可能な「不動産データベース母艦」を作るための基盤です。  
