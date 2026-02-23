@@ -2,7 +2,7 @@ param(
   [string]$RepoPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
   [string]$DbPath = "data/tatemono_map.sqlite3",
   [string]$MasterImportCsv = "",
-  [string]$DownloadsDir = "Downloads",
+  [string]$DownloadsDir = (Join-Path $env:USERPROFILE "Downloads"),
   [ValidateSet("warn", "strict")]
   [string]$QcMode = "warn"
 )
@@ -41,5 +41,6 @@ if ($LASTEXITCODE -ne 0) { throw "ingest_master_import failed" }
 & (Join-Path $RepoPath "scripts\publish_public.ps1") -RepoPath $RepoPath
 if ($LASTEXITCODE -ne 0) { throw "publish_public failed" }
 
-& $py -m tatemono_map.render.build --db-path $DbPath --output-dir (Join-Path $RepoPath "dist")
+$publicDb = Join-Path $RepoPath "data/public/public.sqlite3"
+& $py -m tatemono_map.render.build --db-path $publicDb --output-dir (Join-Path $RepoPath "dist")
 if ($LASTEXITCODE -ne 0) { throw "render.build failed" }
