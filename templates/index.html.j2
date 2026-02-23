@@ -1,6 +1,6 @@
 {% extends "base.html.j2" %}
 
-{% block title %}建物一覧 | tatemono-map{% endblock %}
+{% block title %}建物マップ | tatemono-map{% endblock %}
 
 {% block header_meta %}
   <small class="muted">公開向け物件サマリー</small>
@@ -136,12 +136,17 @@
 {% endblock %}
 
 {% block content %}
-  <section class="hero card" aria-label="建物一覧の案内">
-    <h1>建物一覧</h1>
+  <section class="hero card" aria-label="建物マップの案内">
+    <h1>建物マップ</h1>
     <p>建物名や住所で検索し、更新日・空室数・家賃レンジで並び替えて比較できます。</p>
+    <p>データ集計日（空室データ取得日）: {{ latest_data_date }}</p>
     <ul class="kpis" aria-label="一覧サマリー">
       <li class="kpi"><span>表示中</span><strong id="building-count">{{ buildings|length }}</strong>件</li>
       <li class="kpi"><span>全件数</span><strong id="building-total">{{ buildings|length }}</strong>件</li>
+    </ul>
+    <ul class="kpis" aria-label="収録件数の内訳">
+      <li class="kpi"><span>掲載サマリ（候補含む）</span><strong>{{ summary_buildings_count_formatted }}</strong>件</li>
+      <li class="kpi"><span>正本（同定済み）</span><strong>{{ canonical_buildings_count_formatted }}</strong>件</li>
     </ul>
   </section>
 
@@ -167,7 +172,7 @@
         class="card building-card"
         data-name="{{ (b.name or '')|lower }}"
         data-address="{{ (b.address or '')|lower }}"
-        data-updated="{{ b.updated_at or '' }}"
+        data-updated-epoch="{{ b.updated_epoch if b.updated_epoch is not none else -1 }}"
         data-vacancy="{{ b.vacancy_count if b.vacancy_count is not none else -1 }}"
         data-rent-min="{{ b.rent_yen_min if b.rent_yen_min is not none else 999999999 }}"
       >
@@ -183,10 +188,6 @@
           <div class="meta-row">
             <dt>面積レンジ</dt>
             <dd>{{ (b.area_sqm_min ~ '㎡') if b.area_sqm_min is not none else '—' }} 〜 {{ (b.area_sqm_max ~ '㎡') if b.area_sqm_max is not none else '—' }}</dd>
-          </div>
-          <div class="meta-row">
-            <dt>最終更新</dt>
-            <dd>{{ b.last_updated or '—' }}</dd>
           </div>
         </dl>
       </li>
@@ -209,21 +210,17 @@
   const total = document.getElementById('building-total');
   const empty = document.getElementById('empty-state');
 
+  const byStableName = (a, b) => (a.dataset.name || '').localeCompare(b.dataset.name || '', 'ja');
+
   const byNumeric = (key, direction = 'asc') => (a, b) => {
     const av = Number(a.dataset[key]);
     const bv = Number(b.dataset[key]);
-    if (av === bv) return 0;
+    if (av === bv) return byStableName(a, b);
     return direction === 'asc' ? av - bv : bv - av;
   };
 
-  const byText = (key, direction = 'asc') => (a, b) => {
-    const av = a.dataset[key] || '';
-    const bv = b.dataset[key] || '';
-    return direction === 'asc' ? av.localeCompare(bv, 'ja') : bv.localeCompare(av, 'ja');
-  };
-
   const sorters = {
-    updated_desc: byText('updated', 'desc'),
+    updated_desc: byNumeric('updatedEpoch', 'desc'),
     vacancy_desc: byNumeric('vacancy', 'desc'),
     rent_min_asc: byNumeric('rentMin', 'asc'),
     rent_min_desc: byNumeric('rentMin', 'desc')
