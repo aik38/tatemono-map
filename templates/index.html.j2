@@ -140,14 +140,14 @@
     <h1>建物マップ</h1>
     <p>建物名や住所で検索し、更新日・空室数・家賃レンジで並び替えて比較できます。</p>
     <ul class="kpis" aria-label="一覧サマリー">
-      <li class="kpi"><span>建物数</span><strong>{{ buildings_count_formatted }}</strong>件</li>
-      <li class="kpi"><span>空部屋</span><strong>{{ vacancy_total_formatted }}</strong>件</li>
+      <li class="kpi"><span>建物数</span><strong>{{ buildings_count_formatted }}</strong></li>
+      <li class="kpi"><span>空部屋</span><strong>{{ vacancy_total_formatted }}</strong></li>
     </ul>
   </section>
 
   <section class="controls" aria-label="検索と並び替え">
     <div class="field">
-      <label for="search">建物名・住所で絞り込み</label>
+      <label for="search">建物名・住所で絞り込み <span id="hit-count" class="muted" style="display:none;">ヒット 0</span></label>
       <input id="search" type="search" placeholder="例: 渋谷 / レジデンス" autocomplete="off" />
     </div>
     <div class="field">
@@ -202,6 +202,7 @@
   const list = document.getElementById('building-list');
   const cards = Array.from(list.querySelectorAll('.building-card'));
   const empty = document.getElementById('empty-state');
+  const hitCount = document.getElementById('hit-count');
 
   const normalize = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, ' ').trim();
 
@@ -235,20 +236,27 @@
     const q = normalize(input.value);
     const sorter = sorters[sortSelect.value] || sorters.updated_desc;
 
-    const visible = [];
-    for (const card of cardModels) {
-      const haystack = `${card.name} ${card.address}`;
-      const show = q === '' || haystack.includes(q);
-      card.el.hidden = !show;
-      if (show) visible.push(card);
-    }
-
-    visible.sort(sorter);
-    for (const card of visible) {
+    const sorted = [...cardModels].sort(sorter);
+    for (const card of sorted) {
       list.appendChild(card.el);
     }
 
-    empty.hidden = visible.length !== 0;
+    let visibleCount = 0;
+    for (const card of sorted) {
+      const haystack = `${card.name} ${card.address}`;
+      const show = q === '' || haystack.includes(q);
+      card.el.hidden = !show;
+      if (show) visibleCount += 1;
+    }
+
+    if (q === '') {
+      hitCount.style.display = 'none';
+    } else {
+      hitCount.style.display = '';
+      hitCount.textContent = `ヒット ${visibleCount}`;
+    }
+
+    empty.hidden = visibleCount !== 0;
   }
 
   input.addEventListener('input', update);
