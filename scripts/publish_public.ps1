@@ -52,19 +52,35 @@ if not main_db.exists():
 public_db.parent.mkdir(parents=True, exist_ok=True)
 
 with sqlite3.connect(main_db) as src:
-    table = src.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='building_summaries'"
-    ).fetchone()
-    if table is None:
-        raise SystemExit("building_summaries missing in source db")
+    required = ["buildings", "building_summaries"]
+    optional = ["building_key_aliases"]
+    table_rows = src.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    ).fetchall()
+    table_names = {row[0] for row in table_rows}
+    missing_required = [name for name in required if name not in table_names]
+    if missing_required:
+        raise SystemExit(f"required table(s) missing in source db: {missing_required}")
 
 with sqlite3.connect(main_db) as src:
     src.execute("PRAGMA busy_timeout=5000")
-    create_sql = src.execute(
-        "SELECT sql FROM sqlite_master WHERE type='table' AND name='building_summaries'"
-    ).fetchone()
-    if create_sql is None or not create_sql[0]:
-        raise SystemExit("failed to read building_summaries schema from source db")
+    table_plan: list[tuple[str, bool]] = []
+    for name in required:
+        table_plan.append((name, True))
+    for name in optional:
+        if src.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone():
+            table_plan.append((name, False))
+
+    create_sql_map: dict[str, str] = {}
+    for name, _ in table_plan:
+        row = src.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)
+        ).fetchone()
+        if row is None or not row[0]:
+            raise SystemExit(f"failed to read schema from source db: {name}")
+        create_sql_map[name] = row[0]
 
 if tmp_db.exists():
     tmp_db.unlink()
@@ -73,15 +89,21 @@ conn = sqlite3.connect(tmp_db)
 try:
     conn.execute("PRAGMA foreign_keys=OFF")
     conn.execute("PRAGMA busy_timeout=5000")
-    create_main_sql = re.sub(
-        r"^CREATE TABLE(?: IF NOT EXISTS)?\\s+building_summaries",
-        "CREATE TABLE main.building_summaries",
-        create_sql[0],
-        count=1,
-    )
-    conn.execute(create_main_sql)
     conn.execute("ATTACH DATABASE ? AS src", (str(main_db),))
-    conn.execute("INSERT INTO main.building_summaries SELECT * FROM src.building_summaries")
+    for table_name, is_required in table_plan:
+        create_main_sql = re.sub(
+            rf"^CREATE TABLE(?: IF NOT EXISTS)?\\s+{re.escape(table_name)}",
+            f"CREATE TABLE main.{table_name}",
+            create_sql_map[table_name],
+            count=1,
+        )
+        conn.execute(create_main_sql)
+        conn.execute(f"INSERT INTO main.{table_name} SELECT * FROM src.{table_name}")
+
+    buildings_count_public = conn.execute("SELECT COUNT(*) FROM main.buildings").fetchone()[0]
+    if buildings_count_public <= 0:
+        raise SystemExit("DoD failed: public DB buildings count is 0")
+
     conn.commit()
     conn.execute("DETACH DATABASE src")
 finally:
@@ -162,15 +184,25 @@ with sqlite3.connect(main_db) as conn:
 
 with sqlite3.connect(public_db) as conn:
     conn.execute("PRAGMA busy_timeout=5000")
+    buildings_count_public = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
     summaries_count_public = conn.execute("SELECT COUNT(*) FROM building_summaries").fetchone()[0]
     distinct_keys_public = conn.execute(
         "SELECT COUNT(DISTINCT building_key) FROM building_summaries"
     ).fetchone()[0]
+    aliases_count_public = None
+    has_aliases = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='building_key_aliases'"
+    ).fetchone()
+    if has_aliases:
+        aliases_count_public = conn.execute("SELECT COUNT(*) FROM building_key_aliases").fetchone()[0]
 
 print(f"listings count (main): {listings_count_main}")
+print(f"buildings count (public): {buildings_count_public}")
 print(f"building_summaries count (main): {summaries_count_main}")
 print(f"building_summaries count (public): {summaries_count_public}")
 print(f"building_summaries distinct building_key (public): {distinct_keys_public}")
+if aliases_count_public is not None:
+    print(f"building_key_aliases count (public): {aliases_count_public}")
 '@
 
 $env:TATEMONO_MAIN_DB = $dbMain

@@ -31,6 +31,24 @@ MASTER_COLUMNS = (
     "evidence_id",
 )
 MASTER_COLUMNS_LEGACY = MASTER_COLUMNS[:-1]
+MASTER_COLUMNS_WITH_FILE = (
+    "category",
+    "updated_at",
+    "building_name",
+    "room",
+    "address",
+    "rent_man",
+    "fee_man",
+    "layout",
+    "floor",
+    "area_sqm",
+    "age_years",
+    "structure",
+    "file",
+    "page",
+    "raw_block",
+    "evidence_id",
+)
 
 REVIEW_COLUMNS = [
     "source_kind",
@@ -117,7 +135,7 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
     with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         got = tuple(reader.fieldnames or ())
-        if got not in (MASTER_COLUMNS, MASTER_COLUMNS_LEGACY):
+        if got not in (MASTER_COLUMNS, MASTER_COLUMNS_LEGACY, MASTER_COLUMNS_WITH_FILE):
             raise ValueError(f"Unexpected master_import.csv header: {reader.fieldnames}")
 
         for row in reader:
