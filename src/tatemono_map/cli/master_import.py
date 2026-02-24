@@ -8,6 +8,7 @@ from pathlib import Path
 from tatemono_map.db.keys import make_building_key, make_listing_key_for_master
 from tatemono_map.db.repo import connect, replace_building_summary
 from tatemono_map.normalize.building_summaries import rebuild
+from tatemono_map.paths import CANONICAL_BUILDINGS_CSV
 
 MASTER_COLUMNS = (
     "page",
@@ -55,6 +56,8 @@ def _fallback_updated_at(value: str | None) -> str:
 
 def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
     conn = connect(db_path)
+    conn.execute("DELETE FROM buildings")
+    conn.execute("DELETE FROM building_sources")
     conn.execute("DELETE FROM listings")
     conn.execute("DELETE FROM raw_units")
     conn.execute("DELETE FROM raw_sources")
@@ -81,7 +84,22 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
             building_key = make_building_key(name, address)
             touched_buildings.add(building_key)
 
-            if category == "seed":
+            if category in {"seed", "buildings"}:
+                conn.execute(
+                    """
+                    INSERT INTO buildings(
+                        building_id, canonical_name, canonical_address,
+                        norm_name, norm_address, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT(building_id) DO UPDATE SET
+                        canonical_name=excluded.canonical_name,
+                        canonical_address=excluded.canonical_address,
+                        norm_name=excluded.norm_name,
+                        norm_address=excluded.norm_address,
+                        updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (building_key, name, address, name, address),
+                )
                 summary = {
                     "building_key": building_key,
                     "name": name,
@@ -183,7 +201,7 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", default="data/tatemono_map.sqlite3")
-    parser.add_argument("--csv", required=True)
+    parser.add_argument("--csv", default=str(CANONICAL_BUILDINGS_CSV))
     args = parser.parse_args()
 
     seed_count, vacancy_count, unique_buildings = import_master_csv(args.db, args.csv)

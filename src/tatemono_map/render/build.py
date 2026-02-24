@@ -103,17 +103,40 @@ def _build_summary_date(building: dict) -> datetime | None:
 def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     conn = connect(db_path)
     canonical_buildings_count = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
-    summary_buildings_count = conn.execute("SELECT COUNT(DISTINCT building_key) FROM building_summaries").fetchone()[0]
-    buildings_count = summary_buildings_count if canonical_buildings_count == 0 else canonical_buildings_count
-    vacancy_total = conn.execute("SELECT COALESCE(SUM(vacancy_count), 0) FROM building_summaries").fetchone()[0]
+    summary_buildings_count = conn.execute(
+        """
+        SELECT COUNT(DISTINCT s.building_key)
+        FROM building_summaries s
+        INNER JOIN buildings b ON b.building_id = s.building_key
+        """
+    ).fetchone()[0]
+    buildings_count = canonical_buildings_count
+    vacancy_total = conn.execute(
+        """
+        SELECT COALESCE(SUM(s.vacancy_count), 0)
+        FROM building_summaries s
+        INNER JOIN buildings b ON b.building_id = s.building_key
+        """
+    ).fetchone()[0]
     buildings = conn.execute(
         """
         SELECT
-            building_key, name, raw_name, address,
-            rent_yen_min, rent_yen_max, area_sqm_min, area_sqm_max,
-            layout_types_json, move_in_dates_json, vacancy_count, last_updated, updated_at
-        FROM building_summaries
-        ORDER BY updated_at DESC
+            b.building_id AS building_key,
+            b.canonical_name AS name,
+            b.canonical_name AS raw_name,
+            b.canonical_address AS address,
+            s.rent_yen_min,
+            s.rent_yen_max,
+            s.area_sqm_min,
+            s.area_sqm_max,
+            s.layout_types_json,
+            s.move_in_dates_json,
+            COALESCE(s.vacancy_count, 0) AS vacancy_count,
+            s.last_updated,
+            s.updated_at
+        FROM buildings b
+        LEFT JOIN building_summaries s ON b.building_id = s.building_key
+        ORDER BY s.updated_at DESC, b.updated_at DESC
         """
     ).fetchall()
 
@@ -126,6 +149,13 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         building["updated_epoch"] = int(summary_date.timestamp()) if summary_date else -1
         building_list.append(_sanitize_building(building))
     conn.close()
+    print(
+        "render_kpi_counts canonical_buildings_count={} summary_buildings_count={} vacancy_total={}".format(
+            canonical_buildings_count,
+            summary_buildings_count,
+            vacancy_total,
+        )
+    )
     return building_list, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total
 
 

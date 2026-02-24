@@ -111,6 +111,8 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
     new_rows: list[dict[str, str]] = []
     suspect_rows: list[dict[str, str]] = []
     unmatched_rows: list[dict[str, str]] = []
+    alias_rows = conn.execute("SELECT alias_key, canonical_key FROM building_key_aliases").fetchall()
+    alias_map = {row["alias_key"]: row["canonical_key"] for row in alias_rows}
 
     with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
@@ -146,40 +148,26 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
             building_id = match.building_id
 
             if not building_id and match.reason == "unmatched":
-                building_id = hashlib.sha1(
+                alias_key = hashlib.sha1(
                     f"{normalized.normalized_name}|{normalized.normalized_address}".encode("utf-8")
                 ).hexdigest()[:32]
-                before = conn.total_changes
-                conn.execute(
-                    """
-                    INSERT OR IGNORE INTO buildings(
-                        building_id, canonical_name, canonical_address,
-                        norm_name, norm_address, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    """,
-                    (
-                        building_id,
-                        normalized.raw_name,
-                        normalized.raw_address,
-                        normalized.normalized_name,
-                        normalized.normalized_address,
-                    ),
-                )
-                if conn.total_changes > before:
-                    report.newly_added += 1
-                new_rows.append(
-                    _to_review_row(
-                        source_kind=source,
-                        source_id=evidence_id,
-                        normalized_name=normalized.normalized_name,
-                        normalized_address=normalized.normalized_address,
-                        raw_name=normalized.raw_name,
-                        raw_address=normalized.raw_address,
-                        reason="new_building_added",
-                        candidate_ids=[],
-                        candidate_scores=[],
+                building_id = alias_map.get(alias_key, "")
+                if not building_id:
+                    report.unresolved += 1
+                    unmatched_rows.append(
+                        _to_review_row(
+                            source_kind=source,
+                            source_id=evidence_id,
+                            normalized_name=normalized.normalized_name,
+                            normalized_address=normalized.normalized_address,
+                            raw_name=normalized.raw_name,
+                            raw_address=normalized.raw_address,
+                            reason="unmatched_canonical_building",
+                            candidate_ids=[],
+                            candidate_scores=[],
+                        )
                     )
-                )
+                    continue
 
             if not building_id:
                 report.unresolved += 1

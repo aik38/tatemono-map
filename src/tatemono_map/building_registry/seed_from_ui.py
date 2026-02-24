@@ -26,10 +26,11 @@ def _deterministic_building_id(norm_name: str, norm_address: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, material))
 
 
-def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tuple[int, int]:
+def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tuple[int, int, int]:
     conn = connect(db_path)
     inserted = 0
     attached = 0
+    aliases = 0
 
     with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
@@ -52,10 +53,9 @@ def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tu
                 if winner:
                     winner_id = winner[0]
 
+            alias_key = _deterministic_building_id(normalized.normalized_name, normalized.normalized_address)
             match = match_building(conn, normalized.normalized_name, normalized.normalized_address)
-            building_id = winner_id or match.building_id or _deterministic_building_id(
-                normalized.normalized_name, normalized.normalized_address
-            )
+            building_id = winner_id or match.building_id or alias_key
             existing = conn.execute("SELECT 1 FROM buildings WHERE building_id=?", (building_id,)).fetchone()
             if existing is None:
                 conn.execute(
@@ -86,6 +86,19 @@ def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tu
                     (normalized.normalized_name, normalized.normalized_address, building_id),
                 )
 
+            if winner_id and alias_key != winner_id:
+                conn.execute(
+                    """
+                    INSERT INTO building_key_aliases(alias_key, canonical_key, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(alias_key) DO UPDATE SET
+                        canonical_key=excluded.canonical_key,
+                        updated_at=CURRENT_TIMESTAMP
+                    """,
+                    (alias_key, winner_id),
+                )
+                aliases += 1
+
             if evidence_id:
                 conn.execute(
                     """
@@ -103,7 +116,7 @@ def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tu
 
     conn.commit()
     conn.close()
-    return inserted, attached
+    return inserted, attached, aliases
 
 
 def main() -> None:
@@ -113,8 +126,8 @@ def main() -> None:
     parser.add_argument("--source", default="ui_seed")
     args = parser.parse_args()
 
-    inserted, attached = seed_from_ui_csv(args.db, args.csv, source=args.source)
-    print(f"inserted_buildings={inserted} attached_sources={attached}")
+    inserted, attached, aliases = seed_from_ui_csv(args.db, args.csv, source=args.source)
+    print(f"inserted_buildings={inserted} attached_sources={attached} aliases={aliases}")
 
 
 if __name__ == "__main__":

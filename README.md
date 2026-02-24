@@ -71,6 +71,30 @@ git check-ignore -v data/public/public.sqlite3
 - 追跡済みなら通常どおり commit できます。
 - 未追跡でどうしても追加できない場合のみ、最終手段として `git add -f data/public/public.sqlite3` を使います（通常は不要）。
 
+
+## Canonical DB 運用ルール
+
+- Canonical buildings CSV は `data/canonical/buildings_master.csv` です。
+- `tmp/` 配下は一時作業用（レビュー・中間成果物）であり Canonical ではありません。
+- Web 表示の建物名/住所と KPI（建物数・空室数）は Canonical buildings を基準に計算されます。
+
+### Canonical 更新の最短 Runbook
+
+1. `data/canonical/buildings_master.csv` を更新する。
+2. Canonical を DB へ投入する。
+   - `python -m tatemono_map.cli.master_import --db data/tatemono_map.sqlite3`
+3. 公開物を再生成する。
+   - `python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --output-dir dist --version all`
+
+### KPI 検証クエリ（sqlite3）
+
+```sql
+select count(*) from buildings;
+select coalesce(sum(s.vacancy_count), 0)
+from building_summaries s
+join buildings b on b.building_id = s.building_key;
+```
+
 ## テスト（推奨）
 
 ```powershell

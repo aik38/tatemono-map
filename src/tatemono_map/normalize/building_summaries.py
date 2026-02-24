@@ -5,6 +5,7 @@ import argparse
 from tatemono_map.db.repo import connect, replace_building_summary
 from tatemono_map.util.text import normalize_text
 
+
 def rebuild(db_path: str) -> int:
     conn = connect(db_path)
     conn.execute("DELETE FROM building_summaries")
@@ -15,6 +16,9 @@ def rebuild(db_path: str) -> int:
         FROM buildings
         """
     ).fetchall()
+
+    alias_rows = conn.execute("SELECT alias_key, canonical_key FROM building_key_aliases").fetchall()
+    alias_map = {row["alias_key"]: row["canonical_key"] for row in alias_rows}
 
     rows = conn.execute(
         """
@@ -27,10 +31,11 @@ def rebuild(db_path: str) -> int:
     for row in rows:
         if not row["building_key"]:
             continue
-        grouped.setdefault(row["building_key"], []).append(row)
+        canonical_key = alias_map.get(row["building_key"], row["building_key"])
+        grouped.setdefault(canonical_key, []).append(row)
 
     canonical_by_id = {row["building_id"]: row for row in building_rows}
-    target_keys = set(canonical_by_id.keys()) | set(grouped.keys())
+    target_keys = set(canonical_by_id.keys())
 
     for building_key in sorted(target_keys):
         items = grouped.get(building_key, [])
@@ -40,8 +45,8 @@ def rebuild(db_path: str) -> int:
         layouts = sorted({normalize_text(r["layout"]) for r in items if r["layout"]})
         move_in_dates = sorted({normalize_text(r["move_in_date"]) for r in items if r["move_in_date"]})
         latest = max((r["updated_at"] for r in items if r["updated_at"]), default=None)
-        summary_name = (building["canonical_name"] if building else None) or (items[0]["name"] if items else None)
-        summary_address = (building["canonical_address"] if building else None) or (items[0]["address"] if items else None)
+        summary_name = building["canonical_name"] if building else None
+        summary_address = building["canonical_address"] if building else None
         summary_raw_name = summary_name
 
         replace_building_summary(
@@ -64,10 +69,11 @@ def rebuild(db_path: str) -> int:
 
     total = conn.execute("SELECT COUNT(*) AS c FROM building_summaries").fetchone()["c"]
     print(
-        "seeded_buildings={} listings={} distinct_stable_buildings_in_listings={} building_summaries_total={}".format(
+        "seeded_buildings={} listings={} distinct_canonical_buildings_in_listings={} aliases={} building_summaries_total={}".format(
             len(building_rows),
             len(rows),
             len(grouped),
+            len(alias_rows),
             total,
         )
     )
