@@ -2,6 +2,7 @@ import os
 import subprocess
 import sys
 
+from tatemono_map.db.keys import make_building_key
 from tatemono_map.db.repo import ListingRecord, connect, upsert_listing
 from tatemono_map.normalize.building_summaries import rebuild
 from tatemono_map.render.build import build_dist
@@ -11,6 +12,16 @@ def test_build_generates_index_and_building_pages(tmp_path):
     db = tmp_path / "test.sqlite3"
     out = tmp_path / "dist"
     conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address)
+        VALUES ('smoke-key', 'スモークマンション', '東京都千代田区1-1', 'スモークマンション', '東京都千代田区1-1')
+        """
+    )
+    conn.execute(
+        "INSERT INTO building_key_aliases(alias_key, canonical_key) VALUES (?, 'smoke-key')",
+        (make_building_key("スモークマンション", "東京都千代田区1-1"),),
+    )
     upsert_listing(
         conn,
         ListingRecord("スモークマンション", "東京都千代田区1-1", 82000, 25.0, "1K", "2026-01-01", "smartlink_page", "u1"),
@@ -29,6 +40,16 @@ def test_cli_build_all_outputs_pages_layout_for_actions(tmp_path):
     db = tmp_path / "test.sqlite3"
     out = tmp_path / "dist"
     conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address)
+        VALUES ('cli-key', 'CLI確認マンション', '東京都港区1-1', 'CLI確認マンション', '東京都港区1-1')
+        """
+    )
+    conn.execute(
+        "INSERT INTO building_key_aliases(alias_key, canonical_key) VALUES (?, 'cli-key')",
+        (make_building_key("CLI確認マンション", "東京都港区1-1"),),
+    )
     upsert_listing(
         conn,
         ListingRecord("CLI確認マンション", "東京都港区1-1", 91000, 27.5, "1K", "2026-07-01", "smartlink_page", "cli-check"),

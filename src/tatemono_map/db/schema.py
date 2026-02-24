@@ -154,6 +154,18 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
         ),
     ),
     TableSchema(
+        name="building_key_aliases",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS building_key_aliases (
+            alias_key TEXT PRIMARY KEY,
+            canonical_key TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        columns=("alias_key", "canonical_key", "created_at", "updated_at"),
+    ),
+    TableSchema(
         name="building_summaries",
         ddl="""
         CREATE TABLE IF NOT EXISTS building_summaries (

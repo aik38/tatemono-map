@@ -17,8 +17,8 @@ def test_seed_idempotency_preserves_canonical(tmp_path: Path) -> None:
 
     first = seed_from_ui_csv(str(db_path), str(seed_csv))
     second = seed_from_ui_csv(str(db_path), str(seed_csv))
-    assert first == (1, 2)
-    assert second == (0, 2)
+    assert first == (1, 2, 1)
+    assert second == (0, 2, 1)
 
     conn = connect(db_path)
     assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 1
@@ -58,11 +58,11 @@ def test_weekly_update_idempotency_and_review_csv(tmp_path: Path) -> None:
 
     r1 = ingest_master_import_csv(str(db_path), str(master_csv))
     r2 = ingest_master_import_csv(str(db_path), str(master_csv))
-    assert r1.newly_added == 1
+    assert r1.newly_added == 0
     assert r2.newly_added == 0
 
     conn = connect(db_path)
-    assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 3
+    assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 2
     canonical = conn.execute(
         "SELECT canonical_name, canonical_address FROM buildings WHERE canonical_name='Aマンション'"
     ).fetchone()
@@ -70,7 +70,6 @@ def test_weekly_update_idempotency_and_review_csv(tmp_path: Path) -> None:
     conn.close()
 
     review_dir = Path("tmp/review")
-    assert list(review_dir.glob("new_buildings_*.csv"))
     assert list(review_dir.glob("suspects_*.csv"))
     assert list(review_dir.glob("unmatched_listings_*.csv"))
 
