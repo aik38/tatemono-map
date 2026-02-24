@@ -108,3 +108,29 @@ def test_match_priority_alias_then_address_then_similarity(tmp_path: Path) -> No
     assert mapping["pdf:a"] == aid  # alias hit should beat address hit to B
     assert mapping["pdf:b"] == bid  # direct address exact match
     conn.close()
+
+
+def test_ingest_accepts_pdf_final_16_column_header(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+    seed_csv = tmp_path / "buildings_seed_ui.csv"
+    seed_csv.write_text(
+        "building_name,address,evidence_url_or_id,merge_to_evidence\n"
+        "Aマンション,福岡県北九州市小倉北区魚町1-1-1,ui:a,\n",
+        encoding="utf-8",
+    )
+    seed_from_ui_csv(str(db_path), str(seed_csv))
+
+    master_csv = tmp_path / "master_import.csv"
+    master_csv.write_text(
+        "category,updated_at,building_name,room,address,rent_man,fee_man,layout,floor,area_sqm,age_years,structure,file,page,raw_block,evidence_id\n"
+        "vacancy,2026/01/01 10:00,Aマンション,101,福岡県北九州市小倉北区魚町1-1-1,10.1,0.5,1K,1,20.1,10,RC,a.pdf,1,raw-a,pdf:a\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_master_import_csv(str(db_path), str(master_csv))
+    assert report.attached_listings == 1
+
+    conn = connect(db_path)
+    listings = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
+    conn.close()
+    assert listings == 1
