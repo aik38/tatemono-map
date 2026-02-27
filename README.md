@@ -60,6 +60,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish_public.ps1 -Repo
 ```
 
 - GitHub Pages への反映で push すべきものは、原則 `data/public/public.sqlite3`（必要なら周辺メタ）です。
+- `weekly_update` 実行後は、更新された `data/public/public.sqlite3` を commit/push します。
 - `dist/` は `.gitignore` 対象のビルド成果物であり、Pages は CI（`.github/workflows/pages.yml`）が `data/public/public.sqlite3` から生成してデプロイします。
 
 `git add data/public/public.sqlite3` で ignored と出る場合は、先に以下で確認します。
@@ -68,6 +69,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish_public.ps1 -Repo
 git check-ignore -v data/public/public.sqlite3
 ```
 
+- 何も出力されなければ、`data/public/public.sqlite3` は ignore されていません。
 - 追跡済みなら通常どおり commit できます。
 - 未追跡でどうしても追加できない場合のみ、最終手段として `git add -f data/public/public.sqlite3` を使います（通常は不要）。
 
@@ -78,7 +80,7 @@ git check-ignore -v data/public/public.sqlite3
 
 ### 公開の仕組み
 - GitHub Pages の Source は **GitHub Actions** を使用します（`main` への push で実行）。
-- 公開入力は `data/public/public.sqlite3` です。
+- 公開入力は `data/public/public.sqlite3` です（git 管理対象として追跡します）。
 - `dist/` は git 管理対象ではなく、push しても公開には使われません。
 - push 後、`.github/workflows/pages.yml` が `data/public/public.sqlite3` から `dist/` を再生成します。
 - 生成物は artifact `github-pages` として upload され、deploy されると公開 URL に反映されます。
