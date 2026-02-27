@@ -66,6 +66,23 @@ from building_sources
 where source = 'master_import' and (building_id is null or building_id='');
 ```
 
+## 運用ポリシー（現状仕様）
+
+- 現状の ingest は **`buildings` にマッチできた空室のみ `listings` に取り込み**、未マッチは `tmp/review/unmatched_listings_*.csv` に出力して取り込みません（今は捨てる運用）。
+- 判断理由は **MVPローンチと収益化を優先**するためです。マッチ精度の追い込みは、運用しながら PDCA で段階改善します。
+
+### 監視ポイント（毎週）
+
+- ingest 実行ログの `attached_listings` / `unresolved` を記録し、`unresolved` の急増をアラート扱いにします。
+- `tmp/review/unmatched_listings_*.csv` の `reason` を集計し、上位パターン（住所欠落・名称揺れ・ソース偏り）から改善対象を決めます。
+- 既存建物へのマッチ改善（正規化・alias）と、将来の建物自動追加は別トラックで管理します。
+
+### UI 指標の見方
+
+- 公開 UI の「空部屋」は `data/public/public.sqlite3` の `building_summaries.vacancy_count` 合計を正とします。
+- 確認クエリ: `select coalesce(sum(vacancy_count), 0) from building_summaries;`
+- 将来改善（PR3）: [docs/roadmap_pr3_auto_add_buildings.md](docs/roadmap_pr3_auto_add_buildings.md)
+
 ### 4) 公開反映（GitHub Pages）
 
 #### 一発実行（repo 指定・どこからでも実行可）

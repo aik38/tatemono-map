@@ -168,3 +168,14 @@
 - KPIが測定できる（獲得/転換）。
 
 ---
+
+## Backlog（MVP後の将来タスク）
+### PR3：unmatched からの建物自動追加（将来）
+- 優先度: **Low（MVPローンチ後）**
+- 依存: PR1/PR2/PR2.5 完了、公開反映フロー（weekly_update → publish_public → pages）確立済み
+- 目的: unmatched 空室を安全条件付きで buildings に仮登録し、listings へ紐づける
+- 設計: 追加条件・重複防止・provenance（`source_kind=vacancy_only` など）・needs_review 分岐を定義
+- 実装: ingest に auto-add 分岐を追加し、既存マッチ改善ロジックとは独立に feature flag で制御
+- テスト: 正常系（自動追加/紐づけ）・異常系（住所不足/重複）・回帰（誤マッチ増）を fixture で検証
+- 検証: `unresolved` 削減効果と人手レビュー増加のトレードオフを週次比較
+- ロールバック: flag OFF で即時停止し、PR3 由来の仮登録建物を provenance で抽出して巻き戻し可能にする
