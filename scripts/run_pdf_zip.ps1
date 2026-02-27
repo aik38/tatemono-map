@@ -67,6 +67,12 @@ $masterRows = Import-Csv $masterImportCsv
 $masterCount = $masterRows.Count
 $warnCount = ((Import-Csv $statsCsv) | Where-Object { $_.status -eq "WARN" }).Count
 $masterHeader = (Get-Content -Path $masterImportCsv -TotalCount 1).Trim("`uFEFF")
+if ($QcMode -eq "strict") {
+  $expectedHeader = (& $PY -c "from tatemono_map.cli.pdf_batch_run import FINAL_SCHEMA; print(','.join(FINAL_SCHEMA))").Trim()
+  if ($masterHeader -ne $expectedHeader) {
+    throw "master_import.csv header mismatch in strict mode. got='$masterHeader' expected='$expectedHeader'"
+  }
+}
 "[OK] out=$out"
 "[OK] files=final.csv, master_import.csv, manifest.csv, qc_report.txt, stats.csv"
 "[OK] final_rows=$finalCount"

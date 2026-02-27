@@ -136,7 +136,14 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
         reader = csv.DictReader(fh)
         got = tuple(reader.fieldnames or ())
         if got not in (MASTER_COLUMNS, MASTER_COLUMNS_LEGACY, MASTER_COLUMNS_WITH_FILE):
-            raise ValueError(f"Unexpected master_import.csv header: {reader.fieldnames}")
+            expected_headers = [MASTER_COLUMNS_WITH_FILE, MASTER_COLUMNS, MASTER_COLUMNS_LEGACY]
+            expected_display = " | ".join(str(list(cols)) for cols in expected_headers)
+            raise ValueError(
+                "Unexpected master_import.csv header. "
+                f"Got: {list(got)}. "
+                f"Expected one of: {expected_display} "
+                "(UTF-8 with BOM / utf-8-sig)."
+            )
 
         for row in reader:
             category = _clean_text(row.get("category"))
