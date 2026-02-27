@@ -134,3 +134,50 @@ def test_ingest_accepts_pdf_final_16_column_header(tmp_path: Path) -> None:
     listings = conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0]
     conn.close()
     assert listings == 1
+
+
+def test_normalize_building_input_strips_prefecture_prefix() -> None:
+    from tatemono_map.building_registry.normalization import normalize_building_input
+
+    normalized = normalize_building_input("x", "福岡県北九州市小倉北区上富野3-4-5")
+    assert normalized.normalized_address == "北九州市小倉北区上富野3-4-5"
+
+
+def test_match_building_ignores_prefecture_on_both_sides(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+    seed_csv = tmp_path / "buildings_seed_ui.csv"
+    seed_csv.write_text(
+        "building_name,address,evidence_url_or_id,merge_to_evidence\n"
+        "県なしマンション,北九州市小倉北区魚町1-1-1,ui:a,\n"
+        "県ありマンション,福岡県北九州市小倉南区城野2-2-2,ui:b,\n",
+        encoding="utf-8",
+    )
+    seed_from_ui_csv(str(db_path), str(seed_csv))
+
+    master_csv = tmp_path / "master_import.csv"
+    master_csv.write_text(
+        "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id\n"
+        "1,vacancy,2026/01/01 10:00,県なしマンション,101,福岡県北九州市小倉北区魚町1-1-1,10.1,0.5,1,1K,20.1,10,RC,raw-a,pdf:a\n"
+        "1,vacancy,2026/01/02 11:00,県ありマンション,102,北九州市小倉南区城野2-2-2,10.1,0.5,1,1K,20.1,10,RC,raw-b,pdf:b\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_master_import_csv(str(db_path), str(master_csv))
+    assert report.attached_listings == 2
+
+    conn = connect(db_path)
+    rows = conn.execute(
+        "SELECT evidence_id, building_id FROM building_sources WHERE source='master_import' ORDER BY evidence_id"
+    ).fetchall()
+    mapping = {row[0]: row[1] for row in rows}
+
+    no_pref_id = conn.execute(
+        "SELECT building_id FROM buildings WHERE canonical_name='県なしマンション'"
+    ).fetchone()[0]
+    with_pref_id = conn.execute(
+        "SELECT building_id FROM buildings WHERE canonical_name='県ありマンション'"
+    ).fetchone()[0]
+
+    assert mapping["pdf:a"] == no_pref_id
+    assert mapping["pdf:b"] == with_pref_id
+    conn.close()
