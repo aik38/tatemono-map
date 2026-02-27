@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
 
-from .normalization import normalize_building_input
+from .normalization import normalize_building_input, strip_prefecture_prefix
 
 NAME_SIMILARITY_THRESHOLD = 0.88
 
@@ -27,6 +27,7 @@ def _format_top(candidates: list[tuple[str, float]]) -> tuple[list[str], list[fl
 
 
 def match_building(conn: Any, normalized_name: str, normalized_address: str) -> MatchResult:
+    normalized_address = strip_prefecture_prefix(normalized_address)
     alias_rows = conn.execute(
         """
         SELECT s.building_id, s.raw_name
@@ -45,13 +46,15 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str) -> 
         return MatchResult(None, "alias_ambiguous", alias_hits[:3], [1.0 for _ in alias_hits[:3]])
 
     addr_rows = conn.execute(
-        "SELECT building_id, norm_name FROM buildings WHERE norm_address = ?",
-        (normalized_address,),
+        "SELECT building_id, norm_name, norm_address FROM buildings"
     ).fetchall()
-    if len(addr_rows) == 1:
-        return MatchResult(addr_rows[0][0], "address_exact", [addr_rows[0][0]], [1.0])
-    if len(addr_rows) > 1:
-        scored = [(row[0], _score_name(normalized_name, row[1] or "")) for row in addr_rows]
+    matched_addr_rows = [
+        row for row in addr_rows if strip_prefecture_prefix(row[2] or "") == normalized_address
+    ]
+    if len(matched_addr_rows) == 1:
+        return MatchResult(matched_addr_rows[0][0], "address_exact", [matched_addr_rows[0][0]], [1.0])
+    if len(matched_addr_rows) > 1:
+        scored = [(row[0], _score_name(normalized_name, row[1] or "")) for row in matched_addr_rows]
         top_ids, top_scores = _format_top(scored)
         best = sorted(scored, key=lambda x: x[1], reverse=True)
         if best and best[0][1] >= NAME_SIMILARITY_THRESHOLD and (len(best) == 1 or best[0][1] > best[1][1]):
