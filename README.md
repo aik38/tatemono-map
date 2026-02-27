@@ -9,7 +9,31 @@ git -C $REPO status -sb
 git -C $REPO push
 ```
 
+## Data Architecture（唯一の定義）
+
+- **Source of Truth（SoT）**
+  - 建物 SoT: `data/tatemono_map.sqlite3` の `buildings`。
+  - Canonical入力 SoT: `data/canonical/` 配下（例: `data/canonical/buildings_master.csv`）。
+  - listings SoT: `data/tatemono_map.sqlite3` の `listings` のみ（`public.sqlite3` は SoT ではない）。
+- **公開DBの役割**
+  - `scripts/publish_public.ps1` は main DB から公開に必要な最小テーブルのみを `data/public/public.sqlite3` にコピーする。
+  - 必須コピー: `buildings`, `building_summaries`。任意コピー: `building_key_aliases`（存在時のみ）。
+  - `public.sqlite3` に `listings` は含めない（サイズ/プライバシー/公開性能のため）。UI は `building_summaries` を参照する。
+- **フロントエンド実行時の参照元**
+  - Runtime UI は GitHub Pages 上の `dist/` を読む。
+  - `dist/` は Git 管理せず、Pages CI（`.github/workflows/pages.yml`）が毎回 `data/public/public.sqlite3` から再生成する。
+
+```text
+data/canonical/*
+      -> data/tatemono_map.sqlite3 (main SoT: buildings/listings)
+      -> data/public/public.sqlite3 (privacy-safe derived snapshot)
+      -> dist/ (CI build artifact)
+      -> GitHub Pages UI
+```
+
 ## 運用の唯一の正解（Windows / PowerShell 7）
+
+> 週次運用の 1 コマンドは `scripts/run_to_pages.ps1` です（ingest -> publish_public -> git add/commit/push）。
 
 ### 1) 初回セットアップ（setup）
 
@@ -96,6 +120,13 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 - CSV を明示したい場合は `-CsvPath <path-to-master_import.csv>`、コミット文言を固定したい場合は `-Message "..."` を追加します。
 - `scripts/run_to_pages.ps1` は `data/public/public.sqlite3` だけを stage します（`git add -f` は不要）。
 
+### フォルダ役割（固定）
+
+- `data/canonical/`: Canonical入力（追跡対象）。
+- `data/`: main DB（private運用。`data/tatemono_map.sqlite3`）。
+- `data/public/`: 公開DB（追跡対象。`data/public/public.sqlite3`）。
+- `tmp/`: 一時作業・review出力のみ（scratch）。
+
 #### “空部屋” の定義（UI 表示）
 
 - UI の「空部屋」は **`data/public/public.sqlite3` の `building_summaries.vacancy_count` 合計** です。
@@ -137,8 +168,10 @@ select coalesce(sum(vacancy_count), 0) from building_summaries;
 1. `data/canonical/buildings_master.csv` を更新する。
 2. Canonical を DB へ投入する。
    - `python -m tatemono_map.cli.master_import --db data/tatemono_map.sqlite3`
-3. 公開物を再生成する。
-   - `python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --output-dir dist --version all`
+3. 公開DBを更新する。
+   - `pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish_public.ps1 -RepoPath .`
+4. （ローカル確認する場合のみ）public DB から `dist/` を生成する。
+   - `python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version all`
 
 ### KPI 検証クエリ（sqlite3）
 

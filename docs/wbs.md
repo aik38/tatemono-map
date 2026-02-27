@@ -103,7 +103,7 @@
 - UIを変えずに「中身だけ正しい」状態にする。
 
 ### What
-- 公開用DB（data/public/public.sqlite3）を **canonical(buildings)+listings** から生成する。
+- 公開用DB（data/public/public.sqlite3）を **canonical(buildings)+building_summaries（+任意でbuilding_key_aliases）** から生成する（`listings` は公開DBへ含めない）。
   - 互換のため `building_summaries` 等の公開テーブルは維持（UI/静的HTMLが参照している形を壊さない）。
 - `publish_public` の流れから legacy（旧マスター再構築由来）を排除・隔離。
 - dist（静的HTML）生成は公開DBを参照して作る（禁止情報が混入しない）。
