@@ -16,6 +16,9 @@
    入出力データ契約（CSV/DB/配信物）。
 
 ## 補助ドキュメント
+- [ops_weekly_checklist_a4.md](ops_weekly_checklist_a4.md): 毎週運用のA4チェックカード（最小PDCA）。
+- [ops_unmatched_report.md](ops_unmatched_report.md): unmatched簡易集計スクリプトの使い方。
+- [ops_ci_testing.md](ops_ci_testing.md): PagesとPR CI（pytest）の役割分担。
 - [frontend_versions.md](frontend_versions.md): フロント関連の履歴メモ。
 - [manual_pdf_ingest.md](manual_pdf_ingest.md): PDF取り込みの補助手順。
 - [ulucks_phase_a.md](ulucks_phase_a.md): Ulucks 作業メモ。
