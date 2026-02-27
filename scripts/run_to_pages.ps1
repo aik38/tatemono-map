@@ -65,3 +65,4 @@ git push
 Write-Host "Completed: ingest -> publish_public -> commit -> push"
 Write-Host "CSV: $CsvPath"
 Write-Host "Commit message: $Message"
+
