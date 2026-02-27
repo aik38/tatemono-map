@@ -66,7 +66,8 @@ $finalCount = (Import-Csv $finalCsv).Count
 $masterRows = Import-Csv $masterImportCsv
 $masterCount = $masterRows.Count
 $warnCount = ((Import-Csv $statsCsv) | Where-Object { $_.status -eq "WARN" }).Count
-$masterHeader = (Get-Content -Path $masterImportCsv -TotalCount 1).Trim("`uFEFF")
+# PS7互換のため char で先頭BOMのみ除去する
+$masterHeader = (Get-Content -Path $masterImportCsv -TotalCount 1).TrimStart([char]0xFEFF)
 if ($QcMode -eq "strict") {
   $expectedHeader = (& $PY -c "from tatemono_map.cli.pdf_batch_run import FINAL_SCHEMA; print(','.join(FINAL_SCHEMA))").Trim()
   if ($masterHeader -ne $expectedHeader) {
