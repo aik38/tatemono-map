@@ -50,8 +50,21 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\weekly_update.ps1 -RepoP
 ```
 
 - `weekly_update` は `buildings` を再構築しません（空室取り込み + 建物突合 + review CSV + 公開生成）。
+- `ingest_master_import` 実行時に `buildings.norm_name` / `buildings.norm_address` は毎回自動再正規化されます（手作業不要）。
 - review CSV は `tmp/review/` に出力されます（`suspects` / `unmatched_listings` / `new_buildings`）。
 - 推奨トリアージ順は `suspects` → `unmatched_listings` → `new_buildings` です。
+
+#### 再正規化のみ先に実行したい場合（任意）
+```powershell
+python -m tatemono_map.building_registry.renormalize_buildings --db .\data\tatemono_map.sqlite3
+```
+
+#### unmatched の簡易検証例（sqlite3）
+```sql
+select count(*) as unresolved_sources
+from building_sources
+where source = 'master_import' and (building_id is null or building_id='');
+```
 
 ### 4) 公開反映（GitHub Pages）
 
