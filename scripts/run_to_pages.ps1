@@ -45,7 +45,7 @@ if ($LASTEXITCODE -ne 0) { throw "publish_public.ps1 failed" }
 
 git add data/public/public.sqlite3
 
-$hasChanges = (git diff --cached --name-only).Trim()
+$hasChanges = (git diff --cached --name-only | Out-String).Trim()
 if ([string]::IsNullOrWhiteSpace($hasChanges)) {
   Write-Host "No staged change in data/public/public.sqlite3. Nothing to commit or push."
   exit 0
