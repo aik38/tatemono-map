@@ -68,50 +68,48 @@ where source = 'master_import' and (building_id is null or building_id='');
 
 ### 4) 公開反映（GitHub Pages）
 
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish_public.ps1 -RepoPath .
-```
-
-- GitHub Pages への反映で push すべきものは、原則 `data/public/public.sqlite3`（必要なら周辺メタ）です。
-- `weekly_update` 実行後は、更新された `data/public/public.sqlite3` を commit/push します。
-- `dist/` は `.gitignore` 対象のビルド成果物であり、Pages は CI（`.github/workflows/pages.yml`）が `data/public/public.sqlite3` から生成してデプロイします。
-
-`git add data/public/public.sqlite3` で ignored と出る場合は、先に以下で確認します。
+#### 一発実行（repo 指定・どこからでも実行可）
 
 ```powershell
-git check-ignore -v data/public/public.sqlite3
+$REPO = "C:\path\to\tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
 ```
 
-- 何も出力されなければ、`data/public/public.sqlite3` は ignore されていません。
-- 追跡済みなら通常どおり commit できます。
-- 未追跡でどうしても追加できない場合のみ、最終手段として `git add -f data/public/public.sqlite3` を使います（通常は不要）。
+- 上記 1 行で、`master_import.csv` の自動検出 → main DB ingest → `publish_public.ps1` → `git add/commit/push` まで完了します。
+- CSV を明示したい場合は `-CsvPath <path-to-master_import.csv>`、コミット文言を固定したい場合は `-Message "..."` を追加します。
+- `scripts/run_to_pages.ps1` は `data/public/public.sqlite3` だけを stage します（`git add -f` は不要）。
 
+#### “空部屋” の定義（UI 表示）
 
-## Canonical DB 運用ルール
+- UI の「空部屋」は **`data/public/public.sqlite3` の `building_summaries.vacancy_count` 合計** です。
+- つまり確認式は次です。
+
+```sql
+select coalesce(sum(vacancy_count), 0) from building_summaries;
+```
+
+- `listings count (main)`（`data/tatemono_map.sqlite3`）とは母集団・集計単位が異なるため、同値である必要はありません。
+- `public.sqlite3` には `listings` テーブルは無く、公開用に必要なテーブルだけを持ちます。
 
 ## GitHub Pages 公開フロー
 
 ### 公開の仕組み
-- GitHub Pages の Source は **GitHub Actions** を使用します（`main` への push で実行）。
-- 公開入力は `data/public/public.sqlite3` です（git 管理対象として追跡します）。
-- `dist/` は git 管理対象ではなく、push しても公開には使われません。
-- push 後、`.github/workflows/pages.yml` が `data/public/public.sqlite3` から `dist/` を再生成します。
-- 生成物は artifact `github-pages` として upload され、deploy されると公開 URL に反映されます。
+- GitHub Pages の Source は **GitHub Actions**（`main` push 起動）を使用します。
+- 公開入力は `data/public/public.sqlite3` です（git 管理対象）。
+- `dist/` は git 管理対象ではなく、CI（`.github/workflows/pages.yml`）が毎回 `data/public/public.sqlite3` から再生成して deploy します。
 
-### 確認手順
-1. GitHub の **Actions** で `Deploy static site to GitHub Pages` が `Success` になっていることを確認する。
-2. 対象 run の Artifacts から `github-pages` をダウンロードし、`dist/` の内容を確認する。
-3. `public.sqlite3` の `building_summaries` 件数を SQL で確認する。
-   ```sql
-   select count(*) from building_summaries;
-   ```
-4. Web が古く見える場合は、シークレットウィンドウまたはハードリロードでキャッシュを切り分ける。
+### トラブルシュート（反映されない時）
+1. GitHub の **Actions** で `Deploy static site to GitHub Pages` が `Success` になっているか確認する。
+2. `git log -- data/public/public.sqlite3` で最新コミットに DB 更新が含まれているか確認する。
+3. スマホ/ブラウザで古く見える場合は、シークレットウィンドウで開くか、対象サイトのキャッシュ/サイトデータを削除して再読み込みする。
 
 ### よくあるミス
-- `dist/` を push しても意味がない（CI が毎回再生成する）。
+- `dist/` を push しても公開反映には使われない（CI が再生成する）。
 - `main` 以外のブランチに push している。
-- `data/public/public.sqlite3` が更新されていない。
-- `weekly_update` が失敗しており、DB が実際には更新されていない。
+- `data/public/public.sqlite3` の更新を commit していない。
+- ingest または `publish_public` が失敗して DB が更新されていない。
+
+## Canonical DB 運用ルール
 
 - Canonical buildings CSV は `data/canonical/buildings_master.csv` です。
 - `tmp/` 配下は一時作業用（レビュー・中間成果物）であり Canonical ではありません。
