@@ -17,6 +17,8 @@ $REPO = "C:\path\to\tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
 ```
 
+- 運用前に [A4運用カード](ops_weekly_checklist_a4.md) を開き、チェックしながら実施。
+
 `scripts/run_to_pages.ps1` の実行内容（ワンショット）:
 1. `master_import.csv` を検出して ingest（main DB 更新）
 2. `scripts/publish_public.ps1` 実行（public DB 更新）
@@ -52,7 +54,16 @@ from building_summaries;
 4. **DB lock（Windows）**
    - `publish_public.ps1` が lock で失敗したら、DB Browser / VSCode SQLite 拡張 / Explorer プレビューを閉じて再実行。
 
-## 4) 補助コマンド（確認用）
+## 4) unmatched 簡易集計（週次は深追いしない）
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\unmatched_report.ps1" -RepoPath $REPO
+```
+
+- 週次では `reason` の偏り確認を中心に実施。
+- 個別住所・個別名称の深掘りは原則、別タスク化して対応。
+
+## 5) 補助コマンド（確認用）
 
 ```powershell
 sqlite3 data/tatemono_map.sqlite3 "select count(*) from listings;"
