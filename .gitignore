@@ -70,3 +70,5 @@ tmp_*.py
 /data/_debug_ulucks_*/
 data/_debug_ulucks_phase_a/
 probe_debug.py
+# manual work artifacts (should not be committed)
+tmp/manual/
