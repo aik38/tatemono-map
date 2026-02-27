@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-import uuid
 from pathlib import Path
 
 from tatemono_map.db.repo import connect
 
 from .matcher import match_building
+from .keys import make_alias_key
 from .normalization import normalize_building_input
 
 UI_EVIDENCE_COLUMNS = ("evidence_url_or_id", "evidence_id", "source_id")
@@ -19,11 +19,6 @@ def _pick(row: dict[str, str], *keys: str) -> str:
         if val:
             return val
     return ""
-
-
-def _deterministic_building_id(norm_name: str, norm_address: str) -> str:
-    material = f"{norm_name}|{norm_address}"
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, material))
 
 
 def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tuple[int, int, int]:
@@ -53,7 +48,7 @@ def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tu
                 if winner:
                     winner_id = winner[0]
 
-            alias_key = _deterministic_building_id(normalized.normalized_name, normalized.normalized_address)
+            alias_key = make_alias_key(normalized.normalized_name, normalized.normalized_address)
             match = match_building(conn, normalized.normalized_name, normalized.normalized_address)
             building_id = winner_id or match.building_id or alias_key
             existing = conn.execute("SELECT 1 FROM buildings WHERE building_id=?", (building_id,)).fetchone()

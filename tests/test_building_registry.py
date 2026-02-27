@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from tatemono_map.building_registry.ingest_master_import import ingest_master_import_csv
+from tatemono_map.building_registry.keys import make_alias_key
 from tatemono_map.building_registry.seed_from_ui import seed_from_ui_csv
 from tatemono_map.db.repo import connect
 
@@ -181,3 +182,75 @@ def test_match_building_ignores_prefecture_on_both_sides(tmp_path: Path) -> None
     assert mapping["pdf:a"] == no_pref_id
     assert mapping["pdf:b"] == with_pref_id
     conn.close()
+
+
+def test_ingest_auto_renormalizes_buildings_norm_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+    conn = connect(db_path)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address)
+        VALUES ('b1', 'Aマンション', '福岡県北九州市小倉北区魚町1丁目1番1号', 'Aマンション', '福岡県北九州市小倉北区魚町1丁目1番1号')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    master_csv = tmp_path / "master_import.csv"
+    master_csv.write_text(
+        "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id\n"
+        "1,vacancy,2026/01/01 10:00,Aマンション,101,福岡県北九州市小倉北区魚町1-1-1,10.1,0.5,1,1K,20.1,10,RC,raw-a,pdf:a\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_master_import_csv(str(db_path), str(master_csv))
+    assert report.attached_listings == 1
+    assert report.unresolved == 0
+
+    conn = connect(db_path)
+    norm_address = conn.execute("SELECT norm_address FROM buildings WHERE building_id='b1'").fetchone()[0]
+    conn.close()
+    assert "丁目" not in norm_address
+    assert "番" not in norm_address
+    assert "号" not in norm_address
+
+
+def test_alias_key_is_shared_between_seed_and_ingest(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+    seed_csv = tmp_path / "buildings_seed_ui.csv"
+    seed_csv.write_text(
+        "building_name,address,evidence_url_or_id,merge_to_evidence\n"
+        "Aマンション,福岡県北九州市小倉北区魚町1-1-1,ui:a,\n"
+        "A別名,福岡県北九州市小倉北区魚町1-1-1,ui:a_alias,ui:a\n",
+        encoding="utf-8",
+    )
+    seed_from_ui_csv(str(db_path), str(seed_csv))
+
+    conn = connect(db_path)
+    conn.execute("DELETE FROM building_sources WHERE source='ui_seed' AND evidence_id='ui:a_alias'")
+    conn.commit()
+    alias_key = conn.execute("SELECT alias_key FROM building_key_aliases").fetchone()[0]
+    conn.close()
+
+    expected_key = make_alias_key("A別名", "北九州市小倉北区魚町1-1-1")
+    assert alias_key == expected_key
+
+    master_csv = tmp_path / "master_import.csv"
+    master_csv.write_text(
+        "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id\n"
+        "1,vacancy,2026/01/01 10:00,A別名,101,福岡県北九州市小倉北区魚町1-1-1,10.1,0.5,1,1K,20.1,10,RC,raw-a,pdf:a\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_master_import_csv(str(db_path), str(master_csv))
+    assert report.unresolved == 0
+
+    conn = connect(db_path)
+    matched = conn.execute(
+        "SELECT building_id FROM building_sources WHERE source='master_import' AND evidence_id='pdf:a'"
+    ).fetchone()[0]
+    winner_id = conn.execute(
+        "SELECT building_id FROM building_sources WHERE source='ui_seed' AND evidence_id='ui:a'"
+    ).fetchone()[0]
+    conn.close()
+    assert matched == winner_id

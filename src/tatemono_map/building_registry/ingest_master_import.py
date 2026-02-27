@@ -10,8 +10,10 @@ from pathlib import Path
 from tatemono_map.cli.master_import import _clean_text, _fallback_updated_at, _parse_area, _parse_man_to_yen
 from tatemono_map.db.repo import connect
 
+from .keys import make_alias_key, make_legacy_alias_key
 from .matcher import match_building
 from .normalization import normalize_building_input
+from .renormalize_buildings import renormalize_buildings
 
 MASTER_COLUMNS = (
     "page",
@@ -121,6 +123,7 @@ def _to_review_row(
 
 def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_import") -> Report:
     conn = connect(db_path)
+    renormalize_buildings(conn)
     report = Report()
     source_url = f"file:{Path(csv_path).name}"
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -173,10 +176,11 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
             building_id = match.building_id
 
             if not building_id and match.reason == "unmatched":
-                alias_key = hashlib.sha1(
-                    f"{normalized.normalized_name}|{normalized.normalized_address}".encode("utf-8")
-                ).hexdigest()[:32]
+                alias_key = make_alias_key(normalized.normalized_name, normalized.normalized_address)
                 building_id = alias_map.get(alias_key, "")
+                if not building_id:
+                    legacy_alias_key = make_legacy_alias_key(normalized.normalized_name, normalized.normalized_address)
+                    building_id = alias_map.get(legacy_alias_key, "")
                 if not building_id:
                     report.unresolved += 1
                     unmatched_rows.append(
