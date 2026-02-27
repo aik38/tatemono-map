@@ -74,6 +74,30 @@ git check-ignore -v data/public/public.sqlite3
 
 ## Canonical DB 運用ルール
 
+## GitHub Pages 公開フロー
+
+### 公開の仕組み
+- GitHub Pages の Source は **GitHub Actions** を使用します（`main` への push で実行）。
+- 公開入力は `data/public/public.sqlite3` です。
+- `dist/` は git 管理対象ではなく、push しても公開には使われません。
+- push 後、`.github/workflows/pages.yml` が `data/public/public.sqlite3` から `dist/` を再生成します。
+- 生成物は artifact `github-pages` として upload され、deploy されると公開 URL に反映されます。
+
+### 確認手順
+1. GitHub の **Actions** で `Deploy static site to GitHub Pages` が `Success` になっていることを確認する。
+2. 対象 run の Artifacts から `github-pages` をダウンロードし、`dist/` の内容を確認する。
+3. `public.sqlite3` の `building_summaries` 件数を SQL で確認する。
+   ```sql
+   select count(*) from building_summaries;
+   ```
+4. Web が古く見える場合は、シークレットウィンドウまたはハードリロードでキャッシュを切り分ける。
+
+### よくあるミス
+- `dist/` を push しても意味がない（CI が毎回再生成する）。
+- `main` 以外のブランチに push している。
+- `data/public/public.sqlite3` が更新されていない。
+- `weekly_update` が失敗しており、DB が実際には更新されていない。
+
 - Canonical buildings CSV は `data/canonical/buildings_master.csv` です。
 - `tmp/` 配下は一時作業用（レビュー・中間成果物）であり Canonical ではありません。
 - Web 表示の建物名/住所と KPI（建物数・空室数）は Canonical buildings を基準に計算されます。
