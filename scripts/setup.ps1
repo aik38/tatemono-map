@@ -32,7 +32,7 @@ function Get-RequirementsFingerprint {
     $abs = Join-Path $RepoRoot $file
     if (Test-Path -LiteralPath $abs) {
       $hash = (Get-FileHash -LiteralPath $abs -Algorithm SHA256).Hash
-      $parts += "$file:$hash"
+      $parts += "${file}:$hash"
     } else {
       $parts += "$file:MISSING"
     }
@@ -85,3 +85,4 @@ if (-not $shouldInstall) {
 
 Set-Content -LiteralPath $hashFile -Value $currentHash -NoNewline
 "[OK] setup completed: $PY"
+
