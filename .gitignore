@@ -10,8 +10,9 @@ __pycache__/
 # local databases
 *.sqlite3
 *.db
-data/
+data/*
 !data/public/
+data/public/*
 !data/public/public.sqlite3
 
 # build artifacts
@@ -72,5 +73,3 @@ data/_debug_ulucks_phase_a/
 probe_debug.py
 # manual work artifacts (should not be committed)
 tmp/manual/
-!data/public/
-!data/public/public.sqlite3

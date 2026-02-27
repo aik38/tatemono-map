@@ -186,6 +186,9 @@ with sqlite3.connect(public_db) as conn:
     conn.execute("PRAGMA busy_timeout=5000")
     buildings_count_public = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
     summaries_count_public = conn.execute("SELECT COUNT(*) FROM building_summaries").fetchone()[0]
+    vacancy_sum_public = conn.execute(
+        "SELECT COALESCE(SUM(vacancy_count), 0) FROM building_summaries"
+    ).fetchone()[0]
     distinct_keys_public = conn.execute(
         "SELECT COUNT(DISTINCT building_key) FROM building_summaries"
     ).fetchone()[0]
@@ -201,6 +204,7 @@ print(f"buildings count (public): {buildings_count_public}")
 print(f"building_summaries count (main): {summaries_count_main}")
 print(f"building_summaries count (public): {summaries_count_public}")
 print(f"building_summaries distinct building_key (public): {distinct_keys_public}")
+print(f"public.sum(vacancy_count): {vacancy_sum_public}")
 if aliases_count_public is not None:
     print(f"building_key_aliases count (public): {aliases_count_public}")
 '@
