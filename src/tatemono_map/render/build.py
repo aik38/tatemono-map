@@ -100,6 +100,13 @@ def _build_summary_date(building: dict) -> datetime | None:
     return _parse_date(building.get("last_updated")) or _parse_date(building.get("updated_at"))
 
 
+def _build_google_maps_url(address: object) -> str | None:
+    text = str(address or "").strip()
+    if not text:
+        return None
+    return f"https://maps.google.com/?q={quote_plus(text)}"
+
+
 def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     conn = connect(db_path)
     canonical_buildings_count = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
@@ -161,6 +168,36 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     return building_list, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total
 
 
+def _write_buildings_json(output_dir: Path, buildings: list[dict]) -> None:
+    payload = []
+    for b in buildings:
+        payload.append(
+            {
+                "id": b.get("building_key"),
+                "name": b.get("name"),
+                "address": b.get("address"),
+                "vacancy_count": b.get("vacancy_count"),
+                "rent_min": b.get("rent_yen_min"),
+                "rent_max": b.get("rent_yen_max"),
+                "area_min": b.get("area_sqm_min"),
+                "area_max": b.get("area_sqm_max"),
+                "updated_at": b.get("last_updated") or b.get("updated_at"),
+                "updated_epoch": b.get("updated_epoch"),
+                "google_maps_url": _build_google_maps_url(b.get("address")),
+                "room_types": b.get("layout_types") or [],
+                "structure": b.get("structure"),
+                "built_year": b.get("age_years"),
+            }
+        )
+
+    data_dir = output_dir / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    (data_dir / "buildings.json").write_text(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+        encoding="utf-8",
+    )
+
+
 def _build_dist_version(
     output_dir: Path,
     buildings: list[dict],
@@ -209,10 +246,7 @@ def _build_dist_version(
     )
 
     for b in buildings:
-        maps_url = None
-        address = (b.get("address") or "").strip()
-        if address:
-            maps_url = f"https://maps.google.com/?q={quote_plus(address)}"
+        maps_url = _build_google_maps_url(b.get("address"))
         html = building_tpl.render(
             building=b,
             maps_url=maps_url,
@@ -220,6 +254,8 @@ def _build_dist_version(
             line_deep_link_url=line_deep_link_url,
         )
         (output_dir / "b" / f"{b['building_key']}.html").write_text(html, encoding="utf-8")
+
+    _write_buildings_json(output_dir, buildings)
 
     (output_dir / ".nojekyll").touch()
     _validate_public_dist(output_dir)
