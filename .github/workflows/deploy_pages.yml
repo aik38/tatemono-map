@@ -72,14 +72,27 @@ jobs:
       - name: Assert building list includes entries
         run: |
           python - <<'PY'
-          import re
+          import json
           from pathlib import Path
 
-          html = Path("dist/index.html").read_text(encoding="utf-8")
-          n = len(re.findall(r'<li[^>]*class="[^"]*building-card[^"]*"', html))
-          print("building-card entries in dist/index.html =", n)
-          if n <= 0:
-              raise SystemExit("No building cards in dist/index.html; refusing to deploy")
+          idx = Path("dist/index.html")
+          if not idx.exists():
+            raise SystemExit("dist/index.html missing; refusing to deploy")
+
+          html = idx.read_text(encoding="utf-8")
+
+          if "buildings.json" not in html:
+            raise SystemExit("index.html does not reference buildings.json; refusing to deploy")
+
+          p = Path("dist/data/buildings.json")
+          if (not p.exists()) or p.stat().st_size == 0:
+            raise SystemExit("dist/data/buildings.json missing or empty; refusing to deploy")
+
+          arr = json.loads(p.read_text(encoding="utf-8"))
+          if not isinstance(arr, list) or len(arr) == 0:
+            raise SystemExit("buildings.json has no entries; refusing to deploy")
+
+          print(f"OK: buildings.json entries={len(arr)}")
           PY
 
       - name: Forbidden content grep check
