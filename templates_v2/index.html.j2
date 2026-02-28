@@ -33,6 +33,12 @@
   #result-counts[hidden] { display: none; }
   .empty { margin-top: 20px; padding: 20px; text-align: center; }
   .empty[hidden] { display: none; }
+  .actions { margin-top: 16px; display: flex; justify-content: center; }
+  #load-more[hidden] { display: none; }
+  .button-secondary {
+    border: 1px solid var(--border); background: #fff; border-radius: 10px;
+    padding: 10px 16px; font-size: .95rem; font-weight: 600; cursor: pointer;
+  }
   @media (max-width: 740px) {
     .intro { padding: 18px; }
     .controls { grid-template-columns: 1fr; }
@@ -69,24 +75,12 @@
 
   <p id="result-counts" class="counts" aria-live="polite" hidden>検索結果: <strong id="result-count-visible">{{ total_buildings_formatted }}件</strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant">{{ vacancy_total_formatted }}件</strong></p>
 
-  <ul id="building-list" aria-live="polite">
-    {% for b in buildings %}
-      <li class="card building-card" data-updated="{{ b.updated_at or '' }}" data-vacancy="{{ b.vacancy_count if b.vacancy_count is not none else -1 }}" data-vacancies="{{ b.vacancy_count if b.vacancy_count is not none else 0 }}" data-rent-min="{{ b.rent_yen_min if b.rent_yen_min is not none else 999999999 }}">
-        <a class="building-link" href="b/{{ b.building_key }}.html"><h2>{{ b.name or "名称未設定" }}</h2></a>
-        <p class="address">{{ b.address or "住所情報なし" }}</p>
-        <ul class="kpis">
-          <li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>
-          <li class="kpi"><span>家賃</span>{{ b.rent_yen_min|yen }}円〜{{ b.rent_yen_max|yen }}円</li>
-        </ul>
-        <dl class="meta">
-          <div class="meta-row"><dt>面積</dt><dd>{{ (b.area_sqm_min ~ '㎡') if b.area_sqm_min is not none else '—' }} 〜 {{ (b.area_sqm_max ~ '㎡') if b.area_sqm_max is not none else '—' }}</dd></div>
-          <div class="meta-row"><dt>最終更新</dt><dd>{{ b.last_updated or '—' }}</dd></div>
-        </dl>
-      </li>
-    {% endfor %}
-  </ul>
+  <ul id="building-list" aria-live="polite"></ul>
 
   <div id="empty-state" class="card empty" hidden>条件に合う建物が見つかりませんでした。</div>
+  <div class="actions">
+    <button id="load-more" class="button-secondary" type="button" hidden>もっと表示</button>
+  </div>
 {% endblock %}
 
 {% block extra_body %}
@@ -98,59 +92,49 @@
   const visibleCount = document.getElementById('result-count-visible');
   const totalCount = document.getElementById('result-count-total');
   const vacantCount = document.getElementById('result-count-vacant');
-  const cards = Array.from(list.querySelectorAll('.building-card'));
   const counts = document.getElementById('result-counts');
   const empty = document.getElementById('empty-state');
+  const loadMore = document.getElementById('load-more');
 
-  let currentQuery = '';
+  const PAGE_SIZE = 50;
+  const SEARCH_RENDER_LIMIT = 200;
+  const SEARCH_DEBOUNCE_MS = 250;
+  const formatCount = (n) => new Intl.NumberFormat('ja-JP').format(n);
+  const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, ' ').trim();
+  const safeNumber = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+  const formatYen = (value) => Number.isFinite(Number(value)) ? `${formatCount(Number(value))}円` : '—';
+  const formatArea = (value) => Number.isFinite(Number(value)) ? `${Number(value)}㎡` : '—';
 
   const byNumeric = (key, direction = 'asc') => (a, b) => direction === 'asc' ? a[key] - b[key] : b[key] - a[key];
   const byText = (key, direction = 'asc') => (a, b) => direction === 'asc' ? a[key].localeCompare(b[key], 'ja') : b[key].localeCompare(a[key], 'ja');
   const sorters = {
-    updated_desc: byText('updatedTs', 'desc'),
-    vacancy_desc: byNumeric('vacancy', 'desc'),
-    rent_min_asc: byNumeric('rentMin', 'asc'),
-    rent_min_desc: byNumeric('rentMin', 'desc')
+    updated_desc: byNumeric('updatedEpoch', 'desc'),
+    vacancy_desc: byNumeric('vacancySort', 'desc'),
+    rent_min_asc: byNumeric('rentMinSort', 'asc'),
+    rent_min_desc: byNumeric('rentMinSort', 'desc')
   };
-  const formatCount = (n) => new Intl.NumberFormat('ja-JP').format(n);
-  const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, ' ').trim();
 
-  const cardModels = cards.map((card, originalIndex) => {
-    const name = normalizeText(card.querySelector('h2')?.textContent || '');
-    const address = normalizeText(card.querySelector('.address')?.textContent || '');
-    const combined = normalizeText(`${name} ${address}`);
-    return {
-      el: card,
-      score: 0,
-      rentMin: Number(card.dataset.rentMin || 999999999),
-      updatedTs: card.dataset.updated || '',
-      vacancy: Number(card.dataset.vacancy || -1),
-      vacancies: Number(card.dataset.vacancies || 0),
-      originalIndex,
-      name,
-      address,
-      combined,
-    };
-  });
-
-  const totalBuildings = cardModels.length;
-  const totalVacancies = cardModels.reduce((sum, card) => sum + card.vacancies, 0);
+  let buildings = [];
+  let filtered = [];
+  let displayLimit = PAGE_SIZE;
+  let currentQuery = '';
+  let debounceTimer = null;
 
   function getMatchScore(card, q) {
     if (!q) return 0;
     let score = 0;
     let matched = false;
-    if (card.name.startsWith(q)) {
+    if (card.nameNormalized.startsWith(q)) {
       score += 300;
       matched = true;
-    } else if (card.name.includes(q)) {
+    } else if (card.nameNormalized.includes(q)) {
       score += 200;
       matched = true;
     }
-    if (card.address.startsWith(q)) {
+    if (card.addressNormalized.startsWith(q)) {
       score += 120;
       matched = true;
-    } else if (card.address.includes(q)) {
+    } else if (card.addressNormalized.includes(q)) {
       score += 80;
       matched = true;
     }
@@ -172,58 +156,155 @@
     return a.originalIndex - b.originalIndex;
   }
 
-  function update() {
-    currentQuery = normalizeText(input.value);
-    const sorter = sorters[sortSelect.value] || sorters.updated_desc;
-    const visible = [];
+  function createCard(item) {
+    const li = document.createElement('li');
+    li.className = 'card building-card';
 
-    cardModels.forEach((card) => {
-      card.score = getMatchScore(card, currentQuery);
-      if (currentQuery !== '' && card.score === 0) {
-        card.el.style.display = 'none';
-        return;
-      }
-      visible.push(card);
-    });
+    const link = document.createElement('a');
+    link.className = 'building-link';
+    link.href = `b/${item.id}.html`;
+    const h2 = document.createElement('h2');
+    h2.textContent = item.name || '名称未設定';
+    link.appendChild(h2);
 
-    visible.sort((a, b) => compareCards(a, b, currentQuery, sorter));
-    visible.forEach((card) => {
-      card.el.style.display = '';
-      list.appendChild(card.el);
-    });
+    const address = document.createElement('p');
+    address.className = 'address';
+    address.textContent = item.address || '住所情報なし';
 
-    const visibleVacancies = visible.reduce((sum, card) => sum + card.vacancies, 0);
-    const nextVisible = currentQuery === '' ? `${formatCount(totalBuildings)}件` : `${formatCount(visible.length)}件`;
-    const nextTotal = currentQuery === '' ? '' : `（全${formatCount(totalBuildings)}件）`;
-    const nextVacant = currentQuery === '' ? `${formatCount(totalVacancies)}件` : `${formatCount(visibleVacancies)}件`;
+    const kpis = document.createElement('ul');
+    kpis.className = 'kpis';
+    const vacancyKpi = document.createElement('li');
+    vacancyKpi.className = 'kpi';
+    vacancyKpi.innerHTML = `<span>空室</span>${Number.isFinite(Number(item.vacancyCount)) ? Number(item.vacancyCount) : '—'}件`;
+    const rentKpi = document.createElement('li');
+    rentKpi.className = 'kpi';
+    rentKpi.innerHTML = `<span>家賃</span>${formatYen(item.rentMin)}〜${formatYen(item.rentMax)}`;
+    kpis.append(vacancyKpi, rentKpi);
 
-    const shouldShowCounts = currentQuery !== "";
-    if (counts.hidden === shouldShowCounts) {
-      counts.hidden = !shouldShowCounts;
-    }
+    const meta = document.createElement('dl');
+    meta.className = 'meta';
+    const areaRow = document.createElement('div');
+    areaRow.className = 'meta-row';
+    areaRow.innerHTML = `<dt>面積</dt><dd>${formatArea(item.areaMin)} 〜 ${formatArea(item.areaMax)}</dd>`;
+    const updatedRow = document.createElement('div');
+    updatedRow.className = 'meta-row';
+    updatedRow.innerHTML = `<dt>最終更新</dt><dd>${item.updatedAt || '—'}</dd>`;
+    meta.append(areaRow, updatedRow);
 
-    if (visibleCount.textContent !== nextVisible) {
-      visibleCount.textContent = nextVisible;
-    }
-    if (totalCount.textContent !== nextTotal) {
-      totalCount.textContent = nextTotal;
-    }
-    if (vacantCount.textContent !== nextVacant) {
-      vacantCount.textContent = nextVacant;
-    }
-    empty.hidden = visible.length !== 0;
+    li.append(link, address, kpis, meta);
+    return li;
   }
 
-  input.addEventListener('input', update);
-  input.addEventListener('change', update);
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      update();
+  function updateCounters(renderedCount, filteredCount) {
+    const visibleVacancies = filtered.slice(0, renderedCount).reduce((sum, b) => sum + b.vacancyCountSafe, 0);
+    const shouldShowCounts = currentQuery !== '';
+    counts.hidden = !shouldShowCounts;
+
+    visibleCount.textContent = `${formatCount(filteredCount)}件`;
+    totalCount.textContent = shouldShowCounts ? `（全${formatCount(buildings.length)}件）` : '';
+    vacantCount.textContent = `${formatCount(visibleVacancies)}件`;
+  }
+
+  function render() {
+    const renderTargetCount = currentQuery ? Math.min(filtered.length, SEARCH_RENDER_LIMIT) : filtered.length;
+    const renderedCount = Math.min(renderTargetCount, displayLimit);
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < renderedCount; i += 1) {
+      fragment.appendChild(createCard(filtered[i]));
     }
+
+    list.replaceChildren(fragment);
+    empty.hidden = filtered.length !== 0;
+    updateCounters(renderedCount, filtered.length);
+
+    const canMore = renderedCount < renderTargetCount;
+    loadMore.hidden = !canMore;
+  }
+
+  function applyFiltersAndSort(resetLimit = false) {
+    const sorter = sorters[sortSelect.value] || sorters.updated_desc;
+    filtered = [];
+
+    buildings.forEach((item) => {
+      item.score = getMatchScore(item, currentQuery);
+      if (currentQuery !== '' && item.score === 0) return;
+      filtered.push(item);
+    });
+
+    filtered.sort((a, b) => compareCards(a, b, currentQuery, sorter));
+    if (resetLimit) {
+      displayLimit = PAGE_SIZE;
+    }
+    render();
+  }
+
+  function handleInput() {
+    currentQuery = normalizeText(input.value);
+    if (debounceTimer) {
+      clearTimeout(debounceTimer);
+    }
+    debounceTimer = window.setTimeout(() => {
+      applyFiltersAndSort(true);
+    }, SEARCH_DEBOUNCE_MS);
+  }
+
+  function showError(message) {
+    list.replaceChildren();
+    empty.hidden = false;
+    empty.textContent = message;
+    loadMore.hidden = true;
+    counts.hidden = true;
+  }
+
+  async function init() {
+    try {
+      const response = await fetch('./data/buildings.json', { cache: 'no-cache' });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const raw = await response.json();
+      buildings = raw.map((item, index) => ({
+        id: item.id,
+        name: item.name || '',
+        address: item.address || '',
+        vacancyCount: safeNumber(item.vacancy_count, 0),
+        vacancyCountSafe: Math.max(0, safeNumber(item.vacancy_count, 0)),
+        rentMin: item.rent_min,
+        rentMax: item.rent_max,
+        areaMin: item.area_min,
+        areaMax: item.area_max,
+        updatedAt: item.updated_at || '',
+        updatedEpoch: safeNumber(item.updated_epoch, -1),
+        rentMinSort: Number.isFinite(Number(item.rent_min)) ? Number(item.rent_min) : 999999999,
+        vacancySort: safeNumber(item.vacancy_count, -1),
+        nameNormalized: normalizeText(item.name || ''),
+        addressNormalized: normalizeText(item.address || ''),
+        combined: normalizeText(`${item.name || ''} ${item.address || ''}`),
+        originalIndex: index,
+        score: 0
+      }));
+
+      const totalBuildings = buildings.length;
+      const totalVacancies = buildings.reduce((sum, b) => sum + b.vacancyCountSafe, 0);
+      document.querySelector('.intro-kpis .kpi:nth-child(1)').innerHTML = `<span>建物数</span>${formatCount(totalBuildings)}件`;
+      document.querySelector('.intro-kpis .kpi:nth-child(2)').innerHTML = `<span>空部屋</span>${formatCount(totalVacancies)}件`;
+
+      applyFiltersAndSort(true);
+    } catch (error) {
+      showError('データの読み込みに失敗しました。時間をおいて再読み込みしてください。');
+    }
+  }
+
+  loadMore.addEventListener('click', () => {
+    displayLimit += PAGE_SIZE;
+    render();
   });
-  input.addEventListener('search', update);
-  sortSelect.addEventListener('change', update);
-  update();
+  input.addEventListener('input', handleInput);
+  input.addEventListener('search', handleInput);
+  input.addEventListener('change', handleInput);
+  sortSelect.addEventListener('change', () => applyFiltersAndSort(true));
+
+  init();
 })();
 </script>
 {% endblock %}

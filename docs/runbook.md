@@ -58,6 +58,16 @@ Invoke-WebRequest https://aik38.github.io/tatemono-map/index.html | Select-Objec
 
 ---
 
+
+## v2 一覧の軽量化（JSON方式）
+
+- `python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2` 実行時に `dist/data/buildings.json` を生成する。
+- `dist/index.html`（v2）は `./data/buildings.json` を fetch して、初期は50件のみ描画する。
+- 検索入力は debounce（250ms）を入れて、ヒット件数が多い場合は先頭200件まで描画する。
+- 確認時は DevTools の Network で `buildings.json` が 200 で取得できるか、Elements でカードが段階描画されるかを確認する。
+
+---
+
 ## トラブルシュート
 
 1. Actions の `Deploy GitHub Pages` が Success か確認。
