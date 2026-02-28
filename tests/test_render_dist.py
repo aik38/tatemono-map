@@ -185,7 +185,7 @@ def test_build_dist_versions_formats_rent_with_thousands_separator_in_v1_and_v2(
     assert "125,000円" in detail_v2
 
 
-def test_build_dist_versions_v2_index_has_search_label_and_counts(tmp_path):
+def test_build_dist_versions_v2_index_has_search_label_and_top_kpis(tmp_path):
     db = tmp_path / "test.sqlite3"
     out = tmp_path / "dist"
     conn = connect(db)
@@ -200,9 +200,9 @@ def test_build_dist_versions_v2_index_has_search_label_and_counts(tmp_path):
 
     index_v2 = (out / "index.html").read_text(encoding="utf-8")
     assert "建物名・住所で検索" in index_v2
-    assert "表示中" in index_v2
-    assert "建物" in index_v2
-    assert "空室" in index_v2
+    assert "<span>建物数</span>0件" in index_v2
+    assert "<span>空部屋</span>0件" in index_v2
+    assert "表示中" not in index_v2
 
 
 
@@ -224,6 +224,8 @@ def test_build_dist_versions_v2_index_search_update_pipeline(tmp_path):
     assert "function update()" in index_v2
     assert "const normalizeText" in index_v2
     assert "currentQuery = normalizeText(input.value)" in index_v2
+    assert 'const shouldShowCounts = currentQuery !== "";' in index_v2
+    assert "counts.hidden = !shouldShowCounts;" in index_v2
     assert "if (visibleCount.textContent !== nextVisible)" in index_v2
     assert "if (totalCount.textContent !== nextTotal)" in index_v2
     assert "if (vacantCount.textContent !== nextVacant)" in index_v2
@@ -270,8 +272,8 @@ def test_build_dist_versions_v2_index_renders_counts_with_initial_values(tmp_pat
     build_dist_versions(str(db), str(out))
 
     index_v2 = (out / "index.html").read_text(encoding="utf-8")
-    assert 'id="result-count-visible">2件</strong>' in index_v2
-    assert 'id="result-count-vacant">2件</strong>' in index_v2
+    assert 'id="result-count-visible">0件</strong>' in index_v2
+    assert 'id="result-count-vacant">0件</strong>' in index_v2
     assert '.counts { margin: -2px 0 14px; color: var(--muted); font-size: .92rem; white-space: nowrap; }' in index_v2
 
 

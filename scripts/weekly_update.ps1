@@ -76,5 +76,3 @@ if ($LASTEXITCODE -ne 0) { throw "failed to validate public db schema" }
 $publicCheck = ($publicCheck | Select-Object -Last 1)
 if ($publicCheck -ne "OK") { throw "public DB missing required tables: $publicCheck" }
 
-& $py -m tatemono_map.render.build --db-path $publicDb --output-dir (Join-Path $RepoPath "dist")
-if ($LASTEXITCODE -ne 0) { throw "render.build failed" }

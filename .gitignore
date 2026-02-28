@@ -14,6 +14,7 @@ data/*
 !data/public/
 data/public/*
 !data/public/public.sqlite3
+# GitHub Pages input source of truth
 
 # build artifacts
 src/tatemono_map.egg-info/
