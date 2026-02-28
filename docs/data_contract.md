@@ -54,3 +54,13 @@
 - `scripts/publish_public.ps1` は公開DBに最低限 `buildings`, `building_summaries` を含める。
 - `building_key_aliases` は main DB に存在する場合のみコピーする（任意）。
 - DoD: 公開DBの `buildings` 件数が 0 の場合は異常終了する。
+
+
+## age_years / structure の契約（master_import → listings → building_summaries → UI）
+- `master_import.csv` の `age_years` / `structure` は、列が存在しない・値が欠損している場合でも ingest は継続し、`NULL` として扱う。
+- `listings` には観測値として `age_years`（INTEGER）/ `structure`（TEXT）を保存する。
+- `building_summaries` では建物単位の代表値を保持する。
+  - `age_years`: 欠損除外後に最頻値（mode）。同率なら中央値（median, 偶数件は中央2値の平均を整数化）で決定。
+  - `structure`: 欠損除外後に最頻値（mode）。同率なら辞書順の先頭を採用。
+- `scripts/publish_public.ps1` は `building_summaries` を public DB にコピーするため、`age_years` / `structure` も公開DBへ反映される。
+- Web UI（建物詳細）は `building_summaries.age_years` / `building_summaries.structure` を表示し、欠損時は `—` を表示する。

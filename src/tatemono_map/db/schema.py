@@ -86,6 +86,8 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             layout TEXT,
             area_sqm REAL,
             move_in_date TEXT,
+            age_years INTEGER,
+            structure TEXT,
             updated_at TEXT,
             source_kind TEXT,
             source_url TEXT,
@@ -104,6 +106,8 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             "layout",
             "area_sqm",
             "move_in_date",
+            "age_years",
+            "structure",
             "updated_at",
             "source_kind",
             "source_url",
@@ -125,6 +129,8 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             layout TEXT,
             area_sqm REAL,
             move_in_date TEXT,
+            age_years INTEGER,
+            structure TEXT,
             updated_at TEXT,
             source_kind TEXT,
             source_url TEXT,
@@ -145,6 +151,8 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             "layout",
             "area_sqm",
             "move_in_date",
+            "age_years",
+            "structure",
             "updated_at",
             "source_kind",
             "source_url",
@@ -179,6 +187,8 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             area_sqm_max REAL,
             layout_types_json TEXT,
             move_in_dates_json TEXT,
+            age_years INTEGER,
+            structure TEXT,
             vacancy_count INTEGER,
             last_updated TEXT,
             updated_at TEXT
@@ -195,12 +205,29 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             "area_sqm_max",
             "layout_types_json",
             "move_in_dates_json",
+            "age_years",
+            "structure",
             "vacancy_count",
             "last_updated",
             "updated_at",
         ),
     ),
 )
+
+ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
+    "listings": {
+        "age_years": "INTEGER",
+        "structure": "TEXT",
+    },
+    "raw_units": {
+        "age_years": "INTEGER",
+        "structure": "TEXT",
+    },
+    "building_summaries": {
+        "age_years": "INTEGER",
+        "structure": "TEXT",
+    },
+}
 
 
 class SchemaMismatchError(RuntimeError):
@@ -221,9 +248,23 @@ def ensure_schema(db_path: str | Path) -> Path:
             info_rows = conn.execute(f"PRAGMA table_info({table.name})").fetchall()
             if not info_rows:
                 raise SchemaMismatchError(f"Missing required table: {table.name}")
-            columns = tuple(row["name"] for row in info_rows)
+
+            actual = {row["name"] for row in info_rows}
             expected = set(table.columns)
-            actual = set(columns)
+            missing = [column for column in table.columns if column not in actual]
+            if missing:
+                migration_cols = ADDITIVE_MIGRATION_COLUMNS.get(table.name, {})
+                migrated = False
+                for column in missing:
+                    column_type = migration_cols.get(column)
+                    if column_type:
+                        conn.execute(f"ALTER TABLE {table.name} ADD COLUMN {column} {column_type}")
+                        migrated = True
+                if migrated:
+                    info_rows = conn.execute(f"PRAGMA table_info({table.name})").fetchall()
+                    actual = {row["name"] for row in info_rows}
+
+            columns = tuple(row["name"] for row in info_rows)
             if not expected.issubset(actual):
                 missing = tuple(column for column in table.columns if column not in actual)
                 raise SchemaMismatchError(

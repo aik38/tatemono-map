@@ -27,6 +27,10 @@ if (-not (Test-Path $MasterImportCsv)) {
   throw "MasterImportCsv not found: $MasterImportCsv"
 }
 
+
+& $py -c "from tatemono_map.db.schema import ensure_schema; ensure_schema(r'$DbPath')"
+if ($LASTEXITCODE -ne 0) { throw "failed to ensure schema compatibility" }
+
 $rows = (Import-Csv -Path $MasterImportCsv).Count
 $outDir = Split-Path -Parent $MasterImportCsv
 Write-Host "[weekly_update] outdir: $outDir"

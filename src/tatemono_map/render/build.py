@@ -131,6 +131,8 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             s.area_sqm_max,
             s.layout_types_json,
             s.move_in_dates_json,
+            s.age_years,
+            s.structure,
             COALESCE(s.vacancy_count, 0) AS vacancy_count,
             s.last_updated,
             s.updated_at
