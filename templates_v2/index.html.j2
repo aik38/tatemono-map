@@ -8,6 +8,7 @@
 <style>
   .intro { padding: 26px; margin-bottom: 18px; }
   .intro p { margin: 8px 0 0; color: var(--muted); }
+  .intro-kpis { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
   .controls { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 12px; margin-bottom: 16px; }
   .counts { margin: -2px 0 14px; color: var(--muted); font-size: .92rem; white-space: nowrap; }
   .counts strong { color: var(--text); font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -29,6 +30,7 @@
   .kpis { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
   .kpi { border-radius: 999px; background: #f2f4f8; padding: 5px 10px; font-size: .84rem; }
   .kpi span { color: var(--muted); margin-right: 6px; }
+  #result-counts[hidden] { display: none; }
   .empty { margin-top: 20px; padding: 20px; text-align: center; }
   .empty[hidden] { display: none; }
   @media (max-width: 740px) {
@@ -43,6 +45,10 @@
   <section class="intro card" aria-label="建物一覧の案内">
     <h1>建物マップ</h1>
     <p>マンション・アパートや住所で検索して、データをまとめて確認できます。</p>
+    <ul class="intro-kpis" aria-label="全体KPI">
+      <li class="kpi"><span>建物数</span>{{ total_buildings_formatted }}件</li>
+      <li class="kpi"><span>空部屋</span>{{ vacancy_total_formatted }}件</li>
+    </ul>
   </section>
 
   <section class="controls" aria-label="検索と並び替え">
@@ -61,7 +67,7 @@
     </div>
   </section>
 
-  <p id="result-counts" class="counts" aria-live="polite">表示中 <strong id="result-count-visible">{{ total_buildings_formatted }}件</strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant">{{ total_vacant_formatted }}件</strong></p>
+  <p id="result-counts" class="counts" aria-live="polite" hidden>検索結果: <strong id="result-count-visible">{{ total_buildings_formatted }}件</strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant">{{ vacancy_total_formatted }}件</strong></p>
 
   <ul id="building-list" aria-live="polite">
     {% for b in buildings %}
@@ -93,6 +99,7 @@
   const totalCount = document.getElementById('result-count-total');
   const vacantCount = document.getElementById('result-count-vacant');
   const cards = Array.from(list.querySelectorAll('.building-card'));
+  const counts = document.getElementById('result-counts');
   const empty = document.getElementById('empty-state');
 
   let currentQuery = '';
@@ -189,6 +196,11 @@
     const nextVisible = currentQuery === '' ? `${formatCount(totalBuildings)}件` : `${formatCount(visible.length)}件`;
     const nextTotal = currentQuery === '' ? '' : `（全${formatCount(totalBuildings)}件）`;
     const nextVacant = currentQuery === '' ? `${formatCount(totalVacancies)}件` : `${formatCount(visibleVacancies)}件`;
+
+    const shouldShowCounts = currentQuery !== "";
+    if (counts.hidden === shouldShowCounts) {
+      counts.hidden = !shouldShowCounts;
+    }
 
     if (visibleCount.textContent !== nextVisible) {
       visibleCount.textContent = nextVisible;

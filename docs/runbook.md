@@ -1,80 +1,67 @@
-# runbook（運用手順）
+# runbook（Pages 運用）
 
-現行運用の公開反映は **週次 1 コマンド** が正です。  
-旧来の「dist を手動 push」運用は使用しません。
+## 最短運用（これだけ）
 
-## 0) データ役割（先にここだけ固定）
+1. `scripts/weekly_update.ps1` か `scripts/run_to_pages.ps1` で **`data/public/public.sqlite3` を更新**する。
+2. Git では **`data/public/public.sqlite3` だけ** commit/push する（`dist/` は commit しない）。
+3. `main` への push をトリガーに GitHub Actions が `dist/` を生成し、Pages へ deploy する。
+
+> Pages 配信の正本入力は `data/public/public.sqlite3`。`dist/` は毎回 Actions で再生成する。
+
+---
+
+## 役割分担
 
 - main DB（SoT）: `data/tatemono_map.sqlite3`
-- public DB（派生スナップショット）: `data/public/public.sqlite3`
-- Pages 本番 UI: CI が public DB から再生成した `dist/`
-- `public.sqlite3` は `buildings` / `building_summaries`（+存在時 `building_key_aliases`）のみを持ち、`listings` は持たない
+- public DB（配信用スナップショット）: `data/public/public.sqlite3`
+- 公開物（Pages）: Actions で生成した `dist/`
 
-## 1) 週次 1 コマンド（唯一の運用）
+`public.sqlite3` はリポジトリで追跡する。`dist/` は `.gitignore` のまま維持する。
+
+---
+
+## コマンド例
+
+### 週次更新（public DB 更新まで）
+
+```powershell
+$REPO = "C:\path\to\tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\weekly_update.ps1" -RepoPath $REPO
+```
+
+### ingest + publish + commit/push（ワンショット）
 
 ```powershell
 $REPO = "C:\path\to\tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
 ```
 
-- 運用前に [A4運用カード](ops_weekly_checklist_a4.md) を開き、チェックしながら実施。
+---
 
-`scripts/run_to_pages.ps1` の実行内容（ワンショット）:
-1. `master_import.csv` を検出して ingest（main DB 更新）
-2. `scripts/publish_public.ps1` 実行（public DB 更新）
-3. `git add data/public/public.sqlite3` -> commit -> push
+## 反映確認（必ず2段）
 
-## 2) KPI チェック（毎週）
-
-### A. ingest 側 KPI（ログ）
-- `attached_listings`
-- `unresolved`
-
-> `unresolved` の急増は要調査。`tmp/review/unmatched_listings_*.csv` を確認する。
-
-### B. public 側 KPI（公開値）
-
-```sql
-select coalesce(sum(vacancy_count), 0) as public_vacancy
-from building_summaries;
-```
-
-- 実行先: `data/public/public.sqlite3`
-- UI の「空部屋」はこの値を基準に確認する。
-- あわせて `PRAGMA table_info(building_summaries);` で `age_years` / `structure` 列の存在を確認する。
-
-### C. 詳細ページ表示確認（週次）
-- `dist/b/*.html` の任意1件を開き、以下を確認する。
-  - 「築年数」「構造」が表示される（欠損時は `—`）。
-  - 「空室データ取得日/最終更新日時」が詳細ページに出ていない。
-  - レイアウト崩れがなく、差分が表示項目のみである。
-
-## 3) トラブルシュート・チェックリスト
-
-1. **Actions status**
-   - GitHub Actions `Deploy static site to GitHub Pages` が `Success` か確認。
-2. **cache**
-   - 反映が古い場合、シークレットウィンドウ or サイトデータ削除で再読込。
-3. **gitignore / commit 漏れ**
-   - `git status` で `data/public/public.sqlite3` の更新が commit 済みか確認。
-   - `dist/` は ignore 対象。push しても公開入力にはならない。
-4. **DB lock（Windows）**
-   - `publish_public.ps1` が lock で失敗したら、DB Browser / VSCode SQLite 拡張 / Explorer プレビューを閉じて再実行。
-
-## 4) unmatched 簡易集計（週次は深追いしない）
+1) ローカル確認（Actions と同じ入力で再現）
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\unmatched_report.ps1" -RepoPath $REPO
+python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2
+python -m http.server 8000 -d dist
 ```
 
-- 週次では `reason` の偏り確認を中心に実施。
-- 個別住所・個別名称の深掘りは原則、別タスク化して対応。
-
-## 5) 補助コマンド（確認用）
+2) push 後の Pages 応答確認
 
 ```powershell
-sqlite3 data/tatemono_map.sqlite3 "select count(*) from listings;"
-sqlite3 data/public/public.sqlite3 "select count(*) from building_summaries;"
-sqlite3 data/public/public.sqlite3 "select coalesce(sum(vacancy_count),0) from building_summaries;"
-Get-Item data/public/public.sqlite3 | Format-List Length,LastWriteTime
+Invoke-WebRequest https://aik38.github.io/tatemono-map/index.html | Select-Object StatusCode,Headers
 ```
+
+- `Headers.Last-Modified` / `Headers.ETag` が更新されていることを確認する。
+- ブラウザ確認はシークレットウィンドウで行い、必要に応じて `Ctrl+F5`。
+
+---
+
+## トラブルシュート
+
+1. Actions の `Deploy GitHub Pages` が Success か確認。
+2. `git status` で `data/public/public.sqlite3` が commit 済みか確認。
+3. `dist/` を commit していないことを確認。
+4. `https://aik38.github.io/tatemono-map/data/public/public.sqlite3` が 404 でも正常（Pages は `dist/` のみ配信）。
+5. プレビューで Not Found が出る場合は、環境ルーティング由来のことがあるため上記「2段確認」を優先する。

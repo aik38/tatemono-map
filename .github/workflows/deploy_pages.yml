@@ -1,4 +1,4 @@
-name: Deploy static site to GitHub Pages
+name: Deploy GitHub Pages
 
 on:
   push:
@@ -54,15 +54,14 @@ jobs:
                   raise SystemExit("building_summaries is empty; refusing to deploy")
           PY
 
-      - name: Build dist
+      - name: Build dist (v2)
         env:
           TATEMONO_MAP_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
           TATEMONO_MAP_GOOGLE_VERIFICATION_FILE: google9e29480048aec8bf.html
           TATEMONO_MAP_LINE_CTA_URL: ${{ vars.TATEMONO_MAP_LINE_CTA_URL }}
         run: |
           rm -rf dist
-          # Build v1 only to keep Pages root UI stable
-          python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v1
+          python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2
           touch dist/.nojekyll
 
       - name: Basic sanity check
@@ -70,7 +69,6 @@ jobs:
           test -f dist/index.html
           test -d dist/b
 
-      # Guard against empty building list deployments
       - name: Assert building list includes entries
         run: |
           python - <<'PY'
@@ -107,4 +105,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-

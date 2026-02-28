@@ -62,7 +62,9 @@ if ([string]::IsNullOrWhiteSpace($Message)) {
 git commit -m $Message
 git push
 
-Write-Host "Completed: ingest -> publish_public -> commit -> push"
+Write-Host "Completed: ingest -> publish_public -> commit(public.sqlite3) -> push"
 Write-Host "CSV: $CsvPath"
 Write-Host "Commit message: $Message"
+Write-Host "PagesはGitHub Actionsで更新されます（反映は数十秒〜数分が目安）。"
+Write-Host "確認コマンド: Invoke-WebRequest https://aik38.github.io/tatemono-map/index.html | Select-Object StatusCode,Headers"
 
