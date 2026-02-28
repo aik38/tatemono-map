@@ -61,7 +61,8 @@
       <div class="fact"><dt>面積レンジ</dt><dd>{{ (building.area_sqm_min ~ '㎡') if building.area_sqm_min is not none else '—' }} 〜 {{ (building.area_sqm_max ~ '㎡') if building.area_sqm_max is not none else '—' }}</dd></div>
       <div class="fact"><dt>間取りタイプ</dt><dd>{{ building.layout_types | join(', ') if building.layout_types else '—' }}</dd></div>
       <div class="fact"><dt>入居可能日</dt><dd>{{ building.move_in_dates | join(', ') if building.move_in_dates else '—' }}</dd></div>
-      <div class="fact"><dt>最終更新日時</dt><dd>{{ building.last_updated or '—' }}</dd></div>
+      <div class="fact"><dt>築年数</dt><dd>{{ (building.age_years ~ '年') if building.age_years is not none else '—' }}</dd></div>
+      <div class="fact"><dt>構造</dt><dd>{{ building.structure or '—' }}</dd></div>
     </dl>
   </section>
 

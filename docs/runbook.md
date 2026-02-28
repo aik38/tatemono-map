@@ -41,6 +41,13 @@ from building_summaries;
 
 - 実行先: `data/public/public.sqlite3`
 - UI の「空部屋」はこの値を基準に確認する。
+- あわせて `PRAGMA table_info(building_summaries);` で `age_years` / `structure` 列の存在を確認する。
+
+### C. 詳細ページ表示確認（週次）
+- `dist/b/*.html` の任意1件を開き、以下を確認する。
+  - 「築年数」「構造」が表示される（欠損時は `—`）。
+  - 「空室データ取得日/最終更新日時」が詳細ページに出ていない。
+  - レイアウト崩れがなく、差分が表示項目のみである。
 
 ## 3) トラブルシュート・チェックリスト
 

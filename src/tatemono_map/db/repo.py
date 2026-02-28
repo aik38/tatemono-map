@@ -146,8 +146,9 @@ def replace_building_summary(conn: sqlite3.Connection, row: dict) -> None:
         INSERT INTO building_summaries(
             building_key, name, raw_name, address,
             rent_yen_min, rent_yen_max, area_sqm_min, area_sqm_max,
-            layout_types_json, move_in_dates_json, vacancy_count, last_updated, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            layout_types_json, move_in_dates_json, age_years, structure,
+            vacancy_count, last_updated, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(building_key) DO UPDATE SET
             name=excluded.name,
             raw_name=excluded.raw_name,
@@ -158,6 +159,8 @@ def replace_building_summary(conn: sqlite3.Connection, row: dict) -> None:
             area_sqm_max=excluded.area_sqm_max,
             layout_types_json=excluded.layout_types_json,
             move_in_dates_json=excluded.move_in_dates_json,
+            age_years=excluded.age_years,
+            structure=excluded.structure,
             vacancy_count=excluded.vacancy_count,
             last_updated=excluded.last_updated,
             updated_at=excluded.updated_at
@@ -173,6 +176,8 @@ def replace_building_summary(conn: sqlite3.Connection, row: dict) -> None:
             row.get("area_sqm_max"),
             json.dumps(row.get("layout_types") or [], ensure_ascii=False),
             json.dumps(row.get("move_in_dates") or [], ensure_ascii=False),
+            row.get("age_years"),
+            row.get("structure"),
             row.get("vacancy_count"),
             row.get("last_updated"),
             row.get("last_updated"),

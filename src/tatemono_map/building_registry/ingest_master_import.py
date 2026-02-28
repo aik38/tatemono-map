@@ -33,6 +33,8 @@ MASTER_COLUMNS = (
     "evidence_id",
 )
 MASTER_COLUMNS_LEGACY = MASTER_COLUMNS[:-1]
+MASTER_COLUMNS_NO_AGE_STRUCTURE = tuple(col for col in MASTER_COLUMNS if col not in ("age_years", "structure"))
+MASTER_COLUMNS_LEGACY_NO_AGE_STRUCTURE = MASTER_COLUMNS_NO_AGE_STRUCTURE[:-1]
 MASTER_COLUMNS_WITH_FILE = (
     "category",
     "updated_at",
@@ -50,6 +52,9 @@ MASTER_COLUMNS_WITH_FILE = (
     "page",
     "raw_block",
     "evidence_id",
+)
+MASTER_COLUMNS_WITH_FILE_NO_AGE_STRUCTURE = tuple(
+    col for col in MASTER_COLUMNS_WITH_FILE if col not in ("age_years", "structure")
 )
 
 REVIEW_COLUMNS = [
@@ -121,6 +126,24 @@ def _to_review_row(
     }
 
 
+def _parse_age_years(value: str | None) -> int | None:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return None
+    try:
+        numeric = float(cleaned)
+    except ValueError:
+        return None
+    if numeric < 0:
+        return None
+    return int(numeric)
+
+
+def _parse_structure(value: str | None) -> str | None:
+    cleaned = _clean_text(value)
+    return cleaned or None
+
+
 def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_import") -> Report:
     conn = connect(db_path)
     renormalize_buildings(conn)
@@ -138,8 +161,23 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
     with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         got = tuple(reader.fieldnames or ())
-        if got not in (MASTER_COLUMNS, MASTER_COLUMNS_LEGACY, MASTER_COLUMNS_WITH_FILE):
-            expected_headers = [MASTER_COLUMNS_WITH_FILE, MASTER_COLUMNS, MASTER_COLUMNS_LEGACY]
+        accepted_headers = (
+            MASTER_COLUMNS,
+            MASTER_COLUMNS_LEGACY,
+            MASTER_COLUMNS_WITH_FILE,
+            MASTER_COLUMNS_NO_AGE_STRUCTURE,
+            MASTER_COLUMNS_LEGACY_NO_AGE_STRUCTURE,
+            MASTER_COLUMNS_WITH_FILE_NO_AGE_STRUCTURE,
+        )
+        if got not in accepted_headers:
+            expected_headers = [
+                MASTER_COLUMNS_WITH_FILE,
+                MASTER_COLUMNS,
+                MASTER_COLUMNS_LEGACY,
+                MASTER_COLUMNS_WITH_FILE_NO_AGE_STRUCTURE,
+                MASTER_COLUMNS_NO_AGE_STRUCTURE,
+                MASTER_COLUMNS_LEGACY_NO_AGE_STRUCTURE,
+            ]
             expected_display = " | ".join(str(list(cols)) for cols in expected_headers)
             raise ValueError(
                 "Unexpected master_import.csv header. "
@@ -247,6 +285,8 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
             maint_yen = _parse_man_to_yen(row.get("fee_man"))
             layout = _clean_text(row.get("layout")) or None
             area_sqm = _parse_area(row.get("area_sqm"))
+            age_years = _parse_age_years(row.get("age_years"))
+            structure = _parse_structure(row.get("structure"))
 
             conn.execute(
                 """
@@ -260,8 +300,8 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                 INSERT INTO listings(
                     listing_key, building_key, name, address, room_label,
                     rent_yen, maint_yen, layout, area_sqm, move_in_date,
-                    updated_at, source_kind, source_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    age_years, structure, updated_at, source_kind, source_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(listing_key) DO UPDATE SET
                     building_key=excluded.building_key,
                     name=excluded.name,
@@ -271,6 +311,8 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                     maint_yen=excluded.maint_yen,
                     layout=excluded.layout,
                     area_sqm=excluded.area_sqm,
+                    age_years=excluded.age_years,
+                    structure=excluded.structure,
                     updated_at=excluded.updated_at,
                     source_kind=excluded.source_kind,
                     source_url=excluded.source_url
@@ -286,6 +328,8 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                     layout,
                     area_sqm,
                     None,
+                    age_years,
+                    structure,
                     updated_at,
                     "master",
                     source_url,

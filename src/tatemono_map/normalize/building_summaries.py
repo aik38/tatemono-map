@@ -1,9 +1,40 @@
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 
 from tatemono_map.db.repo import connect, replace_building_summary
 from tatemono_map.util.text import normalize_text
+
+
+def _median_int(values: list[int]) -> int:
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    if len(ordered) % 2 == 1:
+        return ordered[mid]
+    return int((ordered[mid - 1] + ordered[mid]) / 2)
+
+
+# TODO(source-priority): when additional providers are ingested, apply source priority before mode aggregation.
+def _pick_age_years(values: list[int]) -> int | None:
+    if not values:
+        return None
+    counts = Counter(values)
+    max_count = max(counts.values())
+    modes = sorted(value for value, count in counts.items() if count == max_count)
+    if len(modes) == 1:
+        return modes[0]
+    return _median_int(values)
+
+
+def _pick_structure(values: list[str]) -> str | None:
+    normalized_values = [normalize_text(v) for v in values if normalize_text(v)]
+    if not normalized_values:
+        return None
+    counts = Counter(normalized_values)
+    max_count = max(counts.values())
+    modes = sorted(value for value, count in counts.items() if count == max_count)
+    return modes[0]
 
 
 def rebuild(db_path: str) -> int:
@@ -22,7 +53,7 @@ def rebuild(db_path: str) -> int:
 
     rows = conn.execute(
         """
-        SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in_date, updated_at
+        SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in_date, updated_at, age_years, structure
         FROM listings
         ORDER BY id DESC
         """
@@ -44,6 +75,8 @@ def rebuild(db_path: str) -> int:
         areas = [r["area_sqm"] for r in items if r["area_sqm"] is not None]
         layouts = sorted({normalize_text(r["layout"]) for r in items if r["layout"]})
         move_in_dates = sorted({normalize_text(r["move_in_date"]) for r in items if r["move_in_date"]})
+        age_values = [int(r["age_years"]) for r in items if r["age_years"] is not None]
+        structure_values = [r["structure"] for r in items if r["structure"]]
         latest = max((r["updated_at"] for r in items if r["updated_at"]), default=None)
         summary_name = building["canonical_name"] if building else None
         summary_address = building["canonical_address"] if building else None
@@ -62,6 +95,8 @@ def rebuild(db_path: str) -> int:
                 "area_sqm_max": max(areas) if areas else None,
                 "layout_types": layouts,
                 "move_in_dates": move_in_dates,
+                "age_years": _pick_age_years(age_values),
+                "structure": _pick_structure(structure_values),
                 "vacancy_count": len(items),
                 "last_updated": latest,
             },

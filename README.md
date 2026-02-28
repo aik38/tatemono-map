@@ -74,6 +74,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\weekly_update.ps1 -RepoP
 ```
 
 - `weekly_update` は `buildings` を再構築しません（空室取り込み + 建物突合 + review CSV + 公開生成）。
+- `weekly_update` 冒頭でスキーマ互換（列が無ければ `ALTER TABLE`）を実行するため、既存DBでも `age_years` / `structure` 追加後に再作成なしで継続運用できます。
 - `ingest_master_import` 実行時に `buildings.norm_name` / `buildings.norm_address` は毎回自動再正規化されます（手作業不要）。
 - review CSV は `tmp/review/` に出力されます（`suspects` / `unmatched_listings` / `new_buildings`）。
 - 推奨トリアージ順は `suspects` → `unmatched_listings` → `new_buildings` です。
@@ -206,3 +207,19 @@ MVP は賃貸空室データの整備を中心に進めますが、将来的に�
 - 仕様（役割分担・禁止事項・更新方針）: [docs/spec.md](docs/spec.md)
 - 運用手順: [docs/runbook.md](docs/runbook.md)
 - 工程管理（Phase/DoD）: [docs/wbs.md](docs/wbs.md)
+
+
+### 4) 建物詳細に表示される情報（v2 UI）
+- 建物詳細ページは `building_summaries` から以下を表示します。
+  - 空室数 / 家賃レンジ / 面積レンジ / 間取りタイプ / 入居可能日
+  - **築年数（age_years） / 構造（structure）**
+- `age_years` / `structure` が `master_import.csv` に無い、または欠損している場合は `—` 表示になります。
+
+### 検証チェックリスト（minimal commands）
+```powershell
+python -m pytest -q tests/test_building_registry.py tests/test_building_summaries.py tests/test_schema_migration.py tests/test_render_dist.py
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\weekly_update.ps1 -RepoPath . -DbPath .\data\tatemono_map.sqlite3 -MasterImportCsv <outdir>\master_import.csv
+python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2
+```
+- `data/public/public.sqlite3` の `building_summaries` に `age_years` / `structure` 列があることを確認します。
+- `dist/b/*.html` の建物詳細で「築年数」「構造」が表示され、「最終更新日時」が表示されないことを確認します。
