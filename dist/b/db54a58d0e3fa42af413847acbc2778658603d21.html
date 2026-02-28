@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>フェルト515 | tatemono-map</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f8f9fb;
+      --surface: #fff;
+      --text: #111827;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --brand: #f0447e;
+      --line: #06c755;
+      --radius: 12px;
+      --shadow-soft: 0 4px 18px rgba(15, 23, 42, 0.05);
+      --max-width: 980px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Inter", "Noto Sans JP", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+    }
+    a { color: inherit; }
+    .site-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: rgba(248, 249, 251, 0.92);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(6px);
+    }
+    .site-header__inner,
+    .page {
+      width: min(calc(100% - 28px), var(--max-width));
+      margin-inline: auto;
+    }
+    .site-header__inner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 13px 0;
+    }
+    .page {
+      padding: 24px 0 56px;
+    }
+    .brand {
+      text-decoration: none;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: .01em;
+    }
+    .muted { color: var(--muted); }
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-soft);
+      border: 1px solid #eef1f5;
+    }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      text-decoration: none;
+      border-radius: 999px;
+      padding: 12px 18px;
+      border: 0;
+      font-size: .95rem;
+      font-weight: 600;
+      min-height: 46px;
+      cursor: pointer;
+      position: relative;
+      z-index: 5;
+      pointer-events: auto;
+    }
+    .button--primary {
+      background: #111827;
+      color: #fff;
+    }
+    .button--line {
+      background: var(--line);
+      color: #fff;
+      width: 100%;
+      max-width: 320px;
+    }
+    h1, h2, h3 { line-height: 1.35; letter-spacing: .01em; }
+    h1 { font-size: clamp(1.45rem, 2.8vw, 2rem); margin: 0; font-weight: 700; }
+    h2 { font-size: clamp(1.12rem, 2vw, 1.35rem); margin: 0; font-weight: 600; }
+    @media (max-width: 740px) {
+      body { font-size: 15px; }
+      .site-header__inner,
+      .page { width: min(calc(100% - 18px), var(--max-width)); }
+      .page { padding-top: 16px; }
+    }
+  </style>
+  
+<style>
+  .stack { display: grid; gap: 14px; }
+  .hero, .info, .line-cta { padding: clamp(16px, 2.5vw, 24px); }
+  .hero p { margin: 8px 0 0; color: var(--muted); }
+  .kpis { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .kpi { border-radius: 999px; background: #f2f4f8; padding: 5px 10px; font-size: .84rem; }
+  .kpi span { color: var(--muted); margin-right: 6px; }
+  .cta-row { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .facts { margin: 0; display: grid; gap: 10px; }
+  .fact { margin: 0; display: grid; grid-template-columns: 128px minmax(0,1fr); border-top: 1px solid #f0f2f6; padding-top: 9px; }
+  .fact:first-child { border-top: 0; padding-top: 0; }
+  .fact dt { color: var(--muted); }
+  .fact dd { margin: 0; font-weight: 600; }
+  .line-cta {
+    border: 1px solid #d7f4e4;
+    background: linear-gradient(180deg, #f9fffc 0%, #f4fcf8 100%);
+    display: grid;
+    gap: 10px;
+    justify-items: start;
+  }
+  .line-cta p { margin: 0; color: #2f5141; }
+  @media (max-width: 740px) {
+    .fact { grid-template-columns: 1fr; gap: 2px; }
+    .cta-row { flex-direction: column; align-items: stretch; }
+    .cta-row .button { width: 100%; }
+    .line-cta .button { max-width: none; width: 100%; }
+  }
+</style>
+
+</head>
+<body>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="index.html">tatemono-map</a>
+      
+  <a class="muted" href="../index.html" aria-label="一覧に戻る">← 一覧に戻る</a>
+
+    </div>
+  </header>
+  <main class="page">
+    
+<div class="stack">
+  <section class="hero card" aria-label="建物概要">
+    <h1>フェルト515</h1>
+    <p>北九州市小倉北区室町2丁目4番5号</p>
+    <ul class="kpis" aria-label="注目情報">
+      <li class="kpi"><span>空室</span>0件</li>
+      <li class="kpi"><span>家賃</span>—円〜—円</li>
+      <li class="kpi"><span>面積</span>—〜—</li>
+    </ul>
+    <div class="cta-row">
+      <a class="button button--primary" href="https://maps.google.com/?q=%E5%8C%97%E4%B9%9D%E5%B7%9E%E5%B8%82%E5%B0%8F%E5%80%89%E5%8C%97%E5%8C%BA%E5%AE%A4%E7%94%BA2%E4%B8%81%E7%9B%AE4%E7%95%AA5%E5%8F%B7" target="_blank" rel="noopener">Googleマップを開く</a>
+      <a class="button" href="../index.html" style="background:#eceff4;color:#111827;">一覧へ戻る</a>
+    </div>
+  </section>
+
+  <section class="info card" aria-label="詳細情報">
+    <h2>募集情報</h2>
+    <dl class="facts">
+      <div class="fact"><dt>空室数</dt><dd>0件</dd></div>
+      <div class="fact"><dt>家賃レンジ</dt><dd>—円 〜 —円</dd></div>
+      <div class="fact"><dt>面積レンジ</dt><dd>— 〜 —</dd></div>
+      <div class="fact"><dt>間取りタイプ</dt><dd>—</dd></div>
+      <div class="fact"><dt>入居可能日</dt><dd>—</dd></div>
+      <div class="fact"><dt>築年数</dt><dd>—</dd></div>
+      <div class="fact"><dt>構造</dt><dd>—</dd></div>
+    </dl>
+  </section>
+
+  <section class="line-cta card" aria-label="LINEで問い合わせる">
+    <h2>LINEでスムーズに確認</h2>
+    <p>希望条件を送ると、条件に近い募集情報をまとめて確認できます。</p>
+    <a
+      class="button button--line"
+      href="https://lin.ee/Y0NvwKe"
+      target="_blank"
+      rel="noopener"
+      data-line-universal-url="https://lin.ee/Y0NvwKe"
+      data-line-deep-link="line://ti/p/@055wdvuq"
+      onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)"
+    >LINEで条件を送る</a>
+  </section>
+</div>
+
+  </main>
+  
+</body>
+</html>
