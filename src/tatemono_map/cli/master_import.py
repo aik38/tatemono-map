@@ -175,7 +175,7 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                 built_age_years = _parse_int(row.get("built_age_years"))
                 explicit_availability_date = _clean_text(row.get("availability_date")) or None
                 explicit_immediate_flag = _clean_text(row.get("availability_flag_immediate"))
-                immediate_detected, move_in_label, normalized_availability_date = normalize_availability(availability_raw, updated_at)
+                immediate_detected, move_in_label, normalized_availability_date = normalize_availability(availability_raw, updated_at, category)
                 availability_date = explicit_availability_date or normalized_availability_date
                 if explicit_immediate_flag in {"1", "true", "True"}:
                     availability_flag_immediate_value = 1

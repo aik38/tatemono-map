@@ -33,3 +33,31 @@ def test_normalize_availability_without_reference_date_keeps_raw_only() -> None:
     assert immediate is False
     assert label == "2月28日"
     assert normalized_date is None
+
+
+def test_normalize_availability_ulucks_blank_means_immediate() -> None:
+    immediate, label, normalized_date = normalize_availability("", "2026-02-28", "ulucks")
+    assert immediate is True
+    assert label is None
+    assert normalized_date is None
+
+
+def test_normalize_availability_ulucks_date_keeps_date_parsing() -> None:
+    immediate, label, normalized_date = normalize_availability("2月26日", "2026-02-28", "ulucks")
+    assert immediate is False
+    assert label == "2/26"
+    assert normalized_date == "2026-02-26"
+
+
+def test_normalize_availability_realpro_immediate() -> None:
+    immediate, label, normalized_date = normalize_availability("即入", "2026-02-28", "realpro")
+    assert immediate is True
+    assert label == "即入居"
+    assert normalized_date is None
+
+
+def test_normalize_availability_realpro_move_out_planned_keeps_raw() -> None:
+    immediate, label, normalized_date = normalize_availability("退去予定", "2026-02-28", "realpro")
+    assert immediate is False
+    assert label == "退去予定"
+    assert normalized_date is None

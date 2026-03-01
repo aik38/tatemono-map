@@ -45,9 +45,15 @@ def normalize_built(raw: str | None) -> tuple[str | None, int | None]:
     return ym, years
 
 
-def normalize_availability(raw: str | None, reference_date: str | None) -> tuple[bool, str | None, str | None]:
+def normalize_availability(
+    raw: str | None,
+    reference_date: str | None,
+    category: str | None = None,
+) -> tuple[bool, str | None, str | None]:
     text = (raw or "").strip()
     if not text:
+        if (category or "").strip().lower() == "ulucks":
+            return True, None, None
         return False, None, None
 
     if IMMEDIATE_RE.search(text):
