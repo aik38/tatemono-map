@@ -68,7 +68,7 @@ def test_master_import_accepts_new_master_import_header_and_derives_file(tmp_pat
 
     csv_path.write_text(
         '﻿"page","category","updated_at","building_name","room","address","rent_man","fee_man","floor","layout","area_sqm","availability_raw","built_raw","age_years","structure","built_year_month","built_age_years","availability_date","availability_flag_immediate","structure_raw","raw_block","evidence_id"\n'
-        '"4","vacancy","2026/01/01 12:00","建物C","303","東京都C","11.1","0.2","3F","1K","21.0","即入","2011年09月築","15","RC","2011-09","15","","1","RC造","block-c-303","pdf:0005_xxx.pdf#p=4#i=3"\n',
+        '"4","vacancy","2026/01/01 12:00","建物C","303","東京都C","11.1","0.2","3F","1K","21.0","即入","2011年09月築","15","RC","2011-09","15","2026-03-15","1","RC造","block-c-303","pdf:0005_xxx.pdf#p=4#i=3"\n',
         encoding="utf-8",
     )
 
@@ -79,9 +79,10 @@ def test_master_import_accepts_new_master_import_header_and_derives_file(tmp_pat
 
     conn = connect(db_path)
     listing = conn.execute(
-        "SELECT source_url, availability_raw, built_raw, built_year_month, built_age_years, availability_flag_immediate, structure_raw, age_years, structure FROM listings"
+        "SELECT source_url, availability_raw, built_raw, built_year_month, built_age_years, availability_date, move_in_date, availability_flag_immediate, structure_raw, age_years, structure FROM listings"
     ).fetchone()
-    raw_unit = conn.execute("SELECT source_url FROM raw_units").fetchone()
+    raw_unit = conn.execute("SELECT source_url, move_in_date FROM raw_units").fetchone()
+    summary = conn.execute("SELECT move_in_dates_json FROM building_summaries").fetchone()
     conn.close()
 
     assert listing["source_url"] == "0005_xxx.pdf"
@@ -90,6 +91,10 @@ def test_master_import_accepts_new_master_import_header_and_derives_file(tmp_pat
     assert listing["built_raw"] == "2011年09月築"
     assert listing["built_year_month"] == "2011-09"
     assert listing["built_age_years"] == 15
+    assert listing["availability_date"] == "2026-03-15"
+    assert listing["move_in_date"] == "2026-03-15"
+    assert raw_unit["move_in_date"] == "2026-03-15"
+    assert summary["move_in_dates_json"] == '["2026-03-15"]'
     assert listing["availability_flag_immediate"] == 1
     assert listing["structure_raw"] == "RC造"
     assert listing["age_years"] == 15

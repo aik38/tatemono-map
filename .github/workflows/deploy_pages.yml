@@ -104,20 +104,27 @@ jobs:
           p = Path("dist/data/buildings.json")
           arr = json.loads(p.read_text(encoding="utf-8"))
 
-          availability_count = sum(1 for row in arr if str(row.get("building_availability_label") or "").strip())
+          availability_or_move_in_count = sum(
+              1
+              for row in arr
+              if str(row.get("building_availability_label") or "").strip()
+              or any(str(v or "").strip() for v in (row.get("move_in_dates") or []))
+          )
           built_info_count = sum(
               1
               for row in arr
-              if (row.get("building_built_age_years") not in (None, ""))
-              or str(row.get("building_built_year_month") or "").strip()
+              if str(row.get("building_built_year_month") or "").strip()
+              or (row.get("building_built_age_years") not in (None, ""))
+              or (row.get("age_years") not in (None, ""))
+              or (row.get("built_year") not in (None, ""))
           )
 
-          if availability_count <= 0:
-              raise SystemExit("No rows have building_availability_label; refusing to deploy")
+          if availability_or_move_in_count <= 0:
+              raise SystemExit("No rows have move_in_dates/building_availability_label; refusing to deploy")
           if built_info_count <= 0:
-              raise SystemExit("No rows have building_built_age_years/building_built_year_month; refusing to deploy")
+              raise SystemExit("No rows have built_year_month/built_age_years/age_years; refusing to deploy")
 
-          print(f"OK: availability rows={availability_count}, built-info rows={built_info_count}")
+          print(f"OK: availability-or-move-in rows={availability_or_move_in_count}, built-info rows={built_info_count}")
           PY
 
       - name: Forbidden content grep check

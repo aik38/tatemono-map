@@ -168,6 +168,7 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                 age_years = _parse_int(row.get("age_years"))
                 structure = _clean_text(row.get("structure")) or None
                 availability_raw = _clean_text(row.get("availability_raw")) or None
+                move_in_date = _clean_text(row.get("availability_date")) or ""
                 built_raw = _clean_text(row.get("built_raw")) or None
                 built_year_month = _clean_text(row.get("built_year_month")) or None
                 built_age_years = _parse_int(row.get("built_age_years"))
@@ -230,7 +231,7 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                         maint_yen,
                         layout,
                         area_sqm,
-                        None,
+                        move_in_date,
                         age_years,
                         structure,
                         availability_raw,
@@ -294,7 +295,7 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                         maint_yen,
                         layout,
                         area_sqm,
-                        None,
+                        move_in_date,
                         age_years,
                         structure,
                         availability_raw,

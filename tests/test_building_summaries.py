@@ -102,7 +102,7 @@ def test_summary_building_availability_prefers_immediate(tmp_path):
                 "RC",
                 "2023-01",
                 3,
-                "即入居",
+                "",
                 None,
                 1,
                 "RC",
