@@ -50,10 +50,37 @@ if ([int]$buildingsCount -le 0) {
   throw "Guard failed: dist/data/buildings.v2.min.json has 0 items"
 }
 
-$url = "http://$BindHost`:$Port/index.html"
+$htmlFiles = Get-ChildItem -Path (Join-Path $repo "dist") -Filter "*.html" -Recurse -File
+$absoluteRootViolations = @()
+foreach ($html in $htmlFiles) {
+  $content = Get-Content -Path $html.FullName -Raw -Encoding UTF8
+  if ($content -match 'href\s*=\s*"/' -or $content -match "href\s*=\s*'/" -or $content -match 'src\s*=\s*"/' -or $content -match "src\s*=\s*'/") {
+    $absoluteRootViolations += $html.FullName
+  }
+}
+if ($absoluteRootViolations.Count -gt 0) {
+  $joined = ($absoluteRootViolations | ForEach-Object { " - $_" }) -join [Environment]::NewLine
+  throw "Guard failed: absolute-root references found in dist HTML (href='/...' or src='/...'). This breaks GitHub Pages-like base path '/tatemono-map/'.`n$joined"
+}
+
+$pagesLikeRoot = Join-Path $repo "tmp/pages_like_root"
+$pagesLikeMount = Join-Path $pagesLikeRoot "tatemono-map"
+
+New-Item -ItemType Directory -Path $pagesLikeRoot -Force | Out-Null
+if (Test-Path $pagesLikeMount) {
+  Remove-Item -Path $pagesLikeMount -Force -Recurse
+}
+
+$mklinkCmd = "mklink /J `"$pagesLikeMount`" `"$(Join-Path $repo 'dist')`""
+cmd.exe /c $mklinkCmd | Out-Null
+if (-not (Test-Path $pagesLikeMount)) {
+  throw "Failed to create junction: $pagesLikeMount -> dist"
+}
+
+$url = "http://$BindHost`:$Port/tatemono-map/index.html"
 Write-Host "[dev_dist] dist guards OK: build_info.json exists, buildings.v2.min.json count=$buildingsCount"
 Write-Host "[dev_dist] Open: $url"
 Write-Warning "do not open via file://"
 
-& $python -m http.server $Port --bind $BindHost --directory (Join-Path $repo "dist")
-
+Start-Process $url | Out-Null
+& $python -m http.server $Port --bind $BindHost --directory $pagesLikeRoot

@@ -214,34 +214,37 @@ $env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m pytest -q tests
 ```
 
-## Local Preview (Required: http.server)
+## ローカル確認（唯一の正解 / Pages-like）
 
-- `dist/index.html` を `file://` で直接開くのは禁止です。`fetch` / 相対パス / ルーティング検証が壊れ、Pagesとの差分原因になります。
-- 必ず `http.server` 経由で確認してください。
-- GitHub Pages の base path は `/tatemono-map/` です。パス一致で切り分けるため、pages-like プレビューを推奨します。
+- 実行コマンド（dist 生成 + ガード + Pages-like 配信）:
 
 ```powershell
-# dist 生成 + ガード + ローカルサーバ起動（標準ポート 8787）
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_dist.ps1
-
-# Pages と同じ URL 構造で確認（http://127.0.0.1:8787/tatemono-map/）
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_pageslike.ps1
 ```
 
-- ポート変更例:
+- 確認 URL（必ずこの形）:
+
+```text
+http://127.0.0.1:8787/tatemono-map/index.html
+```
+
+- **`file://` で `dist/index.html` を直接開くのは禁止**です。`fetch` / 相対パス / ルーティング検証が壊れて、GitHub Pages との挙動差分が出ます。
+- `scripts/dev_dist.ps1` は `/tatemono-map/` プレフィックスで配信するため、Pages と同じパス条件で確認できます。
+
+### Pagesとローカルの一致確認
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_dist.ps1 -Port 8799
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_pageslike.ps1 -Port 8799
+# local
+Get-Content -Raw .\dist\build_info.json | ConvertFrom-Json
+
+# pages
+curl.exe -fsSL https://aik38.github.io/tatemono-map/build_info.json
+
+# compare (git_sha 優先。無ければ buildings_count / vacancy_total)
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\check_pages_parity.ps1
 ```
 
-### Troubleshooting checklist（ローカル/Pages共通）
-
-- `dist/build_info.json` が存在する。
-- `dist/data/buildings.v2.min.json` が存在し、配列件数が `0` ではない。
-- Pages 側でも `https://aik38.github.io/tatemono-map/build_info.json` と
-  `https://aik38.github.io/tatemono-map/data/buildings.v2.min.json` が取得できる。
-- 典型症状: 建物数が `0` 件の場合は、JSON が欠損/空配列、または `fetch` パス不一致（`file://` 直開き・先頭スラッシュ指定）を疑う。
+- 比較時は `git_sha` があれば最優先で一致確認し、無い場合は `buildings_count` と `vacancy_total` を比較します。
 
 ## What / Why
 このリポジトリは、Google Maps / Street View（ストリートビュー）と連携可能な「不動産データベース母艦」を作るための基盤です。  
