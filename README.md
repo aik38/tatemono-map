@@ -222,6 +222,9 @@ $env:PYTHONPATH = "src"
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_dist.ps1
 ```
 
+- `scripts/dev_dist.ps1` は**どの作業ディレクトリから実行しても OK**です（スクリプト自身がリポジトリルートを解決します。`cd` 不要）。
+- ローカルプレビューは **HTTP 配信のみ対応** です。**`file://` は禁止**（GitHub Pages と挙動が一致しません）。
+
 - 確認 URL（必ずこの形）:
 
 ```text

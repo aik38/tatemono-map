@@ -1,10 +1,17 @@
 param(
-  [string]$RepoPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
+  [string]$RepoPath,
   [int]$Port = 8787,
   [string]$BindHost = "127.0.0.1"
 )
 
 $ErrorActionPreference = "Stop"
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
+if ([string]::IsNullOrWhiteSpace($RepoPath)) {
+  $RepoPath = $RepoRoot
+}
+Set-Location $RepoRoot
 
 function Get-PythonCommand {
   param([string]$Repo)
