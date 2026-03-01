@@ -12,6 +12,7 @@ from tatemono_map.cli.pdf_batch_run import (
     is_mojibake,
     is_noise_line,
     normalize_pdf_text,
+    qc_check,
     restore_latin1_cp932_mojibake,
     should_stop_on_qc_failures,
     split_building_and_room,
@@ -451,6 +452,121 @@ def test_realpro_parse_extracts_availability_and_built_year_month_from_context(t
     assert row["availability_raw"] == "空室/即入"
     assert row["built_raw"] == "2011年09月築"
     assert row["built_year_month"] == "2011-09"
+
+
+def test_realpro_address_fallback_keeps_non_empty_when_normalization_fails(tmp_path: Path):
+    from tatemono_map.cli import pdf_batch_run as mod
+
+    context = _fixture("realpro_context_address_without_banchi.txt")
+
+    class _Table:
+        bbox = (0.0, 113.0, 500.0, 450.0)
+
+        def extract(self):
+            return [
+                ["号室名", "賃料", "共益費", "間取・面積", "状態・入居時期"],
+                ["101", "6.2万", "0.3万", "1K 25.0㎡", "即入"],
+            ]
+
+    class _Page:
+        def extract_text(self):
+            return "空室一覧表"
+
+        def find_tables(self):
+            return [_Table()]
+
+        def extract_words(self, **_kwargs):
+            out = []
+            for i, line in enumerate(context.splitlines()):
+                out.append({"text": line, "x0": 10.0, "top": 118.0 + i * 10, "x1": 300.0, "bottom": 128.0 + i * 10})
+            return out
+
+    class _Pdf:
+        pages = [_Page()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    original_open = mod.pdfplumber.open
+    mod.pdfplumber.open = lambda _path: _Pdf()
+    try:
+        result = RealproParser().parse(tmp_path / "dummy.pdf")
+    finally:
+        mod.pdfplumber.open = original_open
+
+    assert len(result.df) == 1
+    assert result.df.iloc[0]["address"] == "小倉北区京町"
+    assert "address_normalize_failed" in result.warnings
+    assert "address_empty_rows" not in result.warnings
+
+
+def test_realpro_area_listing_line_is_not_misdetected_as_address(tmp_path: Path):
+    from tatemono_map.cli import pdf_batch_run as mod
+
+    context = _fixture("realpro_context_area_listing_trap.txt")
+
+    class _Table:
+        bbox = (0.0, 113.0, 500.0, 450.0)
+
+        def extract(self):
+            return [
+                ["号室名", "賃料", "共益費", "間取・面積", "状態・入居時期"],
+                ["101", "6.2万", "0.3万", "1K 25.0㎡", "即入"],
+            ]
+
+    class _Page:
+        def extract_text(self):
+            return "空室一覧表"
+
+        def find_tables(self):
+            return [_Table()]
+
+        def extract_words(self, **_kwargs):
+            out = []
+            for i, line in enumerate(context.splitlines()):
+                out.append({"text": line, "x0": 10.0, "top": 118.0 + i * 10, "x1": 300.0, "bottom": 128.0 + i * 10})
+            return out
+
+    class _Pdf:
+        pages = [_Page()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    original_open = mod.pdfplumber.open
+    mod.pdfplumber.open = lambda _path: _Pdf()
+    try:
+        result = RealproParser().parse(tmp_path / "dummy.pdf")
+    finally:
+        mod.pdfplumber.open = original_open
+
+    assert len(result.df) == 1
+    row = result.df.iloc[0]
+    assert row["address"] == "北九州市小倉北区浅野2-3-4"
+    assert "門司区" not in row["address"]
+
+
+def test_qc_check_reports_address_empty_only_when_raw_address_is_missing():
+    df = pd.DataFrame(
+        [
+            {
+                "building_name": "テストマンション",
+                "address": "小倉北区京町",
+                "room": "101",
+                "availability_raw": "即入",
+                "built_raw": "2014年2月築",
+            }
+        ]
+    )
+
+    reasons = qc_check(df, "realpro")
+    assert "address_empty" not in reasons
 
 
 def test_extract_with_parser_includes_kind_and_file_on_failure(tmp_path: Path):

@@ -65,6 +65,7 @@ WARD_RE = "|".join(WARD_NAMES)
 REALPRO_CONTEXT_INNER_BAND_PX = 60.0
 
 REALPRO_TABLE_HEADER_TOKENS = ["号室名", "賃料", "共益費", "間取", "面積", "敷金", "礼金", "管理費"]
+NON_BLOCKING_QC_REASONS = {"address_normalize_failed"}
 
 
 def _PdfReader():
@@ -344,6 +345,13 @@ def clean_realpro_address_line(line: str) -> str:
     return nfkc(s)
 
 
+def _is_area_listing_line(line: str) -> bool:
+    s = nfkc(line)
+    if not s:
+        return False
+    return "エリア" in s and all((ward in s) for ward in WARD_NAMES)
+
+
 def looks_like_address(line: str) -> bool:
     s = nfkc(line)
     return bool(re.search(r"(都|道|府|県|市|区|町|村).*(丁目|番地|番|号|\d+-\d+)", s))
@@ -496,12 +504,7 @@ class RealproParser:
             building = s
             break
 
-        address = ""
-        for line in lines:
-            s = nfkc(line)
-            if looks_like_address(s):
-                address = complement_address_with_ward(clean_realpro_address_line(s), local_ward_hint)
-                break
+        address, _address_raw, _normalize_failed = self._extract_address(lines, local_ward_hint)
 
         nearby = " ".join(lines)
         structure = ""
@@ -519,6 +522,30 @@ class RealproParser:
         if am and am.group(1):
             age = float(am.group(1))
         return building, address, structure, age, built_raw, built_year_month
+
+    def _extract_address(self, lines: List[str], ward_hint: str = "") -> Tuple[str, str, bool]:
+        normalized = ""
+        raw_candidate = ""
+        for line in lines:
+            s = nfkc(line)
+            if not s or is_noise_line(s) or is_table_header_like_line(s):
+                continue
+            if _is_area_listing_line(s):
+                continue
+            candidate = clean_realpro_address_line(s)
+            if looks_like_address(s):
+                normalized = complement_address_with_ward(candidate, ward_hint)
+                raw_candidate = candidate
+                break
+            if re.search(r"(都|道|府|県|市|区|町|村)", s):
+                if not raw_candidate:
+                    raw_candidate = candidate
+
+        if normalized:
+            return normalized, raw_candidate, False
+        if raw_candidate:
+            return raw_candidate, raw_candidate, True
+        return "", "", False
 
     def _words_to_lines(self, words: List[Dict[str, Any]]) -> List[str]:
         if not words:
@@ -616,6 +643,24 @@ class RealproParser:
                     if context[0]:
                         last_context = context
 
+                    address, _address_raw, address_normalize_failed = self._extract_address(
+                        self._words_to_lines(
+                            [
+                                w
+                                for w in (page.extract_words(x_tolerance=2, y_tolerance=2) or [])
+                                if prev_bottom <= float(w.get("top", 0.0)) <= min(float(bbox[1]) + REALPRO_CONTEXT_INNER_BAND_PX, float(bbox[3]))
+                                and float(w.get("top", 0.0)) >= 50.0
+                            ]
+                        )
+                        if hasattr(page, "extract_words")
+                        else [],
+                        ward_hint,
+                    )
+                    if not address:
+                        address = context[1]
+                    if address_normalize_failed:
+                        warns.append("address_normalize_failed")
+
                     for row_i, r in enumerate(tb[header_row + 1 :], start=1):
                         if not r or all(normalize_pdf_text(c) == "" for c in r):
                             continue
@@ -647,7 +692,7 @@ class RealproParser:
                                 "file": pdf_path.name,
                                 "building_name": context[0],
                                 "room": room,
-                                "address": context[1],
+                                "address": address,
                                 "rent_man": parse_money_to_man(get_cell_text(r, idx, ["賃料"])),
                                 "fee_man": parse_money_to_man(get_cell_text(r, idx, ["共益費"])),
                                 "floor": floor,
@@ -864,15 +909,17 @@ def main() -> int:
         write_csv(df, per_path, legacy_columns=args.legacy_columns)
 
         reasons: List[str] = []
+        blocking_reasons: List[str] = []
         status = "SKIP" if args.qc_mode == "off" else "OK"
         if args.qc_mode != "off":
             reasons = qc_check(df, kind)
             reasons.extend(parsed.warnings)
+            blocking_reasons = [r for r in reasons if r not in NON_BLOCKING_QC_REASONS]
             status = "OK" if not reasons else "WARN"
 
         if reasons:
             qc_lines.append(f"[WARN] {path.name} kind={kind} reasons={';'.join(reasons)}")
-        if should_stop_on_qc_failures(args.qc_mode, 1 if reasons else 0):
+        if should_stop_on_qc_failures(args.qc_mode, 1 if blocking_reasons else 0):
             failures += 1
 
         stats_rows.append(
