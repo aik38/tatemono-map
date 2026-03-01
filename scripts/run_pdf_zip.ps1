@@ -23,6 +23,7 @@ function Resolve-RepoRoot {
 
 $REPO = Resolve-RepoRoot -Path $RepoPath
 Set-Location $REPO
+$env:PYTHONPATH = "src"
 
 $PY = Join-Path $REPO ".venv\Scripts\python.exe"
 if (-not (Test-Path $PY)) { throw ".venv python not found: $PY. Run scripts/setup.ps1 first." }

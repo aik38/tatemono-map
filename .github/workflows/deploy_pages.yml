@@ -95,6 +95,31 @@ jobs:
           print(f"OK: buildings.json entries={len(arr)}")
           PY
 
+      - name: Assert built year and availability fields are present
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("dist/data/buildings.json")
+          arr = json.loads(p.read_text(encoding="utf-8"))
+
+          availability_count = sum(1 for row in arr if str(row.get("building_availability_label") or "").strip())
+          built_info_count = sum(
+              1
+              for row in arr
+              if (row.get("building_built_age_years") not in (None, ""))
+              or str(row.get("building_built_year_month") or "").strip()
+          )
+
+          if availability_count <= 0:
+              raise SystemExit("No rows have building_availability_label; refusing to deploy")
+          if built_info_count <= 0:
+              raise SystemExit("No rows have building_built_age_years/building_built_year_month; refusing to deploy")
+
+          print(f"OK: availability rows={availability_count}, built-info rows={built_info_count}")
+          PY
+
       - name: Forbidden content grep check
         run: |
           set -e
