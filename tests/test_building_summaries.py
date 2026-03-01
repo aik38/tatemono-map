@@ -123,7 +123,7 @@ def test_summary_building_availability_prefers_immediate(tmp_path):
     ).fetchone()
     conn.close()
 
-    assert row["building_availability_label"] == "2026-03-09"
+    assert row["building_availability_label"] == "入居"
     assert row["building_structure"] == "RC"
     assert row["building_built_year_month"] == "2023-01"
     assert row["building_built_age_years"] == 3
@@ -155,7 +155,7 @@ def test_refresh_building_availability_labels_priority(tmp_path):
     conn = connect(db)
     row = conn.execute("SELECT building_availability_label FROM building_summaries WHERE building_key='b1'").fetchone()
     conn.close()
-    assert row["building_availability_label"] == "即入"
+    assert row["building_availability_label"] == "入居"
 
 
 def test_summary_stores_null_move_in_dates_json_when_empty(tmp_path):
@@ -237,5 +237,5 @@ def test_summary_building_availability_ulucks_blank_raw_immediate_label(tmp_path
     conn.close()
 
     assert row["vacancy_count"] == 2
-    assert row["building_availability_label"] == "即入"
+    assert row["building_availability_label"] == "入居"
     assert row["move_in_dates_json"] is None

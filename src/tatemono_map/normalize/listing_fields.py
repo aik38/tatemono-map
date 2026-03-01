@@ -53,7 +53,7 @@ def normalize_availability(
     text = (raw or "").strip()
     if not text:
         if (category or "").strip().lower() == "ulucks":
-            return True, "即入", None
+            return True, "入居", None
         return False, None, None
 
     if IMMEDIATE_RE.search(text):

@@ -199,10 +199,10 @@ def test_master_import_ulucks_blank_availability_infers_immediate_for_listings_a
     assert listing["availability_raw"] is None
     assert listing["availability_date"] is None
     assert listing["availability_flag_immediate"] == 1
-    assert listing["move_in_date"] == "即入"
+    assert listing["move_in_date"] == "入居"
 
     assert raw_unit["availability_raw"] is None
     assert raw_unit["availability_date"] is None
     assert raw_unit["availability_flag_immediate"] == 1
-    assert raw_unit["move_in_date"] == "即入"
-    assert summary["building_availability_label"] == "即入"
+    assert raw_unit["move_in_date"] == "入居"
+    assert summary["building_availability_label"] == "入居"

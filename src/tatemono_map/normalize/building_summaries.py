@@ -64,13 +64,14 @@ def _nearest_availability_date(items: list) -> str | None:
 
 
 def _select_availability_label(move_in_dates: list[str], items: list) -> str:
+    if any((row["availability_flag_immediate"] or 0) == 1 or "即入" in (row["availability_raw"] or "") for row in items):
+        return "入居"
+
     nearest = _nearest_availability_date(items)
     if nearest:
         return nearest
     if move_in_dates:
         return move_in_dates[0]
-    if any((row["availability_flag_immediate"] or 0) == 1 or "即入" in (row["availability_raw"] or "") for row in items):
-        return "即入"
 
     planned = [normalize_text(row["availability_raw"]) for row in items if normalize_text(row["availability_raw"])]
     for raw in planned:

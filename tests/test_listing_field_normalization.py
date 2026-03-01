@@ -38,7 +38,7 @@ def test_normalize_availability_without_reference_date_keeps_raw_only() -> None:
 def test_normalize_availability_ulucks_blank_means_immediate() -> None:
     immediate, label, normalized_date = normalize_availability("", "2026-02-28", "ulucks")
     assert immediate is True
-    assert label == "即入"
+    assert label == "入居"
     assert normalized_date is None
 
 
