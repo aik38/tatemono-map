@@ -159,6 +159,14 @@ def normalize_pdf_text(text: Any) -> str:
     return nfkc(src)
 
 
+def get_cell_text(row: Sequence[Any], idx: Dict[str, int], keys: Sequence[str]) -> str:
+    for key in keys:
+        col = idx.get(key)
+        if isinstance(col, int) and 0 <= col < len(row):
+            return normalize_pdf_text(row[col])
+    return ""
+
+
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -403,13 +411,16 @@ class UlucksParser:
                         if not r or all(normalize_pdf_text(c) == "" for c in r):
                             continue
                         r = list(r) + [None] * (len(header) - len(r))
-                        building = normalize_pdf_text(r[idx.get("物件名", "")])
-                        address = normalize_pdf_text(r[idx.get("所在地", "")])
+                        building = get_cell_text(r, idx, ["物件名"])
+                        address = get_cell_text(r, idx, ["所在地"])
                         address = complement_address_with_ward(address, ward_hint)
-                        room = normalize_pdf_text(r[idx.get("号室", "")])
+                        room = get_cell_text(r, idx, ["号室"])
                         room = re.sub(r"\s*《.*?》\s*", "", room).strip()
-                        layout_detail = normalize_pdf_text(r[idx.get("間取詳細", "")])
+                        layout_detail = get_cell_text(r, idx, ["間取詳細"])
                         layout = nfkc(layout_detail.split(":")[0]) if layout_detail else ""
+                        availability_raw = get_cell_text(r, idx, ["入居時期", "状態・入居時期", "入居可能日", "退予"])
+                        built_raw = get_cell_text(r, idx, ["築年", "築年月"])
+                        structure_raw = get_cell_text(r, idx, ["構造"])
                         raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")
                         rows.append(
                             {
@@ -419,20 +430,20 @@ class UlucksParser:
                                 "building_name": building,
                                 "room": room,
                                 "address": address,
-                                "rent_man": parse_money_to_man(r[idx.get("賃料", "")]),
-                                "fee_man": parse_money_to_man(r[idx.get("共益費", "")]),
+                                "rent_man": parse_money_to_man(get_cell_text(r, idx, ["賃料"])),
+                                "fee_man": parse_money_to_man(get_cell_text(r, idx, ["共益費"])),
                                 "floor": "",
                                 "layout": layout,
-                                "area_sqm": parse_area_sqm(r[idx.get("面積", "")]),
-                                "availability_raw": normalize_pdf_text(r[idx.get("入居時期", "")]),
-                                "built_raw": normalize_pdf_text(r[idx.get("築年", "")]),
-                                "age_years": parse_built_raw_to_age_years(r[idx.get("築年", "")]),
-                                "structure": normalize_pdf_text(r[idx.get("構造", "")]),
+                                "area_sqm": parse_area_sqm(get_cell_text(r, idx, ["面積"])),
+                                "availability_raw": availability_raw,
+                                "built_raw": built_raw,
+                                "age_years": parse_built_raw_to_age_years(built_raw),
+                                "structure": structure_raw,
                                 "built_year_month": "",
                                 "built_age_years": float("nan"),
                                 "availability_date": "",
                                 "availability_flag_immediate": float("nan"),
-                                "structure_raw": normalize_pdf_text(r[idx.get("構造", "")]),
+                                "structure_raw": structure_raw,
                                 "file": pdf_path.name,
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
@@ -461,13 +472,13 @@ class RealproParser:
         kind = "realpro" if (has_room_col and has_rent_col and has_valid_header_line and score >= 3) else "non_vacancy"
         return DetectResult(kind=kind, reason=f"realpro_score={score}")
 
-    def _extract_contexts(self, lines: List[str]) -> List[Tuple[str, str, str, float]]:
+    def _extract_contexts(self, lines: List[str]) -> List[Tuple[str, str, str, float, str, str]]:
         context = self._extract_context_from_lines(lines, extract_ward_hint(" ".join(lines)))
         return [context] if context[0] else []
 
-    def _extract_context_from_lines(self, lines: List[str], ward_hint: str = "") -> Tuple[str, str, str, float]:
+    def _extract_context_from_lines(self, lines: List[str], ward_hint: str = "") -> Tuple[str, str, str, float, str, str]:
         if not lines:
-            return "", "", "", float("nan")
+            return "", "", "", float("nan"), "", ""
         local_ward_hint = extract_ward_hint(" ".join(lines)) or ward_hint
         building = ""
         for line in lines:
@@ -495,13 +506,19 @@ class RealproParser:
         nearby = " ".join(lines)
         structure = ""
         age = float("nan")
+        built_raw = ""
+        built_year_month = ""
         sm = re.search(r"(RC|SRC|S造|木造|鉄骨造|鉄筋コンクリート造)", nearby)
         if sm:
             structure = sm.group(1)
+        built_ym = re.search(r"(\d{4})年\s*(\d{1,2})月\s*築", nearby)
+        if built_ym:
+            built_raw = f"{built_ym.group(1)}年{int(built_ym.group(2)):02d}月築"
+            built_year_month = f"{built_ym.group(1)}-{int(built_ym.group(2)):02d}"
         am = re.search(r"(?:築\s*(\d+)\s*年|(\d{4})年\s*(\d{1,2})月\s*築)", nearby)
         if am and am.group(1):
             age = float(am.group(1))
-        return building, address, structure, age
+        return building, address, structure, age, built_raw, built_year_month
 
     def _words_to_lines(self, words: List[Dict[str, Any]]) -> List[str]:
         if not words:
@@ -519,12 +536,12 @@ class RealproParser:
                 out.append(line)
         return out
 
-    def _extract_context_for_table(self, page: Any, table_bbox: Tuple[float, float, float, float], prev_bottom: float, ward_hint: str) -> Tuple[str, str, str, float]:
+    def _extract_context_for_table(self, page: Any, table_bbox: Tuple[float, float, float, float], prev_bottom: float, ward_hint: str) -> Tuple[str, str, str, float, str, str]:
         top = float(table_bbox[1]) if table_bbox else 0.0
         bottom = float(table_bbox[3]) if table_bbox else top
         context_bottom = min(top + REALPRO_CONTEXT_INNER_BAND_PX, bottom)
         if context_bottom <= prev_bottom:
-            return "", "", "", float("nan")
+            return "", "", "", float("nan"), "", ""
         if hasattr(page, "extract_words"):
             words = page.extract_words(x_tolerance=2, y_tolerance=2) or []
             block_words = [
@@ -571,7 +588,7 @@ class RealproParser:
                         page_tables.append(_T(tb))
 
                 prev_bottom = 0.0
-                last_context: Tuple[str, str, str, float] = ("", "", "", float("nan"))
+                last_context: Tuple[str, str, str, float, str, str] = ("", "", "", float("nan"), "", "")
                 for t in sorted(page_tables, key=lambda x: float(x.bbox[1]) if getattr(x, "bbox", None) else 0.0):
                     tb = t.extract() or []
                     if not tb or len(tb) < 2:
@@ -603,15 +620,15 @@ class RealproParser:
                         if not r or all(normalize_pdf_text(c) == "" for c in r):
                             continue
                         r = list(r) + [None] * (len(header) - len(r))
-                        roomcell = normalize_pdf_text(r[idx.get("号室名", "")])
-                        rentcell = normalize_pdf_text(r[idx.get("賃料", "")])
+                        roomcell = get_cell_text(r, idx, ["号室名"])
+                        rentcell = get_cell_text(r, idx, ["賃料"])
                         if roomcell == "" and rentcell == "":
                             continue
                         room_m = re.search(r"(\d{2,4})", roomcell)
                         room = room_m.group(1) if room_m else roomcell
                         floor_m = re.search(r"(\d+)\s*階", roomcell)
                         floor = floor_m.group(1) if floor_m else ""
-                        la = normalize_pdf_text(r[idx.get("間取・面積", "")])
+                        la = get_cell_text(r, idx, ["間取・面積"])
                         layout = ""
                         area = float("nan")
                         lm = re.search(r"(\d+[A-Z]*LDK|\d+DK|\d+K|1R)", la)
@@ -620,6 +637,7 @@ class RealproParser:
                         am = re.search(r"([0-9]+(?:\.[0-9]+)?)\s*(?:㎡|m2)", la)
                         if am:
                             area = float(am.group(1))
+                        availability_raw = get_cell_text(r, idx, ["入居時期", "状態・入居時期", "入居可能日", "退予", "入居・取引"])
                         raw = f"[source=realpro file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")
                         rows.append(
                             {
@@ -630,16 +648,16 @@ class RealproParser:
                                 "building_name": context[0],
                                 "room": room,
                                 "address": context[1],
-                                "rent_man": parse_money_to_man(r[idx.get("賃料", "")]),
-                                "fee_man": parse_money_to_man(r[idx.get("共益費", "")]),
+                                "rent_man": parse_money_to_man(get_cell_text(r, idx, ["賃料"])),
+                                "fee_man": parse_money_to_man(get_cell_text(r, idx, ["共益費"])),
                                 "floor": floor,
                                 "layout": layout,
                                 "area_sqm": area,
-                                "availability_raw": normalize_pdf_text(r[idx.get("入居・取引", "")]),
-                                "built_raw": "",
+                                "availability_raw": availability_raw,
+                                "built_raw": context[4],
                                 "age_years": context[3],
                                 "structure": context[2],
-                                "built_year_month": "",
+                                "built_year_month": context[5],
                                 "built_age_years": float("nan"),
                                 "availability_date": "",
                                 "availability_flag_immediate": float("nan"),
@@ -757,7 +775,10 @@ def _extract_with_parser(kind: str, path: Path) -> ParseResult:
     parser = next((p for p in PARSERS if p.name == kind), None)
     if parser is None:
         return ParseResult(df=pd.DataFrame([], columns=FINAL_SCHEMA + LEGACY_SCHEMA), warnings=["unsupported_kind"], drop_reasons={})
-    return parser.parse(path)
+    try:
+        return parser.parse(path)
+    except Exception as e:
+        raise RuntimeError(f"pdf_parse_failed kind={kind} file={path}") from e
 
 
 def _try_parse_ambiguous(path: Path) -> Tuple[str, Optional[ParseResult]]:
