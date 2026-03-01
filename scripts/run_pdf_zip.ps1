@@ -66,12 +66,21 @@ $finalCount = (Import-Csv $finalCsv).Count
 $masterRows = Import-Csv $masterImportCsv
 $masterCount = $masterRows.Count
 $warnCount = ((Import-Csv $statsCsv) | Where-Object { $_.status -eq "WARN" }).Count
-# PS7互換のため char で先頭BOMのみ除去する
-$masterHeader = (Get-Content -Path $masterImportCsv -TotalCount 1).TrimStart([char]0xFEFF)
+$masterRowsForHeader = Import-Csv -Path $masterImportCsv
+$masterHeaderColumns = @()
+if ($masterRowsForHeader -and $masterRowsForHeader.Count -gt 0) {
+  $masterHeaderColumns = @($masterRowsForHeader[0].PSObject.Properties.Name)
+} else {
+  $headerLine = (Get-Content -Path $masterImportCsv -TotalCount 1)
+  $masterHeaderColumns = @(ConvertFrom-Csv -InputObject $headerLine | Select-Object -First 1 | ForEach-Object { $_.PSObject.Properties.Name })
+}
+$masterHeader = ($masterHeaderColumns -join ',')
 if ($QcMode -eq "strict") {
-  $expectedHeader = (& $PY -c "from tatemono_map.cli.pdf_batch_run import FINAL_SCHEMA; print(','.join(FINAL_SCHEMA))").Trim()
-  if ($masterHeader -ne $expectedHeader) {
-    throw "master_import.csv header mismatch in strict mode. got='$masterHeader' expected='$expectedHeader'"
+  $requiredColumnsRaw = (& $PY -c "from tatemono_map.cli.pdf_batch_run import MASTER_IMPORT_SCHEMA; print('\n'.join(MASTER_IMPORT_SCHEMA))")
+  $requiredColumns = @($requiredColumnsRaw -split "`r?`n" | Where-Object { $_ -ne "" })
+  $missingColumns = @($requiredColumns | Where-Object { $masterHeaderColumns -notcontains $_ })
+  if ($missingColumns.Count -gt 0) {
+    throw "master_import.csv header mismatch in strict mode. missing_required=$($missingColumns -join ',') got='$masterHeader'"
   }
 }
 "[OK] out=$out"

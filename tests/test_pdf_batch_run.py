@@ -589,3 +589,33 @@ def test_extract_with_parser_includes_kind_and_file_on_failure(tmp_path: Path):
             mod._extract_with_parser("boom", tmp_path / "dummy.pdf")
     finally:
         mod.PARSERS = original_parsers
+
+
+def test_master_import_schema_required_columns_include_new_pipeline_header() -> None:
+    new_header = [
+        "page",
+        "category",
+        "updated_at",
+        "building_name",
+        "room",
+        "address",
+        "rent_man",
+        "fee_man",
+        "floor",
+        "layout",
+        "area_sqm",
+        "availability_raw",
+        "built_raw",
+        "age_years",
+        "structure",
+        "built_year_month",
+        "built_age_years",
+        "availability_date",
+        "availability_flag_immediate",
+        "structure_raw",
+        "raw_block",
+        "evidence_id",
+    ]
+
+    missing = [c for c in MASTER_IMPORT_SCHEMA if c not in new_header]
+    assert missing == []

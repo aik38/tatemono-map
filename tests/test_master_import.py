@@ -60,3 +60,37 @@ def test_master_import_replace_and_seed_persistence(tmp_path: Path) -> None:
     names = sorted({row["name"] for row in seed_rows})
     assert names == ["建物A", "建物B"]
     assert all(row["vacancy_count"] == 0 for row in seed_rows)
+
+
+def test_master_import_accepts_new_master_import_header_and_derives_file(tmp_path: Path) -> None:
+    db_path = tmp_path / "master.sqlite3"
+    csv_path = tmp_path / "master_import_new.csv"
+
+    csv_path.write_text(
+        '﻿"page","category","updated_at","building_name","room","address","rent_man","fee_man","floor","layout","area_sqm","availability_raw","built_raw","age_years","structure","built_year_month","built_age_years","availability_date","availability_flag_immediate","structure_raw","raw_block","evidence_id"\n'
+        '"4","vacancy","2026/01/01 12:00","建物C","303","東京都C","11.1","0.2","3F","1K","21.0","即入","2011年09月築","15","RC","2011-09","15","","1","RC造","block-c-303","pdf:0005_xxx.pdf#p=4#i=3"\n',
+        encoding="utf-8",
+    )
+
+    seed_count, vacancy_count, unique_buildings = import_master_csv(str(db_path), str(csv_path))
+    assert seed_count == 0
+    assert vacancy_count == 1
+    assert unique_buildings == 1
+
+    conn = connect(db_path)
+    listing = conn.execute(
+        "SELECT source_url, availability_raw, built_raw, built_year_month, built_age_years, availability_flag_immediate, structure_raw, age_years, structure FROM listings"
+    ).fetchone()
+    raw_unit = conn.execute("SELECT source_url FROM raw_units").fetchone()
+    conn.close()
+
+    assert listing["source_url"] == "0005_xxx.pdf"
+    assert raw_unit["source_url"] == "0005_xxx.pdf"
+    assert listing["availability_raw"] == "即入"
+    assert listing["built_raw"] == "2011年09月築"
+    assert listing["built_year_month"] == "2011-09"
+    assert listing["built_age_years"] == 15
+    assert listing["availability_flag_immediate"] == 1
+    assert listing["structure_raw"] == "RC造"
+    assert listing["age_years"] == 15
+    assert listing["structure"] == "RC"
