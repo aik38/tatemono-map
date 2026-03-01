@@ -1,7 +1,7 @@
 param(
   [string]$RepoPath = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
   [int]$Port = 8787,
-  [string]$Host = "127.0.0.1"
+  [string]$BindHost = "127.0.0.1"
 )
 
 $ErrorActionPreference = "Stop"
@@ -50,9 +50,10 @@ if ([int]$buildingsCount -le 0) {
   throw "Guard failed: dist/data/buildings.v2.min.json has 0 items"
 }
 
-$url = "http://$Host`:$Port/index.html"
+$url = "http://$BindHost`:$Port/index.html"
 Write-Host "[dev_dist] dist guards OK: build_info.json exists, buildings.v2.min.json count=$buildingsCount"
 Write-Host "[dev_dist] Open: $url"
 Write-Warning "do not open via file://"
 
-& $python -m http.server $Port --bind $Host --directory (Join-Path $repo "dist")
+& $python -m http.server $Port --bind $BindHost --directory (Join-Path $repo "dist")
+
