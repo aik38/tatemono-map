@@ -206,3 +206,36 @@ def test_summary_building_availability_falls_back_to_raw_when_no_date_or_immedia
     row = conn.execute("SELECT building_availability_label FROM building_summaries WHERE building_key='b1'").fetchone()
     conn.close()
     assert row["building_availability_label"] == "03月下旬"
+
+
+def test_summary_building_availability_ulucks_blank_raw_immediate_label(tmp_path):
+    db = tmp_path / "test7.sqlite3"
+    conn = connect(db)
+    conn.execute("INSERT INTO buildings(building_id, canonical_name, canonical_address) VALUES ('b1','Aマンション','東京都A')")
+    conn.executemany(
+        """
+        INSERT INTO listings(
+            listing_key, building_key, name, address, room_label,
+            rent_yen, maint_yen, layout, area_sqm, move_in_date,
+            availability_raw, availability_flag_immediate, updated_at, source_kind, source_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("l1", "b1", "Aマンション", "東京都A", "101", 50000, 0, "1K", 20.0, None, "", 1, "2026-01-01", "master", "s1"),
+            ("l2", "b1", "Aマンション", "東京都A", "102", 51000, 0, "1K", 20.5, None, None, 1, "2026-01-02", "master", "s2"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    row = conn.execute(
+        "SELECT building_availability_label, move_in_dates_json, vacancy_count FROM building_summaries WHERE building_key='b1'"
+    ).fetchone()
+    conn.close()
+
+    assert row["vacancy_count"] == 2
+    assert row["building_availability_label"] == "即入"
+    assert row["move_in_dates_json"] is None

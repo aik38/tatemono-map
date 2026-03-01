@@ -170,3 +170,35 @@ def test_master_import_normalizes_availability_from_raw_when_fields_missing(tmp_
 
     assert raw_rows[0]["availability_date"] == "2026-02-28"
     assert raw_rows[1]["availability_flag_immediate"] == 1
+
+
+def test_master_import_ulucks_blank_availability_infers_immediate_for_listings_and_raw_units(tmp_path: Path) -> None:
+    db_path = tmp_path / "master_ulucks.sqlite3"
+    csv_path = tmp_path / "master_import_ulucks_blank.csv"
+
+    csv_path.write_text(
+        '﻿"page","category","updated_at","building_name","room","address","rent_man","fee_man","floor","layout","area_sqm","availability_raw","built_raw","age_years","structure","built_year_month","built_age_years","availability_date","availability_flag_immediate","structure_raw","raw_block","evidence_id"\n'
+        '"1","ulucks","2026/02/28 12:00","建物U","101","東京都U","8.8","0.2","1F","1K","20.0","","","","","","","","","","block-u-101","pdf:ulucks.pdf#p=1#i=1"\n',
+        encoding="utf-8",
+    )
+
+    import_master_csv(str(db_path), str(csv_path))
+
+    conn = connect(db_path)
+    listing = conn.execute(
+        "SELECT availability_raw, availability_date, availability_flag_immediate, move_in_date FROM listings"
+    ).fetchone()
+    raw_unit = conn.execute(
+        "SELECT availability_raw, availability_date, availability_flag_immediate, move_in_date FROM raw_units"
+    ).fetchone()
+    conn.close()
+
+    assert listing["availability_raw"] is None
+    assert listing["availability_date"] is None
+    assert listing["availability_flag_immediate"] == 1
+    assert listing["move_in_date"] == ""
+
+    assert raw_unit["availability_raw"] is None
+    assert raw_unit["availability_date"] is None
+    assert raw_unit["availability_flag_immediate"] == 1
+    assert raw_unit["move_in_date"] == ""

@@ -132,10 +132,17 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 #### “空部屋” の定義（UI 表示）
 
 - UI の「空部屋」は **`data/public/public.sqlite3` の `building_summaries.vacancy_count` 合計** です。
+- 入居可能日は `ulucks` の業務ルールを反映します。`availability_raw` が空欄の場合は「即入（即入居）」として正規化されるため、`building_summaries.building_availability_label` も `即入` になります。
 - つまり確認式は次です。
 
 ```sql
 select coalesce(sum(vacancy_count), 0) from building_summaries;
+```
+
+- `building_summaries` だけで建物名と入居可ラベルを確認する PowerShell 7 ワンライナー:
+
+```powershell
+python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='select name, coalesce(nullif(trim(building_availability_label), ?), ?) from building_summaries order by name limit 50'; [print(f'{n}\t{l}') for n, l in c.execute(q, ('', '—'))]"
 ```
 
 - `listings count (main)`（`data/tatemono_map.sqlite3`）とは母集団・集計単位が異なるため、同値である必要はありません。
