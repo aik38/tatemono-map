@@ -17,6 +17,7 @@ $ErrorActionPreference = "Stop"
 $HERE = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $REPO = (Resolve-Path (Join-Path $HERE "..")).Path
 Set-Location $REPO
+$env:PYTHONPATH = "src"
 
 if ([string]::IsNullOrWhiteSpace($DbPath)) {
   if ($env:SQLITE_DB_PATH) { $DbPath = $env:SQLITE_DB_PATH }

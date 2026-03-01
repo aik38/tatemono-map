@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-from datetime import datetime
 
 from tatemono_map.db.repo import connect, replace_building_summary
 from tatemono_map.util.text import normalize_text
@@ -48,21 +47,36 @@ def _pick_built_year_month(values: list[str]) -> str | None:
     return modes[0]
 
 
-def _pick_availability_label(items: list) -> str | None:
-    if not items:
-        return None
-    if any(int(r["availability_flag_immediate"] or 0) == 1 for r in items):
-        return "即入居"
-
-    dates = sorted({normalize_text(r["availability_date"]) for r in items if normalize_text(r["availability_date"])})
-    if not dates:
-        return None
-    earliest = dates[0]
-    try:
-        d = datetime.strptime(earliest, "%Y-%m-%d")
-        return f"{d.month}/{d.day}"
-    except ValueError:
-        return earliest
+def refresh_building_availability_labels(conn) -> None:
+    conn.execute(
+        """
+        UPDATE building_summaries AS bs
+        SET building_availability_label = CASE
+            WHEN EXISTS(
+                SELECT 1
+                FROM listings AS l
+                LEFT JOIN building_key_aliases AS bka ON bka.alias_key = l.building_key
+                WHERE COALESCE(bka.canonical_key, l.building_key) = bs.building_key
+                  AND COALESCE(l.availability_raw, '') LIKE '%即入%'
+            ) THEN '即入'
+            WHEN EXISTS(
+                SELECT 1
+                FROM listings AS l
+                LEFT JOIN building_key_aliases AS bka ON bka.alias_key = l.building_key
+                WHERE COALESCE(bka.canonical_key, l.building_key) = bs.building_key
+                  AND COALESCE(l.availability_raw, '') LIKE '%空室%'
+            ) THEN '空室'
+            WHEN EXISTS(
+                SELECT 1
+                FROM listings AS l
+                LEFT JOIN building_key_aliases AS bka ON bka.alias_key = l.building_key
+                WHERE COALESCE(bka.canonical_key, l.building_key) = bs.building_key
+                  AND COALESCE(l.availability_raw, '') LIKE '%退去予定%'
+            ) THEN '退去予定'
+            ELSE ''
+        END
+        """
+    )
 
 
 def rebuild(db_path: str) -> int:
@@ -83,7 +97,7 @@ def rebuild(db_path: str) -> int:
         """
         SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in_date, updated_at,
                age_years, structure, availability_raw, built_raw, structure_raw,
-               built_year_month, built_age_years, availability_date, availability_flag_immediate
+               built_year_month, built_age_years
         FROM listings
         ORDER BY id DESC
         """
@@ -133,11 +147,13 @@ def rebuild(db_path: str) -> int:
                 "building_built_year_month": _pick_built_year_month(built_year_month_values),
                 "building_built_age_years": _pick_age_years(built_age_values),
                 "building_structure": _pick_structure(building_structure_values) or _pick_structure(structure_values),
-                "building_availability_label": _pick_availability_label(items),
+                "building_availability_label": "",
                 "vacancy_count": len(items),
                 "last_updated": latest,
             },
         )
+
+    refresh_building_availability_labels(conn)
 
     total = conn.execute("SELECT COUNT(*) AS c FROM building_summaries").fetchone()["c"]
     print(

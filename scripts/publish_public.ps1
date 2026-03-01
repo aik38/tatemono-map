@@ -12,6 +12,8 @@ if (-not (Test-Path (Join-Path $repo "pyproject.toml"))) {
   throw "pyproject.toml not found. Refusing to run outside tatemono-map repo: $repo"
 }
 
+$env:PYTHONPATH = "src"
+
 $venvPython = Join-Path $repo ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
   throw "Python executable not found: $venvPython`nRun scripts/setup.ps1 first."
