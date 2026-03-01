@@ -21,7 +21,7 @@ git -C $REPO push
   - `public.sqlite3` に `listings` は含めない（サイズ/プライバシー/公開性能のため）。UI は `building_summaries` を参照する。
 - **フロントエンド実行時の参照元**
   - Runtime UI は GitHub Pages 上の `dist/` を読む。
-  - `dist/` は Git 管理せず、Pages CI（`.github/workflows/pages.yml`）が毎回 `data/public/public.sqlite3` から再生成する。
+  - `dist/` は Git 管理せず、Pages CI（`.github/workflows/deploy_pages.yml`）が毎回 `data/public/public.sqlite3` から再生成する。
 
 ```text
 data/canonical/*
@@ -33,7 +33,8 @@ data/canonical/*
 
 ## 運用の唯一の正解（Windows / PowerShell 7）
 
-> 週次運用の 1 コマンドは `scripts/run_to_pages.ps1` です（ingest -> publish_public -> git add/commit/push）。
+> 週次運用の 1 コマンドは `scripts/run_to_pages.ps1` です（ingest -> publish_public -> `data/public/public.sqlite3` を git add/commit/push）。
+> `master_import.csv` の作成は `scripts/run_pdf_zip_latest.ps1` を使います。
 
 ### 1) 初回セットアップ（setup）
 
@@ -145,7 +146,7 @@ select coalesce(sum(vacancy_count), 0) from building_summaries;
 ### 公開の仕組み
 - GitHub Pages の Source は **GitHub Actions**（`main` push 起動）を使用します。
 - 公開入力は `data/public/public.sqlite3` です（git 管理対象）。
-- `dist/` は git 管理対象ではなく、CI（`.github/workflows/pages.yml`）が毎回 `data/public/public.sqlite3` から再生成して deploy します。
+- `dist/` は git 管理対象ではなく、CI（`.github/workflows/deploy_pages.yml`）が毎回 `data/public/public.sqlite3` から再生成して deploy します。
 
 ### トラブルシュート（反映されない時）
 1. GitHub の **Actions** で `Deploy static site to GitHub Pages` が `Success` になっているか確認する。
@@ -153,7 +154,7 @@ select coalesce(sum(vacancy_count), 0) from building_summaries;
 3. スマホ/ブラウザで古く見える場合は、シークレットウィンドウで開くか、対象サイトのキャッシュ/サイトデータを削除して再読み込みする。
 
 ### よくあるミス
-- `dist/` を push しても公開反映には使われない（CI が再生成する）。
+- `dist/` を push しても公開反映には使われない（CI が再生成する）。**正道は `data/public/public.sqlite3` を commit/push すること。**
 - `main` 以外のブランチに push している。
 - `data/public/public.sqlite3` の更新を commit していない。
 - ingest または `publish_public` が失敗して DB が更新されていない。
