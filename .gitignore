@@ -79,3 +79,4 @@ tmp/manual/
 *.bak
 *~
 tmp/pages_like_root/
+dist/
