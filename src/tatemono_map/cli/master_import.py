@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -29,6 +30,22 @@ MASTER_COLUMNS = (
 MASTER_COLUMNS_WITH_EVIDENCE = MASTER_COLUMNS + ("evidence_id",)
 
 
+MASTER_REQUIRED_COLUMNS = (
+    "page",
+    "category",
+    "updated_at",
+    "building_name",
+    "room",
+    "address",
+    "rent_man",
+    "fee_man",
+    "floor",
+    "layout",
+    "area_sqm",
+    "raw_block",
+)
+
+
 def _clean_text(value: str | None) -> str:
     return (value or "").strip()
 
@@ -47,11 +64,28 @@ def _parse_area(value: str | None) -> float | None:
     return float(cleaned)
 
 
+def _parse_int(value: str | None) -> int | None:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return None
+    return int(float(cleaned))
+
+
 def _fallback_updated_at(value: str | None) -> str:
     cleaned = _clean_text(value)
     if cleaned:
         return cleaned
     return datetime.now().strftime("%Y/%m/%d 00:00")
+
+
+def _derive_file_from_evidence_id(value: str | None) -> str | None:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return None
+    m = re.match(r"^pdf:([^#]+)", cleaned)
+    if not m:
+        return None
+    return m.group(1)
 
 
 def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
@@ -71,8 +105,11 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
     with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.DictReader(fh)
         header = tuple(reader.fieldnames or ())
-        if header not in (MASTER_COLUMNS, MASTER_COLUMNS_WITH_EVIDENCE):
-            raise ValueError(f"Unexpected master.csv header: {reader.fieldnames}")
+        missing_required = [column for column in MASTER_REQUIRED_COLUMNS if column not in header]
+        if missing_required:
+            raise ValueError(
+                f"Unexpected master.csv header. missing_required={missing_required} got={list(header)}"
+            )
 
         for row in reader:
             category = _clean_text(row.get("category"))
@@ -126,6 +163,16 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
             maint_yen = _parse_man_to_yen(row.get("fee_man"))
             layout = _clean_text(row.get("layout")) or None
             area_sqm = _parse_area(row.get("area_sqm"))
+            age_years = _parse_int(row.get("age_years"))
+            structure = _clean_text(row.get("structure")) or None
+            availability_raw = _clean_text(row.get("availability_raw")) or None
+            built_raw = _clean_text(row.get("built_raw")) or None
+            built_year_month = _clean_text(row.get("built_year_month")) or None
+            built_age_years = _parse_int(row.get("built_age_years"))
+            availability_date = _clean_text(row.get("availability_date")) or None
+            availability_flag_immediate = _clean_text(row.get("availability_flag_immediate"))
+            structure_raw = _clean_text(row.get("structure_raw")) or None
+            file_value = _clean_text(row.get("file")) or _derive_file_from_evidence_id(row.get("evidence_id"))
 
             conn.execute(
                 """
@@ -139,8 +186,10 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                 INSERT INTO listings(
                     listing_key, building_key, name, address, room_label,
                     rent_yen, maint_yen, layout, area_sqm, move_in_date,
+                    age_years, structure, availability_raw, built_raw, structure_raw,
+                    built_year_month, built_age_years, availability_date, availability_flag_immediate,
                     updated_at, source_kind, source_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     listing_key,
@@ -153,9 +202,18 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                     layout,
                     area_sqm,
                     None,
+                    age_years,
+                    structure,
+                    availability_raw,
+                    built_raw,
+                    structure_raw,
+                    built_year_month,
+                    built_age_years,
+                    availability_date,
+                    1 if availability_flag_immediate in {"1", "true", "True"} else (0 if availability_flag_immediate in {"0", "false", "False"} else None),
                     updated_at,
                     "master",
-                    source_url,
+                    file_value or source_url,
                 ),
             )
             conn.execute(
@@ -163,8 +221,10 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                 INSERT INTO raw_units(
                     listing_key, building_key, name, address, room_label,
                     rent_yen, maint_yen, layout, area_sqm, move_in_date,
+                    age_years, structure, availability_raw, built_raw, structure_raw,
+                    built_year_month, built_age_years, availability_date, availability_flag_immediate,
                     updated_at, source_kind, source_url, management_company, management_phone
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     listing_key,
@@ -177,9 +237,18 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                     layout,
                     area_sqm,
                     None,
+                    age_years,
+                    structure,
+                    availability_raw,
+                    built_raw,
+                    structure_raw,
+                    built_year_month,
+                    built_age_years,
+                    availability_date,
+                    1 if availability_flag_immediate in {"1", "true", "True"} else (0 if availability_flag_immediate in {"0", "false", "False"} else None),
                     updated_at,
                     "master",
-                    source_url,
+                    file_value or source_url,
                     None,
                     None,
                 ),
