@@ -223,3 +223,15 @@ python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --outpu
 ```
 - `data/public/public.sqlite3` の `building_summaries` に `age_years` / `structure` 列があることを確認します。
 - `dist/b/*.html` の建物詳細で「築年数」「構造」が表示され、「最終更新日時」が表示されないことを確認します。
+
+
+### v2 JSON 配信ヘッダー確認（gzip / br）
+- Pages 上で `buildings.v2.min.json` / `buildings.json` の圧縮配信を確認する手順です（実装変更は不要）。
+
+```powershell
+curl.exe -I https://aik38.github.io/tatemono-map/data/buildings.v2.min.json
+Invoke-WebRequest -Method Head https://aik38.github.io/tatemono-map/data/buildings.v2.min.json | Select-Object -ExpandProperty Headers
+```
+
+- `Content-Encoding: gzip` または `Content-Encoding: br` を確認します。
+- 併せて Chrome DevTools > Network で同ファイルを開き、Response Headers の `Content-Encoding` を確認します。

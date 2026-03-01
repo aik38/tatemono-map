@@ -61,10 +61,23 @@ Invoke-WebRequest https://aik38.github.io/tatemono-map/index.html | Select-Objec
 
 ## v2 一覧の軽量化（JSON方式）
 
-- `python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2` 実行時に `dist/data/buildings.json` を生成する。
-- `dist/index.html`（v2）は `./data/buildings.json` を fetch して、初期は50件のみ描画する。
-- 検索入力は debounce（250ms）を入れて、ヒット件数が多い場合は先頭200件まで描画する。
-- 確認時は DevTools の Network で `buildings.json` が 200 で取得できるか、Elements でカードが段階描画されるかを確認する。
+- `python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2` 実行時に `dist/data/buildings.json` と `dist/data/buildings.v2.min.json` を生成する。
+- `dist/index.html`（v2）は `./data/buildings.v2.min.json` を優先 fetch し、404/parseエラー/必須キー不足時は `./data/buildings.json` にフォールバックする。
+- 初期描画は50件、検索入力は debounce（250ms）、ヒット件数が多い場合は先頭200件まで描画する。
+- 計測ログは `console.info` に `[v2][perf]` として出力される（fetch開始/response受信/JSON.parse完了/初期描画完了/検索1回の filter+render）。
+- 確認時は DevTools の Network で `buildings.v2.min.json`（失敗時は `buildings.json`）が 200 で取得できるか、Elements でカードが段階描画されるかを確認する。
+
+### gzip / br 配信の確認手順（実装変更なし）
+
+- Chrome DevTools の Network で `buildings.v2.min.json` または `buildings.json` を選び、Response Headers の `Content-Encoding` が `gzip` または `br` になっているか確認する。
+- PowerShell（Windows）例:
+
+```powershell
+curl.exe -I https://aik38.github.io/tatemono-map/data/buildings.v2.min.json
+Invoke-WebRequest -Method Head https://aik38.github.io/tatemono-map/data/buildings.v2.min.json | Select-Object -ExpandProperty Headers
+```
+
+- `Content-Encoding` が見えない場合は、CDNキャッシュやプロキシ条件で変わるため、ブラウザの実レスポンスヘッダーも合わせて確認する。
 
 ---
 

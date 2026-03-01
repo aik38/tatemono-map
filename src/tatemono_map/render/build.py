@@ -195,7 +195,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     return building_list, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total
 
 
-def _write_buildings_json(output_dir: Path, buildings: list[dict]) -> None:
+def _build_buildings_payload(buildings: list[dict]) -> list[dict]:
     payload = []
     for b in buildings:
         payload.append(
@@ -220,12 +220,47 @@ def _write_buildings_json(output_dir: Path, buildings: list[dict]) -> None:
                 "building_availability_label": b.get("building_availability_label"),
             }
         )
+    return payload
+
+
+def _build_buildings_v2_min_payload(buildings: list[dict]) -> list[dict]:
+    payload = []
+    for b in buildings:
+        payload.append(
+            {
+                "id": b.get("building_key"),
+                "name": b.get("name"),
+                "address": b.get("address"),
+                "vacancy_count": b.get("vacancy_count"),
+                "rent_min": b.get("rent_yen_min"),
+                "rent_max": b.get("rent_yen_max"),
+                "area_min": b.get("area_sqm_min"),
+                "area_max": b.get("area_sqm_max"),
+                "updated_at": b.get("last_updated") or b.get("updated_at"),
+                "updated_epoch": b.get("updated_epoch"),
+                "building_structure": b.get("building_structure") or b.get("structure"),
+                "building_availability_label": b.get("building_availability_label"),
+                "building_built_year_month": b.get("building_built_year_month"),
+                "building_built_age_years": b.get("building_built_age_years") if b.get("building_built_age_years") is not None else b.get("age_years"),
+            }
+        )
+    return payload
+
+
+def _write_buildings_json(output_dir: Path, buildings: list[dict]) -> None:
+    payload = _build_buildings_payload(buildings)
+    payload_v2_min = _build_buildings_v2_min_payload(buildings)
 
     data_dir = output_dir / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    (data_dir / "buildings.json").write_text(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
+    buildings_path = data_dir / "buildings.json"
+    buildings_path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    buildings_v2_min_path = data_dir / "buildings.v2.min.json"
+    buildings_v2_min_path.write_text(json.dumps(payload_v2_min, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+
+    print(f"render_buildings_json path={buildings_path} bytes={buildings_path.stat().st_size} count={len(payload)}")
+    print(
+        f"render_buildings_json path={buildings_v2_min_path} bytes={buildings_v2_min_path.stat().st_size} count={len(payload_v2_min)}"
     )
 
 

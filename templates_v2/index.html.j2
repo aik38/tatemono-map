@@ -124,6 +124,7 @@
   let displayLimit = PAGE_SIZE;
   let currentQuery = '';
   let debounceTimer = null;
+  const REQUIRED_KEYS = ['id', 'name', 'address', 'vacancy_count', 'rent_min', 'rent_max', 'area_min', 'area_max', 'updated_epoch'];
 
   function getMatchScore(card, q) {
     if (!q) return 0;
@@ -230,7 +231,8 @@
     loadMore.hidden = !canMore;
   }
 
-  function applyFiltersAndSort(resetLimit = false) {
+  function applyFiltersAndSort(resetLimit = false, traceLabel = '') {
+    const perfStart = performance.now();
     const sorter = sorters[sortSelect.value] || sorters.updated_desc;
     filtered = [];
 
@@ -245,6 +247,11 @@
       displayLimit = PAGE_SIZE;
     }
     render();
+    const perfEnd = performance.now();
+    if (traceLabel) {
+      console.info(`[v2][perf] ${traceLabel} filter+render_ms=${(perfEnd - perfStart).toFixed(2)} query="${currentQuery}" filtered=${filtered.length}`);
+    }
+    return perfEnd - perfStart;
   }
 
   function handleInput() {
@@ -253,7 +260,7 @@
       clearTimeout(debounceTimer);
     }
     debounceTimer = window.setTimeout(() => {
-      applyFiltersAndSort(true);
+      applyFiltersAndSort(true, 'search');
     }, SEARCH_DEBOUNCE_MS);
   }
 
@@ -270,13 +277,50 @@
     counts.hidden = true;
   }
 
+
+  function validateRawItems(raw, sourceLabel) {
+    if (!Array.isArray(raw)) {
+      throw new Error(`Invalid payload (not array) from ${sourceLabel}`);
+    }
+    const first = raw[0];
+    if (!first) {
+      return;
+    }
+    const missing = REQUIRED_KEYS.filter((key) => !(key in first));
+    if (missing.length > 0) {
+      throw new Error(`Missing keys (${missing.join(',')}) from ${sourceLabel}`);
+    }
+  }
+
+  async function fetchBuildingsJson(path, sourceLabel) {
+    const fetchStart = performance.now();
+    console.info(`[v2][perf] fetch_start source=${sourceLabel} url=${path}`);
+    const response = await fetch(path, { cache: 'no-cache' });
+    const responseReceived = performance.now();
+    console.info(`[v2][perf] fetch_response source=${sourceLabel} status=${response.status} elapsed_ms=${(responseReceived - fetchStart).toFixed(2)}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const raw = await response.json();
+    const jsonParsed = performance.now();
+    console.info(`[v2][perf] json_parse_done source=${sourceLabel} elapsed_ms=${(jsonParsed - responseReceived).toFixed(2)}`);
+    validateRawItems(raw, sourceLabel);
+    return { raw, sourceLabel, fetchStart, responseReceived, jsonParsed };
+  }
+
+  async function loadBuildingsWithFallback() {
+    try {
+      return await fetchBuildingsJson('./data/buildings.v2.min.json', 'buildings.v2.min.json');
+    } catch (minError) {
+      console.info(`[v2][perf] min_fallback reason=${String(minError)}`);
+      return await fetchBuildingsJson('./data/buildings.json', 'buildings.json');
+    }
+  }
+
   async function init() {
     try {
-      const response = await fetch('./data/buildings.json', { cache: 'no-cache' });
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      const raw = await response.json();
+      const loadResult = await loadBuildingsWithFallback();
+      const raw = loadResult.raw;
       buildings = raw.map((item, index) => ({
         id: item.id,
         name: item.name || '',
@@ -305,6 +349,11 @@
       document.querySelector('.intro-kpis .kpi:nth-child(2)').innerHTML = `<span>空部屋</span>${formatCount(totalVacancies)}件`;
 
       applyFiltersAndSort(true);
+      const initialRendered = Math.min(PAGE_SIZE, buildings.length);
+      const initDone = performance.now();
+      console.info(
+        `[v2][perf] initial_render_done source=${loadResult.sourceLabel} initial_count=${initialRendered} total_count=${buildings.length} total_elapsed_ms=${(initDone - loadResult.fetchStart).toFixed(2)}`
+      );
     } catch (error) {
       showError('データの読み込みに失敗しました。時間をおいて再読み込みしてください。');
     }
