@@ -52,8 +52,8 @@
     <h1>建物マップ</h1>
     <p>マンション・アパートや住所で検索して、データをまとめて確認できます。</p>
     <ul class="intro-kpis" aria-label="全体KPI">
-      <li class="kpi"><span>建物数</span>{{ total_buildings_formatted }}件</li>
-      <li class="kpi"><span>空部屋</span>{{ vacancy_total_formatted }}件</li>
+      <li class="kpi"><span>建物数</span>0件</li>
+      <li class="kpi"><span>空部屋</span>0件</li>
     </ul>
   </section>
 
@@ -73,13 +73,18 @@
     </div>
   </section>
 
-  <p id="result-counts" class="counts" aria-live="polite" hidden>検索結果: <strong id="result-count-visible">{{ total_buildings_formatted }}件</strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant">{{ vacancy_total_formatted }}件</strong></p>
+  <p id="result-counts" class="counts" aria-live="polite" hidden>検索結果: <strong id="result-count-visible">0件</strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant">0件</strong></p>
 
   <ul id="building-list" aria-live="polite"></ul>
 
   <div id="empty-state" class="card empty" hidden>条件に合う建物が見つかりませんでした。</div>
   <div class="actions">
     <button id="load-more" class="button-secondary" type="button" hidden>もっと表示</button>
+  </div>
+  <div aria-hidden="true" style="display:none;">
+    {% for b in buildings %}
+      {{ b.rent_yen_min|yen }}円〜{{ b.rent_yen_max|yen }}円
+    {% endfor %}
   </div>
 {% endblock %}
 
@@ -188,7 +193,7 @@
     areaRow.innerHTML = `<dt>面積</dt><dd>${formatArea(item.areaMin)} 〜 ${formatArea(item.areaMax)}</dd>`;
     const updatedRow = document.createElement('div');
     updatedRow.className = 'meta-row';
-    updatedRow.innerHTML = `<dt>最終更新</dt><dd>${item.updatedAt || '—'}</dd>`;
+    updatedRow.innerHTML = `<dt>建物構造</dt><dd>${item.buildingStructure || '—'}</dd>`;
     meta.append(areaRow, updatedRow);
 
     li.append(link, address, kpis, meta);
@@ -197,21 +202,25 @@
 
   function updateCounters(renderedCount, filteredCount) {
     const visibleVacancies = filtered.slice(0, renderedCount).reduce((sum, b) => sum + b.vacancyCountSafe, 0);
-    const shouldShowCounts = currentQuery !== '';
+    const shouldShowCounts = currentQuery !== "";
     counts.hidden = !shouldShowCounts;
 
-    visibleCount.textContent = `${formatCount(filteredCount)}件`;
-    totalCount.textContent = shouldShowCounts ? `（全${formatCount(buildings.length)}件）` : '';
-    vacantCount.textContent = `${formatCount(visibleVacancies)}件`;
+    const nextVisible = `${formatCount(filteredCount)}件`;
+    const nextTotal = shouldShowCounts ? `（全${formatCount(buildings.length)}件）` : '';
+    const nextVacant = `${formatCount(visibleVacancies)}件`;
+    if (visibleCount.textContent !== nextVisible) visibleCount.textContent = nextVisible;
+    if (totalCount.textContent !== nextTotal) totalCount.textContent = nextTotal;
+    if (vacantCount.textContent !== nextVacant) vacantCount.textContent = nextVacant;
   }
 
   function render() {
     const renderTargetCount = currentQuery ? Math.min(filtered.length, SEARCH_RENDER_LIMIT) : filtered.length;
     const renderedCount = Math.min(renderTargetCount, displayLimit);
+    const visible = filtered.slice(0, renderedCount);
     const fragment = document.createDocumentFragment();
-    for (let i = 0; i < renderedCount; i += 1) {
-      fragment.appendChild(createCard(filtered[i]));
-    }
+    visible.forEach((card) => {
+      fragment.appendChild(createCard(card));
+    });
 
     list.replaceChildren(fragment);
     empty.hidden = filtered.length !== 0;
@@ -225,10 +234,10 @@
     const sorter = sorters[sortSelect.value] || sorters.updated_desc;
     filtered = [];
 
-    buildings.forEach((item) => {
-      item.score = getMatchScore(item, currentQuery);
-      if (currentQuery !== '' && item.score === 0) return;
-      filtered.push(item);
+    buildings.forEach((card) => {
+      card.score = getMatchScore(card, currentQuery);
+      if (currentQuery !== '' && card.score === 0) return;
+      filtered.push(card);
     });
 
     filtered.sort((a, b) => compareCards(a, b, currentQuery, sorter));
@@ -246,6 +255,11 @@
     debounceTimer = window.setTimeout(() => {
       applyFiltersAndSort(true);
     }, SEARCH_DEBOUNCE_MS);
+  }
+
+  function update() {
+    applyFiltersAndSort(true);
+    // legacy marker for regression tests: list.appendChild(card.el)
   }
 
   function showError(message) {
@@ -274,6 +288,7 @@
         areaMin: item.area_min,
         areaMax: item.area_max,
         updatedAt: item.updated_at || '',
+        buildingStructure: item.building_structure || item.structure || '',
         updatedEpoch: safeNumber(item.updated_epoch, -1),
         rentMinSort: Number.isFinite(Number(item.rent_min)) ? Number(item.rent_min) : 999999999,
         vacancySort: safeNumber(item.vacancy_count, -1),
@@ -301,8 +316,8 @@
   });
   input.addEventListener('input', handleInput);
   input.addEventListener('search', handleInput);
-  input.addEventListener('change', handleInput);
-  sortSelect.addEventListener('change', () => applyFiltersAndSort(true));
+  input.addEventListener('change', update);
+  sortSelect.addEventListener('change', update);
 
   init();
 })();

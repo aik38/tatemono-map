@@ -49,3 +49,79 @@ def test_summary_age_years_and_structure_aggregation_rules(tmp_path):
 
     assert row["age_years"] == 11
     assert row["structure"] == "RC"
+
+
+def test_summary_building_availability_prefers_immediate(tmp_path):
+    db = tmp_path / "test3.sqlite3"
+    conn = connect(db)
+    conn.execute("INSERT INTO buildings(building_id, canonical_name, canonical_address) VALUES ('b1','Aマンション','東京都A')")
+    conn.executemany(
+        """
+        INSERT INTO listings(
+            listing_key, building_key, name, address, room_label, rent_yen, maint_yen, layout, area_sqm,
+            move_in_date, age_years, structure, built_year_month, built_age_years,
+            availability_date, availability_flag_immediate, structure_raw, updated_at, source_kind, source_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                "l1",
+                "b1",
+                "Aマンション",
+                "東京都A",
+                "101",
+                50000,
+                0,
+                "1K",
+                20.0,
+                "3/9",
+                3,
+                "RC",
+                "2023-01",
+                3,
+                "2026-03-09",
+                0,
+                "RC",
+                "2026-02-28",
+                "master",
+                "s1",
+            ),
+            (
+                "l2",
+                "b1",
+                "Aマンション",
+                "東京都A",
+                "102",
+                52000,
+                0,
+                "1K",
+                21.0,
+                "即入居",
+                3,
+                "RC",
+                "2023-01",
+                3,
+                None,
+                1,
+                "RC",
+                "2026-02-28",
+                "master",
+                "s2",
+            ),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    row = conn.execute(
+        "SELECT building_availability_label, building_structure, building_built_year_month, building_built_age_years FROM building_summaries WHERE building_key='b1'"
+    ).fetchone()
+    conn.close()
+
+    assert row["building_availability_label"] == "即入居"
+    assert row["building_structure"] == "RC"
+    assert row["building_built_year_month"] == "2023-01"
+    assert row["building_built_age_years"] == 3

@@ -5,6 +5,8 @@ import csv
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime
+
+from tatemono_map.normalize.listing_fields import normalize_availability, normalize_built
 from pathlib import Path
 
 from tatemono_map.cli.master_import import _clean_text, _fallback_updated_at, _parse_area, _parse_man_to_yen
@@ -27,12 +29,58 @@ MASTER_COLUMNS = (
     "floor",
     "layout",
     "area_sqm",
+    "availability_raw",
+    "built_raw",
+    "age_years",
+    "structure",
+    "built_year_month",
+    "built_age_years",
+    "availability_date",
+    "availability_flag_immediate",
+    "structure_raw",
+    "raw_block",
+    "evidence_id",
+)
+MASTER_COLUMNS_LEGACY = MASTER_COLUMNS[:-1]
+MASTER_COLUMNS_CLASSIC = (
+    "page",
+    "category",
+    "updated_at",
+    "building_name",
+    "room",
+    "address",
+    "rent_man",
+    "fee_man",
+    "floor",
+    "layout",
+    "area_sqm",
     "age_years",
     "structure",
     "raw_block",
     "evidence_id",
 )
-MASTER_COLUMNS_LEGACY = MASTER_COLUMNS[:-1]
+MASTER_COLUMNS_WITH_FILE_CLASSIC = (
+    "category",
+    "updated_at",
+    "building_name",
+    "room",
+    "address",
+    "rent_man",
+    "fee_man",
+    "layout",
+    "floor",
+    "area_sqm",
+    "age_years",
+    "structure",
+    "file",
+    "page",
+    "raw_block",
+    "evidence_id",
+)
+MASTER_COLUMNS_NO_AGE_STRUCTURE_CLASSIC = tuple(col for col in MASTER_COLUMNS_CLASSIC if col not in ("age_years", "structure"))
+MASTER_COLUMNS_WITH_FILE_NO_AGE_STRUCTURE_CLASSIC = tuple(
+    col for col in MASTER_COLUMNS_WITH_FILE_CLASSIC if col not in ("age_years", "structure")
+)
 MASTER_COLUMNS_NO_AGE_STRUCTURE = tuple(col for col in MASTER_COLUMNS if col not in ("age_years", "structure"))
 MASTER_COLUMNS_LEGACY_NO_AGE_STRUCTURE = MASTER_COLUMNS_NO_AGE_STRUCTURE[:-1]
 MASTER_COLUMNS_WITH_FILE = (
@@ -168,6 +216,10 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
             MASTER_COLUMNS_NO_AGE_STRUCTURE,
             MASTER_COLUMNS_LEGACY_NO_AGE_STRUCTURE,
             MASTER_COLUMNS_WITH_FILE_NO_AGE_STRUCTURE,
+            MASTER_COLUMNS_CLASSIC,
+            MASTER_COLUMNS_WITH_FILE_CLASSIC,
+            MASTER_COLUMNS_NO_AGE_STRUCTURE_CLASSIC,
+            MASTER_COLUMNS_WITH_FILE_NO_AGE_STRUCTURE_CLASSIC,
         )
         if got not in accepted_headers:
             expected_headers = [
@@ -177,6 +229,10 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                 MASTER_COLUMNS_WITH_FILE_NO_AGE_STRUCTURE,
                 MASTER_COLUMNS_NO_AGE_STRUCTURE,
                 MASTER_COLUMNS_LEGACY_NO_AGE_STRUCTURE,
+                MASTER_COLUMNS_WITH_FILE_CLASSIC,
+                MASTER_COLUMNS_CLASSIC,
+                MASTER_COLUMNS_WITH_FILE_NO_AGE_STRUCTURE_CLASSIC,
+                MASTER_COLUMNS_NO_AGE_STRUCTURE_CLASSIC,
             ]
             expected_display = " | ".join(str(list(cols)) for cols in expected_headers)
             raise ValueError(
@@ -287,6 +343,20 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
             area_sqm = _parse_area(row.get("area_sqm"))
             age_years = _parse_age_years(row.get("age_years"))
             structure = _parse_structure(row.get("structure"))
+            availability_raw = _clean_text(row.get("availability_raw"))
+            built_raw = _clean_text(row.get("built_raw"))
+            structure_raw = _clean_text(row.get("structure_raw")) or structure
+
+            parsed_built_year_month, parsed_built_age_years = normalize_built(built_raw)
+            built_year_month = _clean_text(row.get("built_year_month")) or parsed_built_year_month
+            built_age_years = _parse_age_years(row.get("built_age_years"))
+            if built_age_years is None:
+                built_age_years = parsed_built_age_years
+
+            ref_date = _fallback_updated_at(row.get("updated_at"))
+            immediate_detected, move_in_label, normalized_availability_date = normalize_availability(availability_raw, ref_date)
+            availability_date = _clean_text(row.get("availability_date")) or normalized_availability_date
+            availability_flag_immediate = 1 if immediate_detected else 0
 
             conn.execute(
                 """
@@ -300,8 +370,10 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                 INSERT INTO listings(
                     listing_key, building_key, name, address, room_label,
                     rent_yen, maint_yen, layout, area_sqm, move_in_date,
-                    age_years, structure, updated_at, source_kind, source_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    age_years, structure, availability_raw, built_raw, structure_raw,
+                    built_year_month, built_age_years, availability_date, availability_flag_immediate,
+                    updated_at, source_kind, source_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(listing_key) DO UPDATE SET
                     building_key=excluded.building_key,
                     name=excluded.name,
@@ -313,6 +385,13 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                     area_sqm=excluded.area_sqm,
                     age_years=excluded.age_years,
                     structure=excluded.structure,
+                    availability_raw=excluded.availability_raw,
+                    built_raw=excluded.built_raw,
+                    structure_raw=excluded.structure_raw,
+                    built_year_month=excluded.built_year_month,
+                    built_age_years=excluded.built_age_years,
+                    availability_date=excluded.availability_date,
+                    availability_flag_immediate=excluded.availability_flag_immediate,
                     updated_at=excluded.updated_at,
                     source_kind=excluded.source_kind,
                     source_url=excluded.source_url
@@ -327,9 +406,16 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                     maint_yen,
                     layout,
                     area_sqm,
-                    None,
+                    move_in_label,
                     age_years,
                     structure,
+                    availability_raw,
+                    built_raw,
+                    structure_raw,
+                    built_year_month,
+                    built_age_years,
+                    availability_date,
+                    availability_flag_immediate,
                     updated_at,
                     "master",
                     source_url,
