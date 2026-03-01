@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from datetime import datetime
 
 from tatemono_map.db.repo import connect, replace_building_summary
 from tatemono_map.util.text import normalize_text
@@ -37,6 +38,33 @@ def _pick_structure(values: list[str]) -> str | None:
     return modes[0]
 
 
+def _pick_built_year_month(values: list[str]) -> str | None:
+    normalized_values = [normalize_text(v) for v in values if normalize_text(v)]
+    if not normalized_values:
+        return None
+    counts = Counter(normalized_values)
+    max_count = max(counts.values())
+    modes = sorted(value for value, count in counts.items() if count == max_count)
+    return modes[0]
+
+
+def _pick_availability_label(items: list) -> str | None:
+    if not items:
+        return None
+    if any(int(r["availability_flag_immediate"] or 0) == 1 for r in items):
+        return "即入居"
+
+    dates = sorted({normalize_text(r["availability_date"]) for r in items if normalize_text(r["availability_date"])})
+    if not dates:
+        return None
+    earliest = dates[0]
+    try:
+        d = datetime.strptime(earliest, "%Y-%m-%d")
+        return f"{d.month}/{d.day}"
+    except ValueError:
+        return earliest
+
+
 def rebuild(db_path: str) -> int:
     conn = connect(db_path)
     conn.execute("DELETE FROM building_summaries")
@@ -53,7 +81,9 @@ def rebuild(db_path: str) -> int:
 
     rows = conn.execute(
         """
-        SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in_date, updated_at, age_years, structure
+        SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in_date, updated_at,
+               age_years, structure, availability_raw, built_raw, structure_raw,
+               built_year_month, built_age_years, availability_date, availability_flag_immediate
         FROM listings
         ORDER BY id DESC
         """
@@ -66,7 +96,7 @@ def rebuild(db_path: str) -> int:
         grouped.setdefault(canonical_key, []).append(row)
 
     canonical_by_id = {row["building_id"]: row for row in building_rows}
-    target_keys = set(canonical_by_id.keys())
+    target_keys = set(canonical_by_id.keys()) | set(grouped.keys())
 
     for building_key in sorted(target_keys):
         items = grouped.get(building_key, [])
@@ -77,9 +107,12 @@ def rebuild(db_path: str) -> int:
         move_in_dates = sorted({normalize_text(r["move_in_date"]) for r in items if r["move_in_date"]})
         age_values = [int(r["age_years"]) for r in items if r["age_years"] is not None]
         structure_values = [r["structure"] for r in items if r["structure"]]
+        built_year_month_values = [r["built_year_month"] for r in items if r["built_year_month"]]
+        built_age_values = [int(r["built_age_years"]) for r in items if r["built_age_years"] is not None]
+        building_structure_values = [r["structure_raw"] for r in items if r["structure_raw"]]
         latest = max((r["updated_at"] for r in items if r["updated_at"]), default=None)
-        summary_name = building["canonical_name"] if building else None
-        summary_address = building["canonical_address"] if building else None
+        summary_name = building["canonical_name"] if building else (items[0]["name"] if items else None)
+        summary_address = building["canonical_address"] if building else (items[0]["address"] if items else None)
         summary_raw_name = summary_name
 
         replace_building_summary(
@@ -97,6 +130,10 @@ def rebuild(db_path: str) -> int:
                 "move_in_dates": move_in_dates,
                 "age_years": _pick_age_years(age_values),
                 "structure": _pick_structure(structure_values),
+                "building_built_year_month": _pick_built_year_month(built_year_month_values),
+                "building_built_age_years": _pick_age_years(built_age_values),
+                "building_structure": _pick_structure(building_structure_values) or _pick_structure(structure_values),
+                "building_availability_label": _pick_availability_label(items),
                 "vacancy_count": len(items),
                 "last_updated": latest,
             },

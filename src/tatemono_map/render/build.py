@@ -128,10 +128,10 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     buildings = conn.execute(
         """
         SELECT
-            b.building_id AS building_key,
-            b.canonical_name AS name,
-            b.canonical_name AS raw_name,
-            b.canonical_address AS address,
+            COALESCE(b.building_id, s.building_key) AS building_key,
+            COALESCE(b.canonical_name, s.name, s.raw_name) AS name,
+            COALESCE(b.canonical_name, s.raw_name) AS raw_name,
+            COALESCE(b.canonical_address, s.address) AS address,
             s.rent_yen_min,
             s.rent_yen_max,
             s.area_sqm_min,
@@ -140,12 +140,39 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             s.move_in_dates_json,
             s.age_years,
             s.structure,
+            s.building_built_year_month,
+            s.building_built_age_years,
+            s.building_structure,
+            s.building_availability_label,
             COALESCE(s.vacancy_count, 0) AS vacancy_count,
             s.last_updated,
-            s.updated_at
+            COALESCE(s.updated_at, b.updated_at) AS updated_at
+        FROM building_summaries s
+        LEFT JOIN buildings b ON b.building_id = s.building_key
+        UNION ALL
+        SELECT
+            b.building_id AS building_key,
+            b.canonical_name AS name,
+            b.canonical_name AS raw_name,
+            b.canonical_address AS address,
+            NULL AS rent_yen_min,
+            NULL AS rent_yen_max,
+            NULL AS area_sqm_min,
+            NULL AS area_sqm_max,
+            NULL AS layout_types_json,
+            NULL AS move_in_dates_json,
+            NULL AS age_years,
+            NULL AS structure,
+            NULL AS building_built_year_month,
+            NULL AS building_built_age_years,
+            NULL AS building_structure,
+            NULL AS building_availability_label,
+            0 AS vacancy_count,
+            NULL AS last_updated,
+            b.updated_at AS updated_at
         FROM buildings b
-        LEFT JOIN building_summaries s ON b.building_id = s.building_key
-        ORDER BY s.updated_at DESC, b.updated_at DESC
+        WHERE NOT EXISTS (SELECT 1 FROM building_summaries s WHERE s.building_key = b.building_id)
+        ORDER BY updated_at DESC
         """
     ).fetchall()
 
@@ -187,6 +214,10 @@ def _write_buildings_json(output_dir: Path, buildings: list[dict]) -> None:
                 "room_types": b.get("layout_types") or [],
                 "structure": b.get("structure"),
                 "built_year": b.get("age_years"),
+                "building_structure": b.get("building_structure") or b.get("structure"),
+                "building_built_year_month": b.get("building_built_year_month"),
+                "building_built_age_years": b.get("building_built_age_years") if b.get("building_built_age_years") is not None else b.get("age_years"),
+                "building_availability_label": b.get("building_availability_label"),
             }
         )
 

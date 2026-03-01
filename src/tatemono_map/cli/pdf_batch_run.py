@@ -45,8 +45,15 @@ MASTER_IMPORT_SCHEMA = [
     "floor",
     "layout",
     "area_sqm",
+    "availability_raw",
+    "built_raw",
     "age_years",
     "structure",
+    "built_year_month",
+    "built_age_years",
+    "availability_date",
+    "availability_flag_immediate",
+    "structure_raw",
     "raw_block",
     "evidence_id",
 ]
@@ -204,6 +211,16 @@ def parse_area_sqm(x: Any) -> float:
         return float(s)
     except Exception:
         return float("nan")
+
+
+def parse_built_raw_to_age_years(value: Any) -> float:
+    s = nfkc(value)
+    if not s:
+        return float("nan")
+    m = re.search(r"\(\s*(\d+)\s*年\s*\)", s)
+    if not m:
+        return float("nan")
+    return float(m.group(1))
 
 
 def classify_detached_house(name: str) -> bool:
@@ -407,8 +424,15 @@ class UlucksParser:
                                 "floor": "",
                                 "layout": layout,
                                 "area_sqm": parse_area_sqm(r[idx.get("面積", "")]),
-                                "age_years": float("nan"),
+                                "availability_raw": normalize_pdf_text(r[idx.get("入居時期", "")]),
+                                "built_raw": normalize_pdf_text(r[idx.get("築年", "")]),
+                                "age_years": parse_built_raw_to_age_years(r[idx.get("築年", "")]),
                                 "structure": normalize_pdf_text(r[idx.get("構造", "")]),
+                                "built_year_month": "",
+                                "built_age_years": float("nan"),
+                                "availability_date": "",
+                                "availability_flag_immediate": float("nan"),
+                                "structure_raw": normalize_pdf_text(r[idx.get("構造", "")]),
                                 "file": pdf_path.name,
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
@@ -611,8 +635,15 @@ class RealproParser:
                                 "floor": floor,
                                 "layout": layout,
                                 "area_sqm": area,
+                                "availability_raw": normalize_pdf_text(r[idx.get("入居・取引", "")]),
+                                "built_raw": "",
                                 "age_years": context[3],
                                 "structure": context[2],
+                                "built_year_month": "",
+                                "built_age_years": float("nan"),
+                                "availability_date": "",
+                                "availability_flag_immediate": float("nan"),
+                                "structure_raw": context[2],
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
                                 "evidence_id": f"pdf:{pdf_path.name}#p={pi}#i={row_i}",
