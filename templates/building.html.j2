@@ -165,7 +165,7 @@
         </div>
         <div class="fact">
           <dt>入居可能日</dt>
-          <dd>{{ building.move_in_dates | join(', ') if building.move_in_dates else '—' }}</dd>
+          <dd>{% if building.building_availability_label == '入居' %}即入居{% elif building.building_availability_label %}{{ building.building_availability_label }}{% else %}{{ building.move_in_dates | join(', ') if building.move_in_dates else '—' }}{% endif %}</dd>
         </div>
         <div class="fact">
           <dt>築年数</dt>

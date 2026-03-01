@@ -33,8 +33,7 @@ data/canonical/*
 
 ## 運用の唯一の正解（Windows / PowerShell 7）
 
-> 週次運用の 1 コマンドは `scripts/run_to_pages.ps1` です（ingest -> publish_public -> `data/public/public.sqlite3` を git add/commit/push）。
-> `master_import.csv` の作成は `scripts/run_pdf_zip_latest.ps1` を使います。
+> 週次運用の 1 コマンドは `scripts/run_all_latest.ps1` です（sync -> run_pdf_zip_latest -> 最新 master_import.csv 自動選択 -> run_to_pages -> 入居ラベル検証）。
 
 ### 1) 初回セットアップ（setup）
 
@@ -57,7 +56,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\seed_buildings_from_ui.p
 - 手動確認済み CSV（`buildings_seed_ui.csv`）を canonical DB の `buildings` へ投入します。
 - `canonical_name` / `canonical_address` は自動上書きしません。
 
-### 3) 週次1コマンド（weekly_update）
+### 3) 週次1コマンド（run_all_latest）
 
 #### 入力 ZIP の置き場・命名規則（推奨）
 - 置き場: `tmp/manual/inputs/pdf_zips/`
@@ -66,19 +65,18 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\seed_buildings_from_ui.p
 
 #### 推奨実行例
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\weekly_update.ps1 -RepoPath . -DbPath .\data\tatemono_map.sqlite3 -DownloadsDir .\tmp\manual\inputs\pdf_zips -QcMode warn
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_all_latest.ps1 -RepoPath . -DownloadsDir .\tmp\manual\inputs\pdf_zips -QcMode warn
 ```
 
-#### ZIP処理をスキップして `master_import.csv` を直指定
+#### 旧フローを手動で分けたい場合
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\weekly_update.ps1 -RepoPath . -DbPath .\data\tatemono_map.sqlite3 -MasterImportCsv <outdir>\master_import.csv
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_pdf_zip_latest.ps1 -RepoPath . -DownloadsDir .\tmp\manual\inputs\pdf_zips -QcMode warn
+$csv = Get-ChildItem -Path .\tmp\pdf_pipeline\out -Filter master_import.csv -File -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPath . -CsvPath $csv
 ```
 
-- `weekly_update` は `buildings` を再構築しません（空室取り込み + 建物突合 + review CSV + 公開生成）。
-- `weekly_update` 冒頭でスキーマ互換（列が無ければ `ALTER TABLE`）を実行するため、既存DBでも `age_years` / `structure` 追加後に再作成なしで継続運用できます。
+- `run_all_latest` は `buildings` を再構築しません（空室取り込み + 建物突合 + 公開生成）。
 - `ingest_master_import` 実行時に `buildings.norm_name` / `buildings.norm_address` は毎回自動再正規化されます（手作業不要）。
-- review CSV は `tmp/review/` に出力されます（`suspects` / `unmatched_listings` / `new_buildings`）。
-- 推奨トリアージ順は `suspects` → `unmatched_listings` → `new_buildings` です。
 
 #### 再正規化のみ先に実行したい場合（任意）
 ```powershell
@@ -132,7 +130,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 #### “空部屋” の定義（UI 表示）
 
 - UI の「空部屋」は **`data/public/public.sqlite3` の `building_summaries.vacancy_count` 合計** です。
-- 入居可能日は `ulucks` の業務ルールを反映します。`availability_raw` が空欄の場合は「即入（即入居）」として正規化されるため、`building_summaries.building_availability_label` も `即入` になります。
+- 入居可能日は `ulucks` の業務ルールを反映します。`availability_raw` が空欄の場合は「即入居」扱いとして正規化され、`building_summaries.building_availability_label` は `入居` になります。
 - つまり確認式は次です。
 
 ```sql
@@ -201,9 +199,8 @@ $DB = Join-Path $REPO "data/public/public.sqlite3"
 $BASE = "https://aik38.github.io/tatemono-map"
 
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO/sync.ps1" -RepoPath $REPO
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO/scripts/run_pdf_zip_latest.ps1" -RepoPath $REPO
-$csv = Get-ChildItem -Path "$REPO/out" -Filter "master_import.csv" -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO/scripts/run_to_pages.ps1" -RepoPath $REPO -MasterImportCsv $csv
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO/scripts/run_all_latest.ps1" -RepoPath $REPO
+$csv = Get-ChildItem -Path "$REPO/tmp/pdf_pipeline/out" -Filter "master_import.csv" -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
 python -m tatemono_map.cli.diagnose_availability --csv $csv --db $DB
 Invoke-WebRequest -UseBasicParsing "$BASE/data/buildings.v2.min.json" | Out-Null
 ```

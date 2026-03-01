@@ -358,3 +358,57 @@ def test_build_dist_versions_v2_index_has_min_json_fallback_logic(tmp_path):
     assert "./data/buildings.json" in index_v2
     assert "function loadBuildingsWithFallback()" in index_v2
     assert "function validateRawItems(raw, sourceLabel)" in index_v2
+
+
+def test_render_dist_versions_detail_shows_immediate_when_availability_label_is_nyukyo(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("即入居表示マンション", "東京都港区2-3-4", 101000, 29.0, "1DK", "2026-04-01", "ulucks", "imm-1"),
+    )
+    conn.execute(
+        """
+        UPDATE listings
+        SET move_in_date = '', availability_raw = '', availability_flag_immediate = 1
+        WHERE source_url = 'imm-1'
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail_v1 = next((out / "v1" / "b").glob("*.html")).read_text(encoding="utf-8")
+
+    assert "<dt>入居可能日</dt><dd>即入居</dd>" in detail_v2
+    assert "<dt>入居可能日</dt>" in detail_v1
+    assert "即入居" in detail_v1
+
+
+def test_render_dist_versions_detail_uses_building_availability_label_when_present(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("ラベル優先マンション", "東京都港区5-6-7", 111000, 30.0, "1LDK", "2026-05-01", "realpro", "label-1"),
+    )
+    conn.execute(
+        """
+        UPDATE listings
+        SET move_in_date = '', availability_raw = '退去予定', availability_flag_immediate = 0
+        WHERE source_url = 'label-1'
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
+    assert "<dt>入居可能日</dt><dd>退去予定</dd>" in detail_v2
