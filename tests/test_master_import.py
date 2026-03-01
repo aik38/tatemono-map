@@ -94,3 +94,39 @@ def test_master_import_accepts_new_master_import_header_and_derives_file(tmp_pat
     assert listing["structure_raw"] == "RC造"
     assert listing["age_years"] == 15
     assert listing["structure"] == "RC"
+
+
+def test_master_import_merges_duplicate_listing_keys(tmp_path: Path) -> None:
+    db_path = tmp_path / "master.sqlite3"
+    csv_path = tmp_path / "master.csv"
+
+    _write_master_csv(
+        csv_path,
+        """
+1,vacancy,2026/01/01 12:00,建物D,401,東京都D,10.0,,4F,1K,22.0,,,[dup-key]\n
+1,vacancy,2026/01/02 12:00,建物D,401,東京都D,,0.3,4F,,22.0,8,RC,[dup-key]\n
+""".replace("\n\n", "\n").lstrip(),
+    )
+
+    seed_count, vacancy_count, unique_buildings = import_master_csv(str(db_path), str(csv_path))
+    assert seed_count == 0
+    assert vacancy_count == 2
+    assert unique_buildings == 1
+
+    conn = connect(db_path)
+    listing_count = conn.execute("SELECT COUNT(*) AS c FROM listings").fetchone()["c"]
+    listing = conn.execute(
+        """
+        SELECT rent_yen, maint_yen, layout, age_years, structure, updated_at
+        FROM listings
+        """
+    ).fetchone()
+    conn.close()
+
+    assert listing_count == 1
+    assert listing["rent_yen"] == 100000
+    assert listing["maint_yen"] == 3000
+    assert listing["layout"] == "1K"
+    assert listing["age_years"] == 8
+    assert listing["structure"] == "RC"
+    assert listing["updated_at"] == "2026/01/02 12:00"

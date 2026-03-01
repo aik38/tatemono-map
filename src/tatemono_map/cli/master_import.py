@@ -90,173 +90,236 @@ def _derive_file_from_evidence_id(value: str | None) -> str | None:
 
 def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
     conn = connect(db_path)
-    conn.execute("DELETE FROM buildings")
-    conn.execute("DELETE FROM building_sources")
-    conn.execute("DELETE FROM listings")
-    conn.execute("DELETE FROM raw_units")
-    conn.execute("DELETE FROM raw_sources")
-
     seed_count = 0
     vacancy_count = 0
     seed_summaries: list[dict[str, object]] = []
     touched_buildings: set[str] = set()
     source_url = f"file:{Path(csv_path).name}"
 
-    with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
-        reader = csv.DictReader(fh)
-        header = tuple(reader.fieldnames or ())
-        missing_required = [column for column in MASTER_REQUIRED_COLUMNS if column not in header]
-        if missing_required:
-            raise ValueError(
-                f"Unexpected master.csv header. missing_required={missing_required} got={list(header)}"
-            )
+    try:
+        conn.execute("BEGIN")
+        conn.execute("DELETE FROM buildings")
+        conn.execute("DELETE FROM building_sources")
+        conn.execute("DELETE FROM listings")
+        conn.execute("DELETE FROM raw_units")
+        conn.execute("DELETE FROM raw_sources")
 
-        for row in reader:
-            category = _clean_text(row.get("category"))
-            name = _clean_text(row.get("building_name"))
-            address = _clean_text(row.get("address"))
-            if not name and not address:
-                continue
+        with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
+            reader = csv.DictReader(fh)
+            header = tuple(reader.fieldnames or ())
+            missing_required = [column for column in MASTER_REQUIRED_COLUMNS if column not in header]
+            if missing_required:
+                raise ValueError(
+                    f"Unexpected master.csv header. missing_required={missing_required} got={list(header)}"
+                )
 
-            building_key = make_building_key(name, address)
-            touched_buildings.add(building_key)
+            for row in reader:
+                category = _clean_text(row.get("category"))
+                name = _clean_text(row.get("building_name"))
+                address = _clean_text(row.get("address"))
+                if not name and not address:
+                    continue
 
-            if category in {"seed", "buildings"}:
+                building_key = make_building_key(name, address)
+                touched_buildings.add(building_key)
+
+                if category in {"seed", "buildings"}:
+                    conn.execute(
+                        """
+                        INSERT INTO buildings(
+                            building_id, canonical_name, canonical_address,
+                            norm_name, norm_address, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        ON CONFLICT(building_id) DO UPDATE SET
+                            canonical_name=excluded.canonical_name,
+                            canonical_address=excluded.canonical_address,
+                            norm_name=excluded.norm_name,
+                            norm_address=excluded.norm_address,
+                            updated_at=CURRENT_TIMESTAMP
+                        """,
+                        (building_key, name, address, name, address),
+                    )
+                    summary = {
+                        "building_key": building_key,
+                        "name": name,
+                        "raw_name": name,
+                        "address": address,
+                        "rent_yen_min": None,
+                        "rent_yen_max": None,
+                        "area_sqm_min": None,
+                        "area_sqm_max": None,
+                        "layout_types": [],
+                        "move_in_dates": [],
+                        "vacancy_count": 0,
+                        "last_updated": None,
+                    }
+                    replace_building_summary(conn, summary)
+                    seed_summaries.append(summary)
+                    seed_count += 1
+                    continue
+
+                raw_block = row.get("raw_block") or ""
+                listing_key = make_listing_key_for_master(raw_block)
+                updated_at = _fallback_updated_at(row.get("updated_at"))
+                rent_yen = _parse_man_to_yen(row.get("rent_man"))
+                maint_yen = _parse_man_to_yen(row.get("fee_man"))
+                layout = _clean_text(row.get("layout")) or None
+                area_sqm = _parse_area(row.get("area_sqm"))
+                age_years = _parse_int(row.get("age_years"))
+                structure = _clean_text(row.get("structure")) or None
+                availability_raw = _clean_text(row.get("availability_raw")) or None
+                built_raw = _clean_text(row.get("built_raw")) or None
+                built_year_month = _clean_text(row.get("built_year_month")) or None
+                built_age_years = _parse_int(row.get("built_age_years"))
+                availability_date = _clean_text(row.get("availability_date")) or None
+                availability_flag_immediate = _clean_text(row.get("availability_flag_immediate"))
+                structure_raw = _clean_text(row.get("structure_raw")) or None
+                file_value = _clean_text(row.get("file")) or _derive_file_from_evidence_id(row.get("evidence_id"))
+
                 conn.execute(
                     """
-                    INSERT INTO buildings(
-                        building_id, canonical_name, canonical_address,
-                        norm_name, norm_address, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                    ON CONFLICT(building_id) DO UPDATE SET
-                        canonical_name=excluded.canonical_name,
-                        canonical_address=excluded.canonical_address,
-                        norm_name=excluded.norm_name,
-                        norm_address=excluded.norm_address,
-                        updated_at=CURRENT_TIMESTAMP
+                    INSERT INTO raw_sources(provider, source_kind, source_url, content)
+                    VALUES (?, ?, ?, ?)
                     """,
-                    (building_key, name, address, name, address),
+                    ("master_import", "master", source_url, raw_block),
                 )
-                summary = {
-                    "building_key": building_key,
-                    "name": name,
-                    "raw_name": name,
-                    "address": address,
-                    "rent_yen_min": None,
-                    "rent_yen_max": None,
-                    "area_sqm_min": None,
-                    "area_sqm_max": None,
-                    "layout_types": [],
-                    "move_in_dates": [],
-                    "vacancy_count": 0,
-                    "last_updated": None,
-                }
-                replace_building_summary(conn, summary)
-                seed_summaries.append(summary)
-                seed_count += 1
-                continue
+                conn.execute(
+                    """
+                    INSERT INTO listings(
+                        listing_key, building_key, name, address, room_label,
+                        rent_yen, maint_yen, layout, area_sqm, move_in_date,
+                        age_years, structure, availability_raw, built_raw, structure_raw,
+                        built_year_month, built_age_years, availability_date, availability_flag_immediate,
+                        updated_at, source_kind, source_url
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(listing_key) DO UPDATE SET
+                        building_key=CASE WHEN excluded.building_key != '' THEN excluded.building_key ELSE listings.building_key END,
+                        name=CASE WHEN excluded.name != '' THEN excluded.name ELSE listings.name END,
+                        address=CASE WHEN excluded.address != '' THEN excluded.address ELSE listings.address END,
+                        room_label=CASE WHEN excluded.room_label != '' THEN excluded.room_label ELSE listings.room_label END,
+                        rent_yen=COALESCE(excluded.rent_yen, listings.rent_yen),
+                        maint_yen=COALESCE(excluded.maint_yen, listings.maint_yen),
+                        layout=CASE WHEN excluded.layout != '' THEN excluded.layout ELSE listings.layout END,
+                        area_sqm=COALESCE(excluded.area_sqm, listings.area_sqm),
+                        move_in_date=CASE WHEN excluded.move_in_date != '' THEN excluded.move_in_date ELSE listings.move_in_date END,
+                        age_years=COALESCE(excluded.age_years, listings.age_years),
+                        structure=CASE WHEN excluded.structure != '' THEN excluded.structure ELSE listings.structure END,
+                        availability_raw=CASE WHEN excluded.availability_raw != '' THEN excluded.availability_raw ELSE listings.availability_raw END,
+                        built_raw=CASE WHEN excluded.built_raw != '' THEN excluded.built_raw ELSE listings.built_raw END,
+                        structure_raw=CASE WHEN excluded.structure_raw != '' THEN excluded.structure_raw ELSE listings.structure_raw END,
+                        built_year_month=CASE WHEN excluded.built_year_month != '' THEN excluded.built_year_month ELSE listings.built_year_month END,
+                        built_age_years=COALESCE(excluded.built_age_years, listings.built_age_years),
+                        availability_date=CASE WHEN excluded.availability_date != '' THEN excluded.availability_date ELSE listings.availability_date END,
+                        availability_flag_immediate=COALESCE(excluded.availability_flag_immediate, listings.availability_flag_immediate),
+                        updated_at=CASE
+                            WHEN listings.updated_at IS NULL THEN excluded.updated_at
+                            WHEN excluded.updated_at IS NULL THEN listings.updated_at
+                            WHEN excluded.updated_at > listings.updated_at THEN excluded.updated_at
+                            ELSE listings.updated_at
+                        END,
+                        source_kind=CASE WHEN excluded.source_kind != '' THEN excluded.source_kind ELSE listings.source_kind END,
+                        source_url=CASE WHEN excluded.source_url != '' THEN excluded.source_url ELSE listings.source_url END
+                    """,
+                    (
+                        listing_key,
+                        building_key,
+                        name,
+                        address,
+                        "",
+                        rent_yen,
+                        maint_yen,
+                        layout,
+                        area_sqm,
+                        None,
+                        age_years,
+                        structure,
+                        availability_raw,
+                        built_raw,
+                        structure_raw,
+                        built_year_month,
+                        built_age_years,
+                        availability_date,
+                        1 if availability_flag_immediate in {"1", "true", "True"} else (0 if availability_flag_immediate in {"0", "false", "False"} else None),
+                        updated_at,
+                        "master",
+                        file_value or source_url,
+                    ),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO raw_units(
+                        listing_key, building_key, name, address, room_label,
+                        rent_yen, maint_yen, layout, area_sqm, move_in_date,
+                        age_years, structure, availability_raw, built_raw, structure_raw,
+                        built_year_month, built_age_years, availability_date, availability_flag_immediate,
+                        updated_at, source_kind, source_url, management_company, management_phone
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(listing_key) DO UPDATE SET
+                        building_key=CASE WHEN excluded.building_key != '' THEN excluded.building_key ELSE raw_units.building_key END,
+                        name=CASE WHEN excluded.name != '' THEN excluded.name ELSE raw_units.name END,
+                        address=CASE WHEN excluded.address != '' THEN excluded.address ELSE raw_units.address END,
+                        room_label=CASE WHEN excluded.room_label != '' THEN excluded.room_label ELSE raw_units.room_label END,
+                        rent_yen=COALESCE(excluded.rent_yen, raw_units.rent_yen),
+                        maint_yen=COALESCE(excluded.maint_yen, raw_units.maint_yen),
+                        layout=CASE WHEN excluded.layout != '' THEN excluded.layout ELSE raw_units.layout END,
+                        area_sqm=COALESCE(excluded.area_sqm, raw_units.area_sqm),
+                        move_in_date=CASE WHEN excluded.move_in_date != '' THEN excluded.move_in_date ELSE raw_units.move_in_date END,
+                        age_years=COALESCE(excluded.age_years, raw_units.age_years),
+                        structure=CASE WHEN excluded.structure != '' THEN excluded.structure ELSE raw_units.structure END,
+                        availability_raw=CASE WHEN excluded.availability_raw != '' THEN excluded.availability_raw ELSE raw_units.availability_raw END,
+                        built_raw=CASE WHEN excluded.built_raw != '' THEN excluded.built_raw ELSE raw_units.built_raw END,
+                        structure_raw=CASE WHEN excluded.structure_raw != '' THEN excluded.structure_raw ELSE raw_units.structure_raw END,
+                        built_year_month=CASE WHEN excluded.built_year_month != '' THEN excluded.built_year_month ELSE raw_units.built_year_month END,
+                        built_age_years=COALESCE(excluded.built_age_years, raw_units.built_age_years),
+                        availability_date=CASE WHEN excluded.availability_date != '' THEN excluded.availability_date ELSE raw_units.availability_date END,
+                        availability_flag_immediate=COALESCE(excluded.availability_flag_immediate, raw_units.availability_flag_immediate),
+                        updated_at=CASE
+                            WHEN raw_units.updated_at IS NULL THEN excluded.updated_at
+                            WHEN excluded.updated_at IS NULL THEN raw_units.updated_at
+                            WHEN excluded.updated_at > raw_units.updated_at THEN excluded.updated_at
+                            ELSE raw_units.updated_at
+                        END,
+                        source_kind=CASE WHEN excluded.source_kind != '' THEN excluded.source_kind ELSE raw_units.source_kind END,
+                        source_url=CASE WHEN excluded.source_url != '' THEN excluded.source_url ELSE raw_units.source_url END,
+                        management_company=COALESCE(excluded.management_company, raw_units.management_company),
+                        management_phone=COALESCE(excluded.management_phone, raw_units.management_phone)
+                    """,
+                    (
+                        listing_key,
+                        building_key,
+                        name,
+                        address,
+                        "",
+                        rent_yen,
+                        maint_yen,
+                        layout,
+                        area_sqm,
+                        None,
+                        age_years,
+                        structure,
+                        availability_raw,
+                        built_raw,
+                        structure_raw,
+                        built_year_month,
+                        built_age_years,
+                        availability_date,
+                        1 if availability_flag_immediate in {"1", "true", "True"} else (0 if availability_flag_immediate in {"0", "false", "False"} else None),
+                        updated_at,
+                        "master",
+                        file_value or source_url,
+                        None,
+                        None,
+                    ),
+                )
+                vacancy_count += 1
 
-            raw_block = row.get("raw_block") or ""
-            listing_key = make_listing_key_for_master(raw_block)
-            updated_at = _fallback_updated_at(row.get("updated_at"))
-            rent_yen = _parse_man_to_yen(row.get("rent_man"))
-            maint_yen = _parse_man_to_yen(row.get("fee_man"))
-            layout = _clean_text(row.get("layout")) or None
-            area_sqm = _parse_area(row.get("area_sqm"))
-            age_years = _parse_int(row.get("age_years"))
-            structure = _clean_text(row.get("structure")) or None
-            availability_raw = _clean_text(row.get("availability_raw")) or None
-            built_raw = _clean_text(row.get("built_raw")) or None
-            built_year_month = _clean_text(row.get("built_year_month")) or None
-            built_age_years = _parse_int(row.get("built_age_years"))
-            availability_date = _clean_text(row.get("availability_date")) or None
-            availability_flag_immediate = _clean_text(row.get("availability_flag_immediate"))
-            structure_raw = _clean_text(row.get("structure_raw")) or None
-            file_value = _clean_text(row.get("file")) or _derive_file_from_evidence_id(row.get("evidence_id"))
-
-            conn.execute(
-                """
-                INSERT INTO raw_sources(provider, source_kind, source_url, content)
-                VALUES (?, ?, ?, ?)
-                """,
-                ("master_import", "master", source_url, raw_block),
-            )
-            conn.execute(
-                """
-                INSERT INTO listings(
-                    listing_key, building_key, name, address, room_label,
-                    rent_yen, maint_yen, layout, area_sqm, move_in_date,
-                    age_years, structure, availability_raw, built_raw, structure_raw,
-                    built_year_month, built_age_years, availability_date, availability_flag_immediate,
-                    updated_at, source_kind, source_url
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    listing_key,
-                    building_key,
-                    name,
-                    address,
-                    "",
-                    rent_yen,
-                    maint_yen,
-                    layout,
-                    area_sqm,
-                    None,
-                    age_years,
-                    structure,
-                    availability_raw,
-                    built_raw,
-                    structure_raw,
-                    built_year_month,
-                    built_age_years,
-                    availability_date,
-                    1 if availability_flag_immediate in {"1", "true", "True"} else (0 if availability_flag_immediate in {"0", "false", "False"} else None),
-                    updated_at,
-                    "master",
-                    file_value or source_url,
-                ),
-            )
-            conn.execute(
-                """
-                INSERT INTO raw_units(
-                    listing_key, building_key, name, address, room_label,
-                    rent_yen, maint_yen, layout, area_sqm, move_in_date,
-                    age_years, structure, availability_raw, built_raw, structure_raw,
-                    built_year_month, built_age_years, availability_date, availability_flag_immediate,
-                    updated_at, source_kind, source_url, management_company, management_phone
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    listing_key,
-                    building_key,
-                    name,
-                    address,
-                    "",
-                    rent_yen,
-                    maint_yen,
-                    layout,
-                    area_sqm,
-                    None,
-                    age_years,
-                    structure,
-                    availability_raw,
-                    built_raw,
-                    structure_raw,
-                    built_year_month,
-                    built_age_years,
-                    availability_date,
-                    1 if availability_flag_immediate in {"1", "true", "True"} else (0 if availability_flag_immediate in {"0", "false", "False"} else None),
-                    updated_at,
-                    "master",
-                    file_value or source_url,
-                    None,
-                    None,
-                ),
-            )
-            vacancy_count += 1
-
-    conn.commit()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise
     conn.close()
+
     rebuild(db_path)
     if vacancy_count == 0 and seed_summaries:
         conn = connect(db_path)
