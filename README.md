@@ -190,6 +190,23 @@ $env:PYTHONPATH = "src"
 .\.venv\Scripts\python.exe -m pytest -q tests
 ```
 
+## ローカルで v2 を確認する（重要）
+
+`file://` で dist の index.html を直接開くと、ブラウザの制約で `fetch()` が失敗し「データの読み込みに失敗しました」と表示される場合があります。
+必ずローカルHTTPサーバ経由で確認してください。
+
+```powershell
+$ErrorActionPreference="Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+
+# 例: dist-check の出力先（任意の dist ディレクトリでOK）
+$dist = Join-Path $REPO "tmp\dist-check\YYYYMMDD_HHMMSS"  # ←実際のパスに合わせて変更
+
+$port = 8000
+Start-Process "http://localhost:$port/index.html"
+python -m http.server $port --directory $dist
+```
+
 ## What / Why
 このリポジトリは、Google Maps / Street View（ストリートビュー）と連携可能な「不動産データベース母艦」を作るための基盤です。  
 北九州は**パイロット地域**であり、固定ターゲットではありません。  

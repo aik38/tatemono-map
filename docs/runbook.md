@@ -47,6 +47,23 @@ python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --outpu
 python -m http.server 8000 -d dist
 ```
 
+### ローカルで v2 を確認する（重要）
+
+`file://` で dist の index.html を直接開くと、ブラウザの制約で `fetch()` が失敗し「データの読み込みに失敗しました」と表示される場合があります。
+必ずローカルHTTPサーバ経由で確認してください。
+
+```powershell
+$ErrorActionPreference="Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+
+# 例: dist-check の出力先（任意の dist ディレクトリでOK）
+$dist = Join-Path $REPO "tmp\dist-check\YYYYMMDD_HHMMSS"  # ←実際のパスに合わせて変更
+
+$port = 8000
+Start-Process "http://localhost:$port/index.html"
+python -m http.server $port --directory $dist
+```
+
 2) push 後の Pages 応答確認
 
 ```powershell
