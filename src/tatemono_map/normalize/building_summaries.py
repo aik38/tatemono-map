@@ -47,36 +47,21 @@ def _pick_built_year_month(values: list[str]) -> str | None:
     return modes[0]
 
 
+def _select_availability_label(move_in_dates: list[str], items: list) -> str:
+    if move_in_dates:
+        return move_in_dates[0]
+    if any((row["availability_flag_immediate"] or 0) == 1 or "即入" in (row["availability_raw"] or "") for row in items):
+        return "即入"
+    for row in items:
+        raw = normalize_text(row["availability_raw"])
+        if raw and raw not in {"-", "--", "- -", "なし"}:
+            return raw
+    return ""
+
+
 def refresh_building_availability_labels(conn) -> None:
-    conn.execute(
-        """
-        UPDATE building_summaries AS bs
-        SET building_availability_label = CASE
-            WHEN EXISTS(
-                SELECT 1
-                FROM listings AS l
-                LEFT JOIN building_key_aliases AS bka ON bka.alias_key = l.building_key
-                WHERE COALESCE(bka.canonical_key, l.building_key) = bs.building_key
-                  AND (COALESCE(l.availability_raw, '') LIKE '%即入%' OR COALESCE(l.availability_flag_immediate, 0)=1)
-            ) THEN '即入'
-            WHEN EXISTS(
-                SELECT 1
-                FROM listings AS l
-                LEFT JOIN building_key_aliases AS bka ON bka.alias_key = l.building_key
-                WHERE COALESCE(bka.canonical_key, l.building_key) = bs.building_key
-                  AND COALESCE(l.availability_raw, '') LIKE '%空室%'
-            ) THEN '空室'
-            WHEN EXISTS(
-                SELECT 1
-                FROM listings AS l
-                LEFT JOIN building_key_aliases AS bka ON bka.alias_key = l.building_key
-                WHERE COALESCE(bka.canonical_key, l.building_key) = bs.building_key
-                  AND COALESCE(l.availability_raw, '') LIKE '%退去予定%'
-            ) THEN '退去予定'
-            ELSE ''
-        END
-        """
-    )
+    # Labels are computed in rebuild() before persisting summaries.
+    return None
 
 
 def rebuild(db_path: str) -> int:
@@ -147,13 +132,11 @@ def rebuild(db_path: str) -> int:
                 "building_built_year_month": _pick_built_year_month(built_year_month_values),
                 "building_built_age_years": _pick_age_years(built_age_values),
                 "building_structure": _pick_structure(building_structure_values) or _pick_structure(structure_values),
-                "building_availability_label": "",
+                "building_availability_label": _select_availability_label(move_in_dates, items),
                 "vacancy_count": len(items),
                 "last_updated": latest,
             },
         )
-
-    refresh_building_availability_labels(conn)
 
     total = conn.execute("SELECT COUNT(*) AS c FROM building_summaries").fetchone()["c"]
     print(

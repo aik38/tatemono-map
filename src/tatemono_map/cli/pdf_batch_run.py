@@ -357,6 +357,18 @@ def looks_like_address(line: str) -> bool:
     return bool(re.search(r"(都|道|府|県|市|区|町|村).*(丁目|番地|番|号|\d+-\d+)", s))
 
 
+
+
+def get_cell_text_by_header_patterns(row: Sequence[Any], header: Sequence[str], patterns: Sequence[str]) -> str:
+    normalized_header = [normalize_pdf_text(h) for h in header]
+    for i, cell_header in enumerate(normalized_header):
+        if not cell_header:
+            continue
+        if any(pattern in cell_header for pattern in patterns):
+            if 0 <= i < len(row):
+                return normalize_pdf_text(row[i])
+    return ""
+
 def looks_like_structure_or_age(line: str) -> bool:
     s = nfkc(line)
     return bool(re.search(r"(RC|SRC|S造|木造|鉄骨|鉄筋|築\d+年|築年)", s))
@@ -427,6 +439,12 @@ class UlucksParser:
                         layout_detail = get_cell_text(r, idx, ["間取詳細"])
                         layout = nfkc(layout_detail.split(":")[0]) if layout_detail else ""
                         availability_raw = get_cell_text(r, idx, ["入居時期", "状態・入居時期", "入居可能日", "退予"])
+                        if not availability_raw:
+                            availability_raw = get_cell_text_by_header_patterns(
+                                r,
+                                header,
+                                ["退予", "入居", "入居時期", "入居可能", "退去予定", "状態"],
+                            )
                         built_raw = get_cell_text(r, idx, ["築年", "築年月"])
                         structure_raw = get_cell_text(r, idx, ["構造"])
                         raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")
