@@ -57,7 +57,7 @@ def refresh_building_availability_labels(conn) -> None:
                 FROM listings AS l
                 LEFT JOIN building_key_aliases AS bka ON bka.alias_key = l.building_key
                 WHERE COALESCE(bka.canonical_key, l.building_key) = bs.building_key
-                  AND COALESCE(l.availability_raw, '') LIKE '%即入%'
+                  AND (COALESCE(l.availability_raw, '') LIKE '%即入%' OR COALESCE(l.availability_flag_immediate, 0)=1)
             ) THEN '即入'
             WHEN EXISTS(
                 SELECT 1
@@ -97,7 +97,7 @@ def rebuild(db_path: str) -> int:
         """
         SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in_date, updated_at,
                age_years, structure, availability_raw, built_raw, structure_raw,
-               built_year_month, built_age_years
+               built_year_month, built_age_years, availability_flag_immediate
         FROM listings
         ORDER BY id DESC
         """
