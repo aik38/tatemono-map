@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -295,3 +296,65 @@ def test_build_dist_versions_v2_index_has_search_ranking_logic(tmp_path):
     assert "function compareCards" in index_v2
     assert "card.score === 0" in index_v2
     assert "b.score - a.score" in index_v2
+
+
+def test_build_dist_versions_outputs_v2_min_json_with_contract(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("min契約確認マンション", "東京都目黒区1-2-3", 112000, 31.5, "1LDK", "2026-11-01", "ulucks", "min-contract"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    min_path = out / "data" / "buildings.v2.min.json"
+    assert min_path.exists()
+    payload = json.loads(min_path.read_text(encoding="utf-8"))
+    assert payload
+
+    required_keys = {
+        "id",
+        "name",
+        "address",
+        "vacancy_count",
+        "rent_min",
+        "rent_max",
+        "area_min",
+        "area_max",
+        "updated_at",
+        "updated_epoch",
+        "building_structure",
+        "building_availability_label",
+        "building_built_year_month",
+        "building_built_age_years",
+    }
+    disallowed = {"google_maps_url", "room_types", "structure", "built_year"}
+
+    for item in payload[:3]:
+        assert required_keys.issubset(item.keys())
+        assert not (set(item.keys()) & disallowed)
+        assert set(item.keys()) == required_keys
+
+
+def test_build_dist_versions_v2_index_has_min_json_fallback_logic(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("fallback確認マンション", "東京都世田谷区1-2-3", 118000, 33.0, "1LDK", "2026-12-01", "ulucks", "min-fallback"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+    assert "./data/buildings.v2.min.json" in index_v2
+    assert "./data/buildings.json" in index_v2
+    assert "function loadBuildingsWithFallback()" in index_v2
+    assert "function validateRawItems(raw, sourceLabel)" in index_v2
