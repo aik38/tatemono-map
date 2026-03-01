@@ -19,3 +19,17 @@ def test_normalize_availability_complements_year_with_rollover() -> None:
     assert immediate is False
     assert label == "1/5"
     assert normalized_date == "2027-01-05"
+
+
+def test_normalize_availability_immediate_short_token() -> None:
+    immediate, label, normalized_date = normalize_availability("即", "2026-02-28")
+    assert immediate is True
+    assert label == "即入居"
+    assert normalized_date is None
+
+
+def test_normalize_availability_without_reference_date_keeps_raw_only() -> None:
+    immediate, label, normalized_date = normalize_availability("2月28日", None)
+    assert immediate is False
+    assert label == "2月28日"
+    assert normalized_date is None

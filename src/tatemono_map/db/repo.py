@@ -180,7 +180,7 @@ def replace_building_summary(conn: sqlite3.Connection, row: dict) -> None:
             row.get("area_sqm_min"),
             row.get("area_sqm_max"),
             json.dumps(row.get("layout_types") or [], ensure_ascii=False),
-            json.dumps(row.get("move_in_dates") or [], ensure_ascii=False),
+            (json.dumps(row.get("move_in_dates"), ensure_ascii=False) if row.get("move_in_dates") else None),
             row.get("age_years"),
             row.get("structure"),
             row.get("building_built_year_month"),

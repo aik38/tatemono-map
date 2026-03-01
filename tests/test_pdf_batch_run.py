@@ -619,3 +619,39 @@ def test_master_import_schema_required_columns_include_new_pipeline_header() -> 
 
     missing = [c for c in MASTER_IMPORT_SCHEMA if c not in new_header]
     assert missing == []
+
+
+def test_ulucks_parse_extracts_availability_from_header_pattern(tmp_path: Path):
+    from tatemono_map.cli import pdf_batch_run as mod
+
+    rows = [
+        ["物件名", "所在地", "号室", "賃料", "共益費", "間取詳細", "面積", "築年", "構造", "入居/退予"],
+        ["テストマンション", "小倉北区魚町", "101", "6.0万", "0.3万", "1K", "22.0㎡", "2023年1月", "RC", "2月28日"],
+    ]
+
+    class _Page:
+        def extract_text(self):
+            return "小倉北区 空室一覧 2026年02月28日現在"
+
+        def extract_tables(self):
+            return [rows]
+
+    class _Pdf:
+        pages = [_Page()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    original_open = mod.pdfplumber.open
+    mod.pdfplumber.open = lambda _path: _Pdf()
+    try:
+        result = UlucksParser().parse(tmp_path / "dummy.pdf")
+    finally:
+        mod.pdfplumber.open = original_open
+
+    assert len(result.df) == 1
+    row = result.df.iloc[0]
+    assert row["availability_raw"] == "2月28日"

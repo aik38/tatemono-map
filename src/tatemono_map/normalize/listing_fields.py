@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from datetime import date, datetime
 
-IMMEDIATE_RE = re.compile(r"即\s*入(?:居|可)?")
+IMMEDIATE_RE = re.compile(r"即(?:\s*入(?:居|可)?)?")
 DATE_MD_RE = re.compile(r"(\d{1,2})\s*月\s*(\d{1,2})\s*日")
 BUILT_YM_RE = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月")
 BUILT_AGE_RE = re.compile(r"\(\s*(\d+)\s*年\s*\)")
@@ -58,8 +58,10 @@ def normalize_availability(raw: str | None, reference_date: str | None) -> tuple
         month = int(m.group(1))
         day = int(m.group(2))
         ref = parse_reference_date(reference_date)
-        year = ref.year if ref else datetime.now().year
-        if ref and month < ref.month:
+        if not ref:
+            return False, text, None
+        year = ref.year
+        if month < ref.month:
             year += 1
         try:
             d = date(year, month, day)

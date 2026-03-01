@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from tatemono_map.db.keys import make_building_key, make_listing_key_for_master
+from tatemono_map.normalize.listing_fields import normalize_availability
 from tatemono_map.db.repo import connect, replace_building_summary
 from tatemono_map.normalize.building_summaries import rebuild
 from tatemono_map.paths import CANONICAL_BUILDINGS_CSV
@@ -167,13 +168,22 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                 area_sqm = _parse_area(row.get("area_sqm"))
                 age_years = _parse_int(row.get("age_years"))
                 structure = _clean_text(row.get("structure")) or None
-                availability_raw = _clean_text(row.get("availability_raw")) or None
-                move_in_date = _clean_text(row.get("availability_date")) or ""
+                availability_raw_text = _clean_text(row.get("availability_raw"))
+                availability_raw = availability_raw_text or None
                 built_raw = _clean_text(row.get("built_raw")) or None
                 built_year_month = _clean_text(row.get("built_year_month")) or None
                 built_age_years = _parse_int(row.get("built_age_years"))
-                availability_date = _clean_text(row.get("availability_date")) or None
-                availability_flag_immediate = _clean_text(row.get("availability_flag_immediate"))
+                explicit_availability_date = _clean_text(row.get("availability_date")) or None
+                explicit_immediate_flag = _clean_text(row.get("availability_flag_immediate"))
+                immediate_detected, move_in_label, normalized_availability_date = normalize_availability(availability_raw, updated_at)
+                availability_date = explicit_availability_date or normalized_availability_date
+                if explicit_immediate_flag in {"1", "true", "True"}:
+                    availability_flag_immediate_value = 1
+                elif explicit_immediate_flag in {"0", "false", "False"}:
+                    availability_flag_immediate_value = 0
+                else:
+                    availability_flag_immediate_value = 1 if immediate_detected else 0
+                move_in_date = availability_date or (move_in_label or "")
                 structure_raw = _clean_text(row.get("structure_raw")) or None
                 file_value = _clean_text(row.get("file")) or _derive_file_from_evidence_id(row.get("evidence_id"))
 
@@ -240,7 +250,7 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                         built_year_month,
                         built_age_years,
                         availability_date,
-                        1 if availability_flag_immediate in {"1", "true", "True"} else (0 if availability_flag_immediate in {"0", "false", "False"} else None),
+                        availability_flag_immediate_value,
                         updated_at,
                         "master",
                         file_value or source_url,
@@ -304,7 +314,7 @@ def import_master_csv(db_path: str, csv_path: str) -> tuple[int, int, int]:
                         built_year_month,
                         built_age_years,
                         availability_date,
-                        1 if availability_flag_immediate in {"1", "true", "True"} else (0 if availability_flag_immediate in {"0", "false", "False"} else None),
+                        availability_flag_immediate_value,
                         updated_at,
                         "master",
                         file_value or source_url,

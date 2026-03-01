@@ -135,3 +135,38 @@ def test_master_import_merges_duplicate_listing_keys(tmp_path: Path) -> None:
     assert listing["age_years"] == 8
     assert listing["structure"] == "RC"
     assert listing["updated_at"] == "2026/01/02 12:00"
+
+
+def test_master_import_normalizes_availability_from_raw_when_fields_missing(tmp_path: Path) -> None:
+    db_path = tmp_path / "master.sqlite3"
+    csv_path = tmp_path / "master_import_availability.csv"
+
+    csv_path.write_text(
+        '﻿"page","category","updated_at","building_name","room","address","rent_man","fee_man","floor","layout","area_sqm","availability_raw","built_raw","age_years","structure","built_year_month","built_age_years","availability_date","availability_flag_immediate","structure_raw","raw_block","evidence_id"\n'
+        '"1","realpro","2026/02/28 12:00","建物E","101","東京都E","8.8","0.2","1F","1K","20.0","2月28日","","","","","","","","","block-e-101","pdf:realpro.pdf#p=1#i=1"\n'
+        '"1","realpro","2026/02/28 12:00","建物E","102","東京都E","8.8","0.2","1F","1K","20.0","即","","","","","","","","","block-e-102","pdf:realpro.pdf#p=1#i=2"\n',
+        encoding="utf-8",
+    )
+
+    import_master_csv(str(db_path), str(csv_path))
+
+    conn = connect(db_path)
+    rows = conn.execute(
+        "SELECT room_label, availability_raw, availability_date, availability_flag_immediate, move_in_date FROM listings ORDER BY room_label"
+    ).fetchall()
+    raw_rows = conn.execute(
+        "SELECT room_label, availability_date, availability_flag_immediate, move_in_date FROM raw_units ORDER BY room_label"
+    ).fetchall()
+    conn.close()
+
+    assert rows[0]["availability_raw"] == "2月28日"
+    assert rows[0]["availability_date"] == "2026-02-28"
+    assert rows[0]["availability_flag_immediate"] == 0
+    assert rows[0]["move_in_date"] == "2026-02-28"
+
+    assert rows[1]["availability_raw"] == "即"
+    assert rows[1]["availability_flag_immediate"] == 1
+    assert rows[1]["move_in_date"] == "即入居"
+
+    assert raw_rows[0]["availability_date"] == "2026-02-28"
+    assert raw_rows[1]["availability_flag_immediate"] == 1
