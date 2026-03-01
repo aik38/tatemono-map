@@ -43,26 +43,18 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 1) ローカル確認（Actions と同じ入力で再現）
 
 ```powershell
-python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2
-python -m http.server 8000 -d dist
+# dist生成 + ガード + ローカル確認（標準ポート8787）
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_dist.ps1
+
+# Pagesと同じURL構造で確認（推奨）
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_pageslike.ps1
 ```
 
 ### ローカルで v2 を確認する（重要）
 
-`file://` で dist の index.html を直接開くと、ブラウザの制約で `fetch()` が失敗し「データの読み込みに失敗しました」と表示される場合があります。
-必ずローカルHTTPサーバ経由で確認してください。
-
-```powershell
-$ErrorActionPreference="Stop"
-$REPO = Join-Path $env:USERPROFILE "tatemono-map"
-
-# 例: dist-check の出力先（任意の dist ディレクトリでOK）
-$dist = Join-Path $REPO "tmp\dist-check\YYYYMMDD_HHMMSS"  # ←実際のパスに合わせて変更
-
-$port = 8000
-Start-Process "http://localhost:$port/index.html"
-python -m http.server $port --directory $dist
-```
+`file://` で dist の index.html を直接開くのは禁止です。`fetch()` の失敗や相対パス解決差異で Pages とズレます。
+必ずローカルHTTPサーバ経由で確認してください。GitHub Pages の base path は `/tatemono-map/` なので、
+`http://127.0.0.1:8787/tatemono-map/` で確認できる pages-like プレビューを推奨します。
 
 2) push 後の Pages 応答確認
 

@@ -340,6 +340,27 @@ def test_build_dist_versions_outputs_v2_min_json_with_contract(tmp_path):
         assert set(item.keys()) == required_keys
 
 
+
+
+def test_build_dist_versions_v2_index_uses_relative_data_paths(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("相対パス確認マンション", "東京都目黒区1-2-3", 121000, 31.0, "1LDK", "2027-01-01", "ulucks", "relative-paths"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+    assert "./data/buildings.v2.min.json" in index_v2
+    assert "./data/buildings.json" in index_v2
+    assert "'/data/" not in index_v2
+    assert '"/data/' not in index_v2
+
 def test_build_dist_versions_v2_index_has_min_json_fallback_logic(tmp_path):
     db = tmp_path / "test.sqlite3"
     out = tmp_path / "dist"
