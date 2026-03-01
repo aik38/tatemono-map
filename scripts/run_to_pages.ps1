@@ -43,7 +43,14 @@ if ($LASTEXITCODE -ne 0) { throw "ingest_master_import failed" }
 & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\publish_public.ps1") -RepoPath $repo
 if ($LASTEXITCODE -ne 0) { throw "publish_public.ps1 failed" }
 
-git add data/public/public.sqlite3
+& $venvPython -m tatemono_map.cli.export_buildings_json --db data/public/public.sqlite3 --out dist/data/buildings.v2.min.json --format v2min
+if ($LASTEXITCODE -ne 0) { throw "export buildings.v2.min.json failed" }
+& $venvPython -m tatemono_map.cli.export_buildings_json --db data/public/public.sqlite3 --out dist/data/buildings.json --format legacy
+if ($LASTEXITCODE -ne 0) { throw "export buildings.json failed" }
+
+$buildingsJsonCount = (& $venvPython -c "import json; from pathlib import Path; p=Path(r'dist/data/buildings.v2.min.json'); arr=json.loads(p.read_text(encoding='utf-8')); print(len(arr))") | Select-Object -Last 1
+if ([int]$buildingsJsonCount -le 0) { throw "DoD failed: dist/data/buildings.v2.min.json has 0 entries" }
+git add data/public/public.sqlite3 dist/data/buildings.v2.min.json dist/data/buildings.json
 
 $hasChanges = (git diff --cached --name-only | Out-String).Trim()
 if ([string]::IsNullOrWhiteSpace($hasChanges)) {
@@ -62,7 +69,7 @@ if ([string]::IsNullOrWhiteSpace($Message)) {
 git commit -m $Message
 git push
 
-Write-Host "Completed: ingest -> publish_public -> commit(public.sqlite3) -> push"
+Write-Host "Completed: ingest -> publish_public -> export_json -> guard(non-empty) -> commit(public.sqlite3+json) -> push"
 Write-Host "CSV: $CsvPath"
 Write-Host "Commit message: $Message"
 Write-Host "PagesはGitHub Actionsで更新されます（反映は数十秒〜数分が目安）。"

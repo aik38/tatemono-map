@@ -317,8 +317,23 @@
     }
   }
 
+  async function logBuildInfo() {
+    try {
+      const response = await fetch('./build_info.json', { cache: 'no-cache' });
+      if (!response.ok) {
+        console.info(`[v2][build_info] unavailable status=${response.status}`);
+        return;
+      }
+      const info = await response.json();
+      console.info('[v2][build_info]', info);
+    } catch (error) {
+      console.info(`[v2][build_info] unavailable reason=${String(error)}`);
+    }
+  }
+
   async function init() {
     try {
+      await logBuildInfo();
       const loadResult = await loadBuildingsWithFallback();
       const raw = loadResult.raw;
       buildings = raw.map((item, index) => ({

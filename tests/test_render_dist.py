@@ -412,3 +412,49 @@ def test_render_dist_versions_detail_uses_building_availability_label_when_prese
 
     detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
     assert "<dt>入居可能日</dt><dd>退去予定</dd>" in detail_v2
+
+def test_export_buildings_json_not_empty_and_required_keys(tmp_path):
+    from tatemono_map.render.build import export_buildings_json
+
+    db = tmp_path / "test.sqlite3"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("JSON出力確認マンション", "東京都港区芝公園1-2-3", 101000, 29.0, "1DK", "2026-11-01", "ulucks", "json-check"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    out = tmp_path / "dist" / "data" / "buildings.v2.min.json"
+    count = export_buildings_json(str(db), str(out), "v2min")
+
+    assert count > 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert isinstance(payload, list)
+    assert payload
+
+    row = payload[0]
+    assert "id" in row
+    assert "name" in row
+    assert "address" in row
+    assert "vacancy_count" in row
+
+
+def test_build_dist_versions_outputs_build_info_json(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("build_info確認マンション", "福岡県北九州市小倉北区浅野1-1-1", 89000, 26.0, "1K", "2026-12-01", "ulucks", "build-info"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    build_info = json.loads((out / "build_info.json").read_text(encoding="utf-8"))
+    assert build_info["buildings_count_json"] > 0
+    assert build_info["buildings_count_db"] >= 0
+    assert "generated_at" in build_info
+    assert "git_sha" in build_info

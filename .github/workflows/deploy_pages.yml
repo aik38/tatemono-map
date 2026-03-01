@@ -69,6 +69,27 @@ jobs:
           test -f dist/index.html
           test -d dist/b
 
+      - name: Validate build_info metadata
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          p = Path("dist/build_info.json")
+          if not p.exists():
+              raise SystemExit("dist/build_info.json missing; refusing to deploy")
+
+          info = json.loads(p.read_text(encoding="utf-8"))
+          required = ["git_sha", "generated_at", "buildings_count_json", "buildings_count_db", "vacancies_count_db"]
+          missing = [k for k in required if k not in info]
+          if missing:
+              raise SystemExit(f"build_info missing keys: {missing}")
+          if int(info["buildings_count_json"]) <= 0:
+              raise SystemExit("build_info buildings_count_json <= 0; refusing to deploy")
+
+          print(f"OK: build_info buildings_count_json={info['buildings_count_json']} git_sha={info['git_sha']}")
+          PY
+
       - name: Assert building list includes entries
         run: |
           python - <<'PY'
@@ -80,19 +101,24 @@ jobs:
             raise SystemExit("dist/index.html missing; refusing to deploy")
 
           html = idx.read_text(encoding="utf-8")
+          if "buildings.v2.min.json" not in html:
+            raise SystemExit("index.html does not reference buildings.v2.min.json; refusing to deploy")
 
-          if "buildings.json" not in html:
-            raise SystemExit("index.html does not reference buildings.json; refusing to deploy")
+          paths = [
+              Path("dist/data/buildings.v2.min.json"),
+              Path("dist/data/buildings.json"),
+          ]
+          counts: dict[str, int] = {}
+          for path in paths:
+            if (not path.exists()) or path.stat().st_size == 0:
+              raise SystemExit(f"{path} missing or empty; refusing to deploy")
+            arr = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(arr, list) or len(arr) == 0:
+              raise SystemExit(f"{path.name} has no entries; refusing to deploy")
+            counts[path.name] = len(arr)
 
-          p = Path("dist/data/buildings.json")
-          if (not p.exists()) or p.stat().st_size == 0:
-            raise SystemExit("dist/data/buildings.json missing or empty; refusing to deploy")
-
-          arr = json.loads(p.read_text(encoding="utf-8"))
-          if not isinstance(arr, list) or len(arr) == 0:
-            raise SystemExit("buildings.json has no entries; refusing to deploy")
-
-          print(f"OK: buildings.json entries={len(arr)}")
+          print(f"OK: buildings.v2.min.json entries={counts['buildings.v2.min.json']}")
+          print(f"OK: buildings.json entries={counts['buildings.json']}")
           PY
 
       - name: Assert built year and availability fields are present
