@@ -74,3 +74,8 @@ data/_debug_ulucks_phase_a/
 probe_debug.py
 # manual work artifacts (should not be committed)
 tmp/manual/
+
+# backup/editor artifacts
+*.bak
+*~
+tmp/pages_like_root/
