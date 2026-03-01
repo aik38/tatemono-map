@@ -123,7 +123,7 @@ def test_summary_building_availability_prefers_immediate(tmp_path):
     ).fetchone()
     conn.close()
 
-    assert row["building_availability_label"] == "3/9"
+    assert row["building_availability_label"] == "2026-03-09"
     assert row["building_structure"] == "RC"
     assert row["building_built_year_month"] == "2023-01"
     assert row["building_built_age_years"] == 3

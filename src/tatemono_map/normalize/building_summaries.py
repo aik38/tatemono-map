@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from datetime import date
 
 from tatemono_map.db.repo import connect, replace_building_summary
 from tatemono_map.util.text import normalize_text
@@ -47,14 +48,37 @@ def _pick_built_year_month(values: list[str]) -> str | None:
     return modes[0]
 
 
+def _nearest_availability_date(items: list) -> str | None:
+    dates: list[date] = []
+    for row in items:
+        raw_date = normalize_text(row["availability_date"])
+        if not raw_date:
+            continue
+        try:
+            dates.append(date.fromisoformat(raw_date))
+        except ValueError:
+            continue
+    if not dates:
+        return None
+    return min(dates).isoformat()
+
+
 def _select_availability_label(move_in_dates: list[str], items: list) -> str:
+    nearest = _nearest_availability_date(items)
+    if nearest:
+        return nearest
     if move_in_dates:
         return move_in_dates[0]
     if any((row["availability_flag_immediate"] or 0) == 1 or "即入" in (row["availability_raw"] or "") for row in items):
         return "即入"
-    for row in items:
-        raw = normalize_text(row["availability_raw"])
-        if raw and raw not in {"-", "--", "- -", "なし"}:
+
+    planned = [normalize_text(row["availability_raw"]) for row in items if normalize_text(row["availability_raw"])]
+    for raw in planned:
+        if "退去予定" in raw:
+            return raw
+
+    for raw in planned:
+        if raw not in {"-", "--", "- -", "なし"}:
             return raw
     return ""
 
@@ -82,7 +106,7 @@ def rebuild(db_path: str) -> int:
         """
         SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in_date, updated_at,
                age_years, structure, availability_raw, built_raw, structure_raw,
-               built_year_month, built_age_years, availability_flag_immediate
+               built_year_month, built_age_years, availability_date, availability_flag_immediate
         FROM listings
         ORDER BY id DESC
         """
