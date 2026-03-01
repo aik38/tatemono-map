@@ -60,8 +60,8 @@ def test_summary_building_availability_prefers_immediate(tmp_path):
         INSERT INTO listings(
             listing_key, building_key, name, address, room_label, rent_yen, maint_yen, layout, area_sqm,
             move_in_date, age_years, structure, built_year_month, built_age_years,
-            availability_date, availability_flag_immediate, structure_raw, updated_at, source_kind, source_url
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            availability_raw, availability_date, availability_flag_immediate, structure_raw, updated_at, source_kind, source_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             (
@@ -79,6 +79,7 @@ def test_summary_building_availability_prefers_immediate(tmp_path):
                 "RC",
                 "2023-01",
                 3,
+                "退去予定",
                 "2026-03-09",
                 0,
                 "RC",
@@ -101,6 +102,7 @@ def test_summary_building_availability_prefers_immediate(tmp_path):
                 "RC",
                 "2023-01",
                 3,
+                "即入居",
                 None,
                 1,
                 "RC",
@@ -121,7 +123,36 @@ def test_summary_building_availability_prefers_immediate(tmp_path):
     ).fetchone()
     conn.close()
 
-    assert row["building_availability_label"] == "即入居"
+    assert row["building_availability_label"] == "即入"
     assert row["building_structure"] == "RC"
     assert row["building_built_year_month"] == "2023-01"
     assert row["building_built_age_years"] == 3
+
+
+def test_refresh_building_availability_labels_priority(tmp_path):
+    db = tmp_path / "test4.sqlite3"
+    conn = connect(db)
+    conn.execute("INSERT INTO buildings(building_id, canonical_name, canonical_address) VALUES ('b1','Aマンション','東京都A')")
+    conn.executemany(
+        """
+        INSERT INTO listings(
+            listing_key, building_key, name, address, room_label,
+            rent_yen, maint_yen, layout, area_sqm, move_in_date,
+            availability_raw, updated_at, source_kind, source_url
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("l1", "b1", "Aマンション", "東京都A", "101", 50000, 0, "1K", 20.0, None, "退去予定 4月下旬", "2026-01-01", "master", "s1"),
+            ("l2", "b1", "Aマンション", "東京都A", "102", 51000, 0, "1K", 20.5, None, "空室", "2026-01-02", "master", "s2"),
+            ("l3", "b1", "Aマンション", "東京都A", "103", 52000, 0, "1DK", 21.0, None, "即入可", "2026-01-03", "master", "s3"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    row = conn.execute("SELECT building_availability_label FROM building_summaries WHERE building_key='b1'").fetchone()
+    conn.close()
+    assert row["building_availability_label"] == "即入"

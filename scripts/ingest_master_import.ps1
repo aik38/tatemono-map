@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 Set-Location $repo
+$env:PYTHONPATH = "src"
 
 if ([string]::IsNullOrWhiteSpace($CsvPath)) {
   $latest = Get-ChildItem (Join-Path $repo "tmp/pdf_pipeline/out") -Directory -ErrorAction Stop |

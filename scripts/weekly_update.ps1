@@ -9,6 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 Set-Location $RepoPath
+$env:PYTHONPATH = "src"
 
 $py = Join-Path $RepoPath ".venv\Scripts\python.exe"
 if (!(Test-Path $py)) { $py = "python" }
