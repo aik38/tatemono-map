@@ -354,7 +354,7 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                 built_age_years = parsed_built_age_years
 
             ref_date = _fallback_updated_at(row.get("updated_at"))
-            immediate_detected, move_in_label, normalized_availability_date = normalize_availability(availability_raw, ref_date, source)
+            immediate_detected, move_in_label, normalized_availability_date = normalize_availability(availability_raw, ref_date, category)
             availability_date = _clean_text(row.get("availability_date")) or normalized_availability_date
             availability_flag_immediate = 1 if immediate_detected else 0
 

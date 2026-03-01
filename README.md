@@ -191,6 +191,29 @@ from building_summaries s
 join buildings b on b.building_id = s.building_key;
 ```
 
+
+## Move-in availability 検証 Runbook（PowerShell 単発）
+
+```powershell
+$ErrorActionPreference = "Stop"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$DB = Join-Path $REPO "data/public/public.sqlite3"
+$BASE = "https://aik38.github.io/tatemono-map"
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO/sync.ps1" -RepoPath $REPO
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO/scripts/run_pdf_zip_latest.ps1" -RepoPath $REPO
+$csv = Get-ChildItem -Path "$REPO/out" -Filter "master_import.csv" -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO/scripts/run_to_pages.ps1" -RepoPath $REPO -MasterImportCsv $csv
+python -m tatemono_map.cli.diagnose_availability --csv $csv --db $DB
+Invoke-WebRequest -UseBasicParsing "$BASE/data/buildings.v2.min.json" | Out-Null
+```
+
+## トラブルシュート（availability / SQL）
+
+- `Advanced encoding /90msp-RKSJ-H not implemented yet` は PDF 由来テキストで一部エンコーディングを復元できない時の既知警告です。`master_import.csv` の該当行で文字化けがなければ通常は継続して問題ありません。文字化けがある場合は OCR/抽出条件の見直し、または対象 PDF を再取得して再実行してください。
+- SQL で建物名を参照する時は `building_summaries.name` を使ってください。`building_name` 列は `building_summaries` にはありません。
+- `buildings` テーブルは `building_key` 列を持たないため、`building_summaries` と直接 `building_key` で join しません。join する場合は `buildings.building_id = building_summaries.building_key` を使用してください。
+
 ## テスト（推奨）
 
 ```powershell
