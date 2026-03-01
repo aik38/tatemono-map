@@ -48,9 +48,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\setup.ps1" -RepoPat
 ### 2) 初回 seed（buildings投入）
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\seed_buildings_from_ui.ps1 `
-  -DbPath .\data\tatemono_map.sqlite3 `
-  -CsvPath .\tmp\manual\inputs\buildings_seed_ui.csv
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPath .
 ```
 
 - 手動確認済み CSV（`buildings_seed_ui.csv`）を canonical DB の `buildings` へ投入します。
@@ -65,14 +63,12 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\seed_buildings_from_ui.p
 
 #### 推奨実行例
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_all_latest.ps1 -RepoPath . -DownloadsDir .\tmp\manual\inputs\pdf_zips -QcMode warn
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPath .
 ```
 
 #### 旧フローを手動で分けたい場合
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_pdf_zip_latest.ps1 -RepoPath . -DownloadsDir .\tmp\manual\inputs\pdf_zips -QcMode warn
-$csv = Get-ChildItem -Path .\tmp\pdf_pipeline\out -Filter master_import.csv -File -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPath . -CsvPath $csv
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPath .
 ```
 
 - `run_all_latest` は `buildings` を再構築しません（空室取り込み + 建物突合 + 公開生成）。
@@ -116,9 +112,9 @@ $REPO = "C:\path\to\tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
 ```
 
-- 上記 1 行で、`master_import.csv` の自動検出 → main DB ingest → `publish_public.ps1` → `git add/commit/push` まで完了します。
+- 上記 1 行で、`master_import.csv` の自動検出 → main DB ingest → `publish_public.ps1` → `dist/data/buildings.v2.min.json` / `dist/data/buildings.json` 再生成 → 0件ガード → `git add/commit/push` まで完了します。
 - CSV を明示したい場合は `-CsvPath <path-to-master_import.csv>`、コミット文言を固定したい場合は `-Message "..."` を追加します。
-- `scripts/run_to_pages.ps1` は `data/public/public.sqlite3` だけを stage します（`git add -f` は不要）。
+- `scripts/run_to_pages.ps1` は `data/public/public.sqlite3` と `dist/data/buildings.v2.min.json` / `dist/data/buildings.json` を stage します（`git add -f` は不要）。
 
 ### フォルダ役割（固定）
 
@@ -280,3 +276,22 @@ Invoke-WebRequest -Method Head https://aik38.github.io/tatemono-map/data/buildin
 
 - `Content-Encoding: gzip` または `Content-Encoding: br` を確認します。
 - 併せて Chrome DevTools > Network で同ファイルを開き、Response Headers の `Content-Encoding` を確認します。
+
+
+### Pagesズレ防止の運用コマンド（JSON再生成 + 0件ガード込み）
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPath .
+```
+
+- `run_to_pages.ps1` は `data/public/public.sqlite3` 生成後に必ず以下を更新します。
+  - `dist/data/buildings.v2.min.json`
+  - `dist/data/buildings.json`
+- `dist/data/buildings.v2.min.json` の件数が `0` の場合は `throw` して終了し、壊れた成果物を push しません。
+- ローカル検証は `file://` 直開きではなく、`dist` 配下を HTTP 配信して確認してください。
+
+```powershell
+cd dist
+python -m http.server 8000
+# 別ターミナル/ブラウザで http://localhost:8000/index.html を開く
+```

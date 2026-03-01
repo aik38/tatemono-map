@@ -5,7 +5,7 @@ import json
 import os
 import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote_plus
 
@@ -50,6 +50,17 @@ def _sanitize_building(building: dict) -> dict:
         elif isinstance(value, list):
             sanitized[key] = [_sanitize_text(item) if isinstance(item, str) else item for item in value]
     return sanitized
+
+
+def _normalize_json_scalar(value: object) -> object:
+    if isinstance(value, str):
+        trimmed = value.strip()
+        return trimmed or None
+    return value
+
+
+def _stable_sort_payload(payload: list[dict]) -> list[dict]:
+    return sorted(payload, key=lambda row: str(row.get("id") or ""))
 
 
 def _validate_public_dist(output_dir: Path) -> None:
@@ -220,7 +231,10 @@ def _build_buildings_payload(buildings: list[dict]) -> list[dict]:
                 "building_availability_label": b.get("building_availability_label"),
             }
         )
-    return payload
+    normalized = []
+    for row in payload:
+        normalized.append({key: _normalize_json_scalar(value) for key, value in row.items()})
+    return _stable_sort_payload(normalized)
 
 
 def _build_buildings_v2_min_payload(buildings: list[dict]) -> list[dict]:
@@ -244,7 +258,50 @@ def _build_buildings_v2_min_payload(buildings: list[dict]) -> list[dict]:
                 "building_built_age_years": b.get("building_built_age_years") if b.get("building_built_age_years") is not None else b.get("age_years"),
             }
         )
-    return payload
+    normalized = []
+    for row in payload:
+        normalized.append({key: _normalize_json_scalar(value) for key, value in row.items()})
+    return _stable_sort_payload(normalized)
+
+
+def export_buildings_json(db_path: str, output_path: str, fmt: str) -> int:
+    buildings, *_ = _load_buildings(db_path)
+    if fmt == "legacy":
+        payload = _build_buildings_payload(buildings)
+    elif fmt == "v2min":
+        payload = _build_buildings_v2_min_payload(buildings)
+    else:
+        raise ValueError(f"unsupported format: {fmt}")
+
+    out = Path(output_path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"export_buildings_json path={out} format={fmt} count={len(payload)} bytes={out.stat().st_size}")
+    return len(payload)
+
+
+def _write_build_info(output_dir: Path, *, db_path: str, buildings_count_json: int) -> None:
+    conn = connect(db_path)
+    try:
+        buildings_count_db = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
+        vacancies_count_db = conn.execute(
+            "SELECT COALESCE(SUM(vacancy_count), 0) FROM building_summaries"
+        ).fetchone()[0]
+    finally:
+        conn.close()
+
+    build_info = {
+        "git_sha": os.getenv("GITHUB_SHA") or os.getenv("TATEMONO_MAP_GIT_SHA") or "unknown",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "buildings_count_json": buildings_count_json,
+        "buildings_count_db": buildings_count_db,
+        "vacancies_count_db": vacancies_count_db,
+    }
+    build_info_path = output_dir / "build_info.json"
+    build_info_path.write_text(
+        json.dumps(build_info, ensure_ascii=False, separators=(",", ":"), sort_keys=True), encoding="utf-8"
+    )
+    print(f"build_info_json path={build_info_path} payload={json.dumps(build_info, ensure_ascii=False)}")
 
 
 def _write_buildings_json(output_dir: Path, buildings: list[dict]) -> None:
@@ -266,6 +323,7 @@ def _write_buildings_json(output_dir: Path, buildings: list[dict]) -> None:
 
 def _build_dist_version(
     output_dir: Path,
+    db_path: str,
     buildings: list[dict],
     *,
     canonical_buildings_count: int,
@@ -322,6 +380,7 @@ def _build_dist_version(
         (output_dir / "b" / f"{b['building_key']}.html").write_text(html, encoding="utf-8")
 
     _write_buildings_json(output_dir, buildings)
+    _write_build_info(output_dir, db_path=db_path, buildings_count_json=len(_build_buildings_v2_min_payload(buildings)))
 
     (output_dir / ".nojekyll").touch()
     _validate_public_dist(output_dir)
@@ -335,6 +394,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
     buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
     _build_dist_version(
         Path(output_dir),
+        db_path,
         buildings,
         canonical_buildings_count=canonical_buildings_count,
         summary_buildings_count=summary_buildings_count,
@@ -359,6 +419,7 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
     buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
     _build_dist_version(
         out,
+        db_path,
         buildings,
         canonical_buildings_count=canonical_buildings_count,
         summary_buildings_count=summary_buildings_count,
@@ -370,6 +431,7 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
     )
     _build_dist_version(
         out / "v1",
+        db_path,
         buildings,
         canonical_buildings_count=canonical_buildings_count,
         summary_buildings_count=summary_buildings_count,
