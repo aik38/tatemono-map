@@ -367,3 +367,109 @@ def test_write_master_import_csv_has_expected_columns_and_order(tmp_path: Path):
     assert list(written.columns) == MASTER_IMPORT_SCHEMA
     assert "file" not in written.columns
     assert str(written.iloc[0]["building_name"]) == "テストマンション"
+
+
+def test_ulucks_parse_falls_back_to_taiyo_and_extracts_built_raw(tmp_path: Path):
+    from tatemono_map.cli import pdf_batch_run as mod
+
+    rows = [line.split("\t") for line in _fixture("ulucks_table_with_taiyo.tsv").splitlines() if line.strip()]
+
+    class _Page:
+        def extract_text(self):
+            return "小倉北区 空室一覧"
+
+        def extract_tables(self):
+            return [rows]
+
+    class _Pdf:
+        pages = [_Page()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    original_open = mod.pdfplumber.open
+    mod.pdfplumber.open = lambda _path: _Pdf()
+    try:
+        result = UlucksParser().parse(tmp_path / "dummy.pdf")
+    finally:
+        mod.pdfplumber.open = original_open
+
+    assert len(result.df) == 1
+    row = result.df.iloc[0]
+    assert row["availability_raw"] == "3月9日"
+    assert row["built_raw"] == "2023年1月 (3年)"
+
+
+def test_realpro_parse_extracts_availability_and_built_year_month_from_context(tmp_path: Path):
+    from tatemono_map.cli import pdf_batch_run as mod
+
+    context = _fixture("realpro_context_with_built.txt")
+
+    class _Table:
+        bbox = (0.0, 113.0, 500.0, 450.0)
+
+        def extract(self):
+            return [
+                ["号室名", "賃料", "共益費", "間取・面積", "状態・入居時期"],
+                ["101", "6.2万", "0.3万", "1K 25.0㎡", "空室/即入"],
+            ]
+
+    class _Page:
+        def extract_text(self):
+            return "空室一覧表"
+
+        def find_tables(self):
+            return [_Table()]
+
+        def extract_words(self, **_kwargs):
+            out = []
+            for i, line in enumerate(context.splitlines()):
+                out.append({"text": line, "x0": 10.0, "top": 118.0 + i * 10, "x1": 300.0, "bottom": 128.0 + i * 10})
+            return out
+
+    class _Pdf:
+        pages = [_Page()]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    original_open = mod.pdfplumber.open
+    mod.pdfplumber.open = lambda _path: _Pdf()
+    try:
+        result = RealproParser().parse(tmp_path / "dummy.pdf")
+    finally:
+        mod.pdfplumber.open = original_open
+
+    assert len(result.df) == 1
+    row = result.df.iloc[0]
+    assert row["availability_raw"] == "空室/即入"
+    assert row["built_raw"] == "2011年09月築"
+    assert row["built_year_month"] == "2011-09"
+
+
+def test_extract_with_parser_includes_kind_and_file_on_failure(tmp_path: Path):
+    from tatemono_map.cli import pdf_batch_run as mod
+
+    original_parsers = mod.PARSERS
+
+    class _BoomParser:
+        name = "boom"
+
+        def detect_kind(self, first_page_text, metadata):
+            return mod.DetectResult(kind="non_vacancy", reason="")
+
+        def parse(self, pdf_path):
+            raise ValueError("broken")
+
+    mod.PARSERS = [_BoomParser()]
+    try:
+        with __import__("pytest").raises(RuntimeError, match=r"pdf_parse_failed kind=boom file=.*dummy\\.pdf"):
+            mod._extract_with_parser("boom", tmp_path / "dummy.pdf")
+    finally:
+        mod.PARSERS = original_parsers
