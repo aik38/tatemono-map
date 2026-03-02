@@ -64,3 +64,13 @@
   - `structure`: 欠損除外後に最頻値（mode）。同率なら辞書順の先頭を採用。
 - `scripts/publish_public.ps1` は `building_summaries` を public DB にコピーするため、`age_years` / `structure` も公開DBへ反映される。
 - Web UI（建物詳細）は `building_summaries.age_years` / `building_summaries.structure` を表示し、欠損時は `—` を表示する。
+
+## 建物マスター系ルート（Mansion-review / Orient）契約
+- 建物一覧ルート（空室単位 listings を持たないルート）は `buildings` に建物属性を保存する。
+  - `structure` (TEXT)
+  - `age_years` (INTEGER)
+  - `built_year` (INTEGER)
+  - `availability_raw` / `availability_label` (TEXT, NULL許容)
+- `building_summaries` 集約時は次を適用:
+  - `structure` / `age_years` / `building_built_*`: listings 優先、欠損時に `buildings` フォールバック
+  - `building_availability_label`: listings が存在する建物のみ計算。空室0建物は NULL

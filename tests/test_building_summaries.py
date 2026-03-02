@@ -239,3 +239,33 @@ def test_summary_building_availability_ulucks_blank_raw_immediate_label(tmp_path
     assert row["vacancy_count"] == 2
     assert row["building_availability_label"] == "入居"
     assert row["move_in_dates_json"] is None
+
+
+def test_summary_fallbacks_to_buildings_for_zero_vacancy(tmp_path):
+    db = tmp_path / "test8.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, structure, age_years, built_year)
+        VALUES ('b-zero','Bマンション','福岡県北九州市小倉北区X', 'SRC', 21, 2004)
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    row = conn.execute(
+        """
+        SELECT vacancy_count, structure, age_years, building_built_year_month, building_availability_label
+        FROM building_summaries WHERE building_key='b-zero'
+        """
+    ).fetchone()
+    conn.close()
+
+    assert row["vacancy_count"] == 0
+    assert row["structure"] == "SRC"
+    assert row["age_years"] == 21
+    assert row["building_built_year_month"] == "2004-01"
+    assert row["building_availability_label"] is None

@@ -224,3 +224,30 @@ def test_ensure_schema_adds_age_and_structure_columns_for_existing_db(tmp_path):
     assert {"age_years", "structure"}.issubset(listing_cols)
     assert {"age_years", "structure"}.issubset(raw_unit_cols)
     assert {"age_years", "structure"}.issubset(summary_cols)
+
+
+def test_ensure_schema_adds_building_master_columns_for_existing_db(tmp_path):
+    db = tmp_path / "legacy_buildings.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE buildings (
+                building_id TEXT PRIMARY KEY,
+                canonical_name TEXT,
+                canonical_address TEXT,
+                norm_name TEXT,
+                norm_address TEXT,
+                google_place_id TEXT,
+                google_lat REAL,
+                google_lng REAL,
+                created_at TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+    ensure_schema(db)
+
+    with sqlite3.connect(db) as conn:
+        building_cols = {r[1] for r in conn.execute("PRAGMA table_info(buildings)")}
+
+    assert {"structure", "age_years", "built_year", "availability_raw", "availability_label"}.issubset(building_cols)

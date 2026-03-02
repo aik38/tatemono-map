@@ -360,3 +360,45 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 ```
 
 - ローカル確認 URL 例: `http://127.0.0.1:8788/tatemono-map/`（ポートは任意）
+
+## 小倉北区MVP: ルート別データフロー（Ulucks/RealPro + Mansion-review + Orient）
+
+### 監査結果（Inventory / Audit）
+- A) Ulucks/RealPro（listings）
+  - 抽出: `master_import.csv` の `age_years / structure / availability_raw / built_*` を取り込み。
+  - 格納: `listings`（空室単位）に保持し、`building_summaries` を再集約。
+  - UI: `building_summaries` を公開DBへコピーし `dist` の建物JSONへ反映。
+- B) Mansion-review（賃貸/分譲）
+  - 既存の HTML/クロールCSV化スクリプトは建物名・住所中心で、`structure / age_years / availability` の canonical 格納経路が未整備。
+  - 対応: `python -m tatemono_map.cli.import_building_master` で `buildings` に建物属性を保存し、空室0でも集約反映。
+- C) Orient 建物一覧
+  - 既存ルート定義が薄く、Aのような listings 経路はなし（建物マスター系として扱うのが自然）。
+  - 対応: Mansion-review と同じ `import_building_master` で `buildings` へ投入。
+
+### 正規化規約（Canonical contract）
+- `buildings` 側に建物属性を保持:
+  - `structure` (TEXT)
+  - `age_years` (INTEGER)
+  - `built_year` (INTEGER)
+  - `availability_raw` / `availability_label` (TEXT, NULL許容)
+- `availability_label` は listings 由来を原則優先。建物マスターのみのルートでは NULL のまま保持（勝手に「即入居」にしない）。
+
+### 集約ルール（building_summaries）
+- `structure`, `age_years`, `built_year/age` は listings 優先、欠損時に buildings フォールバック。
+- `building_availability_label` は listings がある場合のみ計算。空室0建物では NULL のまま。
+
+### 運用コマンド（例）
+```powershell
+# Mansion-review / Orient 建物マスター取り込み
+python -m tatemono_map.cli.import_building_master --db data/tatemono_map.sqlite3 --csv tmp/manual/outputs/mansion_review/<file>.csv --source mansion_review
+python -m tatemono_map.cli.import_building_master --db data/tatemono_map.sqlite3 --csv tmp/manual/outputs/orient/<file>.csv --source orient
+
+# 集約再生成 + QC
+python -m tatemono_map.normalize.building_summaries --db-path data/tatemono_map.sqlite3
+python -m tatemono_map.cli.diagnose_availability --csv tmp/manual/inputs/master_import.csv --db data/tatemono_map.sqlite3
+```
+
+`diagnose_availability` は以下の指標を出力します:
+- `zero_vacancy_buildings`
+- `zero_vacancy_structure_filled`（埋まり率%）
+- `zero_vacancy_age_filled`（埋まり率%）
