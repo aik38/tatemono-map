@@ -43,18 +43,16 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 1) ローカル確認（Actions と同じ入力で再現）
 
 ```powershell
-# dist生成 + ガード + ローカル確認（標準ポート8787）
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_dist.ps1
-
-# Pagesと同じURL構造で確認（推奨）
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_pageslike.ps1
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+# dist生成 + ガード + ローカル確認（ポートは例）
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO -Port 8788
 ```
 
 ### ローカルで v2 を確認する（重要）
 
 `file://` で dist の index.html を直接開くのは禁止です。`fetch()` の失敗や相対パス解決差異で Pages とズレます。
 必ずローカルHTTPサーバ経由で確認してください。GitHub Pages の base path は `/tatemono-map/` なので、
-`http://127.0.0.1:8787/tatemono-map/` で確認できる pages-like プレビューを推奨します。
+`http://127.0.0.1:8788/tatemono-map/`（ポートは例）で確認できる pages-like プレビューを推奨します。
 
 2) push 後の Pages 応答確認
 
