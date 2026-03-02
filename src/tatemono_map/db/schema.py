@@ -267,6 +267,22 @@ ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "built_year": "INTEGER",
         "availability_raw": "TEXT",
         "availability_label": "TEXT",
+        "norm_name": "TEXT",
+        "norm_address": "TEXT",
+        "google_place_id": "TEXT",
+        "google_lat": "REAL",
+        "google_lng": "REAL",
+        "created_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    "building_sources": {
+        "raw_name": "TEXT",
+        "raw_address": "TEXT",
+        "extracted_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    "raw_sources": {
+        "provider": "TEXT",
+        "fetched_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
     },
     "listings": {
         "age_years": "INTEGER",
@@ -278,6 +294,7 @@ ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "built_age_years": "INTEGER",
         "availability_date": "TEXT",
         "availability_flag_immediate": "INTEGER",
+        "fetched_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
     },
     "raw_units": {
         "age_years": "INTEGER",
@@ -289,6 +306,13 @@ ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "built_age_years": "INTEGER",
         "availability_date": "TEXT",
         "availability_flag_immediate": "INTEGER",
+        "management_company": "TEXT",
+        "management_phone": "TEXT",
+        "fetched_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    "building_key_aliases": {
+        "created_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
     },
     "building_summaries": {
         "age_years": "INTEGER",
@@ -297,8 +321,10 @@ ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "building_built_age_years": "INTEGER",
         "building_structure": "TEXT",
         "building_availability_label": "TEXT",
+        "updated_at": "TEXT",
     },
 }
+
 
 
 class SchemaMismatchError(RuntimeError):

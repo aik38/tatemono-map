@@ -52,8 +52,25 @@ class ParseDebug:
     selector_trace: list[str]
 
 
+@dataclass
+class FactsRow:
+    building_name: str
+    address: str
+    structure: str
+    age_years: int | None
+    availability_label: str
+    evidence_id: str
+    raw_block: str
+
+
 def normalize_space(text: str) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
+
+
+def _normalize_href(value: Any) -> str:
+    if value is None:
+        return ""
+    return normalize_space(str(value))
 
 
 def parse_csv_arg(value: str) -> list[str]:
@@ -70,6 +87,7 @@ def _build_city_path_regex(kind: str, city_id: str) -> re.Pattern[str]:
 
 
 def _extract_page_number_from_href(href: str, kind: str, city_id: str) -> int | None:
+    href = _normalize_href(href)
     if not href:
         return None
     pattern = _build_city_path_regex(kind, city_id)
@@ -99,7 +117,7 @@ def _find_detail_url(card: Node, base_url: str, kind: str) -> str:
     ]
     for selector in candidates:
         for anchor in card.css(selector):
-            href = normalize_space(anchor.attributes.get("href", ""))
+            href = _normalize_href(anchor.attributes.get("href", ""))
             if not href:
                 continue
             if href.startswith("javascript:"):
@@ -221,7 +239,7 @@ def parse_max_page(html: str, kind: str, city_id: str) -> int:
     tree = HTMLParser(html)
     max_page = 1
     for href_node in tree.css("a[href]"):
-        href = normalize_space(href_node.attributes.get("href", ""))
+        href = _normalize_href(href_node.attributes.get("href", ""))
         page = _extract_page_number_from_href(href, kind, city_id)
         if page is not None:
             max_page = max(max_page, page)
@@ -233,7 +251,7 @@ def find_next_page_url(html: str, current_url: str, kind: str, city_id: str, cur
     current_page_plus_one = current_page + 1
 
     for anchor in tree.css("a[href]"):
-        href = normalize_space(anchor.attributes.get("href", ""))
+        href = _normalize_href(anchor.attributes.get("href", ""))
         if not href:
             continue
         rel = normalize_space(anchor.attributes.get("rel", "")).lower()
@@ -322,6 +340,92 @@ def write_csv(rows: list[ListRow], out_csv: Path) -> None:
             writer.writerow(asdict(row))
 
 
+def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_address: str) -> FactsRow:
+    tree = HTMLParser(html)
+    full_text = normalize_space(tree.text(separator=" "))
+
+    title_node = tree.css_first("h1, h2, .mansionName, .property-name")
+    title_name = normalize_space(title_node.text(separator=" ")) if title_node else ""
+    building_name = title_name or normalize_space(fallback_name)
+
+    address = ""
+    address_candidates = [
+        tree.css_first(".address"),
+        tree.css_first("dd.address"),
+        tree.css_first("[class*='address']"),
+    ]
+    for node in address_candidates:
+        if node:
+            picked = normalize_space(node.text(separator=" "))
+            if picked:
+                address = picked
+                break
+    if not address:
+        m_addr = re.search(r"(?:福岡県)?北九州市[^\s]{0,10}区[^\s]{0,120}", full_text)
+        if m_addr:
+            address = normalize_space(m_addr.group(0))
+    if not address:
+        address = normalize_space(fallback_address)
+
+    structure = ""
+    m_structure = re.search(r"(?:構造|建物構造)\s*[:：]?\s*([^\s、,]{1,20})", full_text)
+    if m_structure:
+        structure = normalize_space(m_structure.group(1))
+    else:
+        m_abbrev = re.search(r"\b(?:RC|SRC|HRC|S|木造|鉄骨造|鉄筋コンクリート造|鉄骨鉄筋コンクリート造)\b", full_text)
+        if m_abbrev:
+            structure = normalize_space(m_abbrev.group(0))
+
+    age_years: int | None = None
+    m_age = re.search(r"築(?:年数)?\s*[:：]?\s*(\d{1,3})\s*年", full_text)
+    if m_age:
+        age_years = int(m_age.group(1))
+    else:
+        m_built = re.search(r"(?:築年月|建築年月|竣工)\s*[:：]?\s*(\d{4})[/-年\.]\s*(\d{1,2})", full_text)
+        if m_built:
+            built_year = int(m_built.group(1))
+            today = datetime.now()
+            age_years = max(today.year - built_year, 0)
+
+    availability_label = ""
+    if "即入居" in full_text:
+        availability_label = "即入居"
+    else:
+        m_avail = re.search(r"(?:入居(?:可能|可)?(?:時期)?|空室情報)\s*[:：]?\s*([^\s、,]{1,20})", full_text)
+        if m_avail:
+            availability_label = normalize_space(m_avail.group(1))
+        else:
+            for token in ("空室", "相談", "退去予定"):
+                if token in full_text:
+                    availability_label = token
+                    break
+
+    evidence_id = f"mansion_review:{detail_url}"
+    raw_block = full_text[:1200]
+    return FactsRow(
+        building_name=building_name,
+        address=address,
+        structure=structure,
+        age_years=age_years,
+        availability_label=availability_label,
+        evidence_id=evidence_id,
+        raw_block=raw_block,
+    )
+
+
+def write_facts_csv(rows: list[FactsRow], out_csv: Path) -> None:
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    with out_csv.open("w", encoding="utf-8-sig", newline="") as fp:
+        fieldnames = list(FactsRow.__annotations__.keys())
+        writer = csv.DictWriter(fp, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            payload = asdict(row)
+            if payload["age_years"] is None:
+                payload["age_years"] = ""
+            writer.writerow(payload)
+
+
 def run_crawl(
     city_ids: list[str],
     kinds: list[str],
@@ -334,8 +438,8 @@ def run_crawl(
     user_agent: str,
     auto_max_threshold: int = 200,
 ) -> tuple[Path, Path, dict[str, Any]]:
-    if mode != "list":
-        raise ValueError(f"Unsupported mode: {mode}. Only mode=list is currently implemented.")
+    if mode not in {"list", "facts"}:
+        raise ValueError(f"Unsupported mode: {mode}. expected one of list,facts")
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = out_root / timestamp
@@ -514,18 +618,54 @@ def run_crawl(
     stats["rows_total"] = len(all_rows)
 
     out_csv = out_dir / f"mansion_review_list_{timestamp}.csv"
+    facts_csv: Path | None = None
+
+    if mode == "facts":
+        facts_map: dict[str, FactsRow] = {}
+        for row in all_rows:
+            detail_url = normalize_space(row.detail_url)
+            if not detail_url or detail_url in facts_map:
+                continue
+            try:
+                detail_html, from_cache = fetch_html(
+                    session,
+                    detail_url,
+                    cache_dir,
+                    retry_count=retry_count,
+                    sleep_sec=sleep_sec,
+                )
+                if from_cache:
+                    stats["cache_hits"] += 1
+                facts_map[detail_url] = parse_detail_facts(detail_html, detail_url, row.building_name, row.address)
+            except Exception as err:  # noqa: BLE001
+                stats["errors"].append(
+                    {
+                        "kind": row.kind,
+                        "city_id": row.city_id,
+                        "page": row.city_page,
+                        "url": detail_url,
+                        "error": f"detail fetch failed: {err}",
+                    }
+                )
+
+        facts_rows = list(facts_map.values())
+        combined_dir = out_root / "combined"
+        facts_csv = combined_dir / f"building_facts_{timestamp}.csv"
+        write_facts_csv(facts_rows, facts_csv)
+        stats["facts_total"] = len(facts_rows)
     stats_path = out_dir / "stats.json"
     write_csv(all_rows, out_csv)
     stats_path.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    return out_dir, out_csv, stats
+    stats["facts_csv"] = str(facts_csv) if facts_csv else None
+    return out_dir, facts_csv or out_csv, stats
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Crawl mansion-review city list pages and export CSV")
     parser.add_argument("--city-ids", default="1616,1619", help="Comma separated city_id values")
     parser.add_argument("--kinds", default="mansion,chintai", help="Comma separated kinds: mansion,chintai")
-    parser.add_argument("--mode", default="list", choices=["list", "detail"], help="Crawl mode (detail reserved)")
+    parser.add_argument("--mode", default="list", choices=["list", "facts"], help="Crawl mode")
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT), help="Output root directory")
     parser.add_argument("--cache-dir", default=str(DEFAULT_CACHE), help="HTML cache directory")
     parser.add_argument("--sleep-sec", type=float, default=0.7, help="Sleep between requests")
@@ -558,6 +698,8 @@ def main() -> int:
         f"[OK] pages_total={stats['pages_total']} rows_total={stats['rows_total']} "
         f"zero_extract={len(stats['zero_extract_pages'])} out_csv={out_csv}"
     )
+    if stats.get("facts_csv"):
+        print(f"[OK] facts_total={stats.get('facts_total', 0)} facts_csv={stats['facts_csv']}")
     print(f"[OK] stats={out_dir / 'stats.json'}")
     return 0
 

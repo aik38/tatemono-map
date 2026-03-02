@@ -5,7 +5,7 @@ import importlib.util
 
 import pytest
 
-from tatemono_map.db.schema import SchemaMismatchError, ensure_schema
+from tatemono_map.db.schema import ensure_schema
 from tests.conftest import repo_path
 
 
@@ -86,7 +86,7 @@ def test_ensure_schema_allows_extra_columns(tmp_path):
     ensure_schema(db)
 
 
-def test_ensure_schema_fails_when_required_columns_missing(tmp_path):
+def test_ensure_schema_adds_provider_column_for_raw_sources(tmp_path):
     db = tmp_path / "missing.sqlite3"
     with sqlite3.connect(db) as conn:
         conn.execute(
@@ -100,11 +100,10 @@ def test_ensure_schema_fails_when_required_columns_missing(tmp_path):
             )
             """
         )
-    try:
-        ensure_schema(db)
-        assert False, "SchemaMismatchError was expected"
-    except SchemaMismatchError as e:
-        assert "missing_required" in str(e)
+    ensure_schema(db)
+    with sqlite3.connect(db) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(raw_sources)")}
+    assert "provider" in cols
 
 
 def test_migrate_to_canonical_moves_source_system_and_recreates_tables(tmp_path):
@@ -251,3 +250,24 @@ def test_ensure_schema_adds_building_master_columns_for_existing_db(tmp_path):
         building_cols = {r[1] for r in conn.execute("PRAGMA table_info(buildings)")}
 
     assert {"structure", "age_years", "built_year", "availability_raw", "availability_label"}.issubset(building_cols)
+
+
+def test_ensure_schema_adds_building_sources_columns_for_existing_db(tmp_path):
+    db = tmp_path / "legacy_building_sources.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE building_sources (
+                source TEXT NOT NULL,
+                evidence_id TEXT NOT NULL,
+                building_id TEXT NOT NULL,
+                PRIMARY KEY(source, evidence_id)
+            )
+            """
+        )
+    ensure_schema(db)
+
+    with sqlite3.connect(db) as conn:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(building_sources)")}
+
+    assert {"raw_name", "raw_address", "extracted_at"}.issubset(cols)

@@ -258,7 +258,7 @@ def test_summary_fallbacks_to_buildings_for_zero_vacancy(tmp_path):
     conn = connect(db)
     row = conn.execute(
         """
-        SELECT vacancy_count, structure, age_years, building_built_year_month, building_availability_label
+        SELECT vacancy_count, structure, age_years, building_built_year_month, building_built_age_years, building_structure, building_availability_label
         FROM building_summaries WHERE building_key='b-zero'
         """
     ).fetchone()
@@ -268,4 +268,6 @@ def test_summary_fallbacks_to_buildings_for_zero_vacancy(tmp_path):
     assert row["structure"] == "SRC"
     assert row["age_years"] == 21
     assert row["building_built_year_month"] == "2004-01"
+    assert row["building_built_age_years"] == 21
+    assert row["building_structure"] == "SRC"
     assert row["building_availability_label"] is None
