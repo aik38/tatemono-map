@@ -20,6 +20,11 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             building_id TEXT PRIMARY KEY,
             canonical_name TEXT,
             canonical_address TEXT,
+            structure TEXT,
+            age_years INTEGER,
+            built_year INTEGER,
+            availability_raw TEXT,
+            availability_label TEXT,
             norm_name TEXT,
             norm_address TEXT,
             google_place_id TEXT,
@@ -33,6 +38,11 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             "building_id",
             "canonical_name",
             "canonical_address",
+            "structure",
+            "age_years",
+            "built_year",
+            "availability_raw",
+            "availability_label",
             "norm_name",
             "norm_address",
             "google_place_id",
@@ -251,6 +261,13 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
 )
 
 ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
+    "buildings": {
+        "structure": "TEXT",
+        "age_years": "INTEGER",
+        "built_year": "INTEGER",
+        "availability_raw": "TEXT",
+        "availability_label": "TEXT",
+    },
     "listings": {
         "age_years": "INTEGER",
         "structure": "TEXT",

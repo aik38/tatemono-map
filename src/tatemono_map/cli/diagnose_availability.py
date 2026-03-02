@@ -44,9 +44,9 @@ def analyze_csv(csv_path: Path) -> None:
         )
 
     print("\n[CSV] sample rows (max 20)")
-    print("category	availability_raw	inferred_immediate	inferred_date")
+    print("category\tavailability_raw\tinferred_immediate\tinferred_date")
     for category, raw, immediate, inferred_date in samples:
-        print(f"{category}	{raw}	{immediate}	{inferred_date}")
+        print(f"{category}\t{raw}\t{immediate}\t{inferred_date}")
 
 
 def analyze_db(db_path: Path) -> None:
@@ -57,7 +57,10 @@ def analyze_db(db_path: Path) -> None:
         """
         SELECT
           SUM(CASE WHEN TRIM(COALESCE(building_availability_label,'')) <> '' THEN 1 ELSE 0 END) AS label_filled,
-          COALESCE(SUM(vacancy_count), 0) AS vacancy_sum
+          COALESCE(SUM(vacancy_count), 0) AS vacancy_sum,
+          SUM(CASE WHEN COALESCE(vacancy_count,0)=0 THEN 1 ELSE 0 END) AS zero_vacancy_buildings,
+          SUM(CASE WHEN COALESCE(vacancy_count,0)=0 AND TRIM(COALESCE(structure,''))<>'' THEN 1 ELSE 0 END) AS zero_vacancy_structure_filled,
+          SUM(CASE WHEN COALESCE(vacancy_count,0)=0 AND COALESCE(age_years, building_built_age_years) IS NOT NULL THEN 1 ELSE 0 END) AS zero_vacancy_age_filled
         FROM building_summaries
         """
     ).fetchone()
@@ -72,13 +75,26 @@ def analyze_db(db_path: Path) -> None:
     ).fetchall()
     conn.close()
 
+    zero = row["zero_vacancy_buildings"] or 0
+    structure_rate = ((row["zero_vacancy_structure_filled"] or 0) / zero * 100.0) if zero else 0.0
+    age_rate = ((row["zero_vacancy_age_filled"] or 0) / zero * 100.0) if zero else 0.0
+
     print("\n[DB] counts")
     print(f"- label_filled={row['label_filled']} vacancy_sum={row['vacancy_sum']}")
+    print(
+        "- zero_vacancy_buildings={} zero_vacancy_structure_filled={} ({:.1f}%) zero_vacancy_age_filled={} ({:.1f}%)".format(
+            zero,
+            row["zero_vacancy_structure_filled"] or 0,
+            structure_rate,
+            row["zero_vacancy_age_filled"] or 0,
+            age_rate,
+        )
+    )
 
     print("\n[DB] building_summaries sample rows (max 20)")
-    print("name	building_availability_label	vacancy_count")
+    print("name\tbuilding_availability_label\tvacancy_count")
     for r in summary_samples:
-        print(f"{_clean(r['name'])}	{_clean(r['building_availability_label'])}	{r['vacancy_count']}")
+        print(f"{_clean(r['name'])}\t{_clean(r['building_availability_label'])}\t{r['vacancy_count']}")
 
 
 def main() -> None:

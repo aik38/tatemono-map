@@ -95,7 +95,8 @@ def rebuild(db_path: str) -> int:
 
     building_rows = conn.execute(
         """
-        SELECT building_id, canonical_name, canonical_address
+        SELECT building_id, canonical_name, canonical_address,
+               structure, age_years, built_year, availability_raw, availability_label
         FROM buildings
         """
     ).fetchall()
@@ -139,6 +140,16 @@ def rebuild(db_path: str) -> int:
         summary_address = building["canonical_address"] if building else (items[0]["address"] if items else None)
         summary_raw_name = summary_name
 
+        listing_age = _pick_age_years(age_values)
+        listing_structure = _pick_structure(structure_values)
+        listing_built_year_month = _pick_built_year_month(built_year_month_values)
+        listing_built_age = _pick_age_years(built_age_values)
+        listing_building_structure = _pick_structure(building_structure_values) or listing_structure
+
+        fallback_age = building["age_years"] if building else None
+        fallback_structure = normalize_text(building["structure"]) if building else None
+        fallback_built_year_month = f"{building['built_year']}-01" if building and building["built_year"] else None
+
         replace_building_summary(
             conn,
             {
@@ -152,12 +163,12 @@ def rebuild(db_path: str) -> int:
                 "area_sqm_max": max(areas) if areas else None,
                 "layout_types": layouts,
                 "move_in_dates": move_in_dates,
-                "age_years": _pick_age_years(age_values),
-                "structure": _pick_structure(structure_values),
-                "building_built_year_month": _pick_built_year_month(built_year_month_values),
-                "building_built_age_years": _pick_age_years(built_age_values),
-                "building_structure": _pick_structure(building_structure_values) or _pick_structure(structure_values),
-                "building_availability_label": _select_availability_label(move_in_dates, items),
+                "age_years": listing_age if listing_age is not None else fallback_age,
+                "structure": listing_structure or fallback_structure,
+                "building_built_year_month": listing_built_year_month or fallback_built_year_month,
+                "building_built_age_years": listing_built_age if listing_built_age is not None else fallback_age,
+                "building_structure": listing_building_structure or fallback_structure,
+                "building_availability_label": _select_availability_label(move_in_dates, items) if items else None,
                 "vacancy_count": len(items),
                 "last_updated": latest,
             },

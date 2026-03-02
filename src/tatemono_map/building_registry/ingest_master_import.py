@@ -192,6 +192,16 @@ def _parse_structure(value: str | None) -> str | None:
     return cleaned or None
 
 
+def _parse_built_year(value: str | None) -> int | None:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return None
+    year_prefix = cleaned[:4]
+    if year_prefix.isdigit():
+        return int(year_prefix)
+    return None
+
+
 def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_import") -> Report:
     conn = connect(db_path)
     renormalize_buildings(conn)
@@ -352,11 +362,31 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
             built_age_years = _parse_age_years(row.get("built_age_years"))
             if built_age_years is None:
                 built_age_years = parsed_built_age_years
+            built_year = _parse_built_year(built_year_month)
 
             ref_date = _fallback_updated_at(row.get("updated_at"))
             immediate_detected, move_in_label, normalized_availability_date = normalize_availability(availability_raw, ref_date, category)
             availability_date = _clean_text(row.get("availability_date")) or normalized_availability_date
             availability_flag_immediate = 1 if immediate_detected else 0
+
+            building_age_years = built_age_years if built_age_years is not None else age_years
+            building_structure = structure_raw or structure
+            availability_label = move_in_label or None
+
+            if building_id:
+                conn.execute(
+                    """
+                    UPDATE buildings
+                    SET structure=COALESCE(NULLIF(?, ''), structure),
+                        age_years=COALESCE(?, age_years),
+                        built_year=COALESCE(?, built_year),
+                        availability_raw=COALESCE(NULLIF(?, ''), availability_raw),
+                        availability_label=COALESCE(NULLIF(?, ''), availability_label),
+                        updated_at=CURRENT_TIMESTAMP
+                    WHERE building_id=?
+                    """,
+                    (building_structure, building_age_years, built_year, availability_raw, availability_label, building_id),
+                )
 
             conn.execute(
                 """
