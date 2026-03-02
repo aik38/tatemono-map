@@ -128,7 +128,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 
 - `data/canonical/`: Canonical入力（追跡対象）。
 - `data/`: main DB（private運用。`data/tatemono_map.sqlite3`）。
-- `data/public/`: 公開DB（追跡対象。`data/public/public.sqlite3`）。
+- `data/public/`: 公開DB（追跡対象。`data/public/public.sqlite3`）。ローカル確認だけでは更新せず、更新時のみ明示的に `scripts/publish_public.ps1` / `scripts/run_to_pages.ps1` を実行します。
 - `tmp/`: 一時作業・review出力のみ（scratch）。
 
 #### “空部屋” の定義（UI 表示）
@@ -231,6 +231,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_dist.ps1
 ```
 
 - `scripts/dev_dist.ps1` は**どの作業ディレクトリから実行しても OK**です（スクリプト自身がリポジトリルートを解決します。`cd` 不要）。
+- `scripts/dev_dist.ps1` は `data/public/public.sqlite3` を再生成しません（`git status` を不要に汚さないため）。公開DBを更新したいときだけ `scripts/publish_public.ps1` または `scripts/run_to_pages.ps1` を使ってください。
 - ローカルプレビューは **HTTP 配信のみ対応** です。**`file://` は禁止**（GitHub Pages と挙動が一致しません）。
 
 - 確認 URL（必ずこの形）:
@@ -241,6 +242,22 @@ http://127.0.0.1:8787/tatemono-map/
 
 - **`file://` で `dist/index.html` を直接開くのは禁止**です。`fetch` / 相対パス / ルーティング検証が壊れて、GitHub Pages との挙動差分が出ます。
 - `scripts/dev_dist.ps1` は `/tatemono-map/` プレフィックスで配信するため、Pages と同じパス条件で確認できます。
+
+
+
+### ローカルHTTP確認の簡易ドクター（Model B）
+
+```powershell
+# 1) プレビュー起動（唯一の正解）
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev_dist.ps1
+
+# 2) 別ターミナルで状態確認（通常は clean のまま）
+git status -sb
+# 想定: 変更なし、または公開DB更新を明示実行した場合のみ data/public/public.sqlite3 の差分
+
+# 3) エントリポイント確認
+# http://127.0.0.1:8787/tatemono-map/
+```
 
 ### Pagesとローカルの一致確認
 

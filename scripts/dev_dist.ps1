@@ -36,8 +36,11 @@ $env:PYTHONPATH = "src"
 $python = Get-PythonCommand -Repo $repo
 
 Write-Host "[dev_dist] Generating dist from public DB..."
-& pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts/publish_public.ps1") -RepoPath $repo
-if ($LASTEXITCODE -ne 0) { throw "publish_public.ps1 failed" }
+
+$publicDbPath = Join-Path $repo "data/public/public.sqlite3"
+if (-not (Test-Path $publicDbPath)) {
+  throw "data/public/public.sqlite3 not found. Run scripts/publish_public.ps1 first."
+}
 
 & $python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2
 if ($LASTEXITCODE -ne 0) { throw "tatemono_map.render.build failed" }
