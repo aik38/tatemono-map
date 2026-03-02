@@ -1,5 +1,20 @@
 # tatemono-map
 
+## 現状の正解（先にここだけ確認）
+
+- ローカル検証は **HTTP のみ** です。`file://` で `dist/index.html` を直開きしないでください。
+- ローカルプレビューは **`scripts/dev_dist.ps1` を唯一の入口** とします。
+- `scripts/dev_dist.ps1` は `/tatemono-map/` プレフィックスで配信するため、GitHub Pages と同じパス条件で確認できます。
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+git -C $REPO rev-parse --is-inside-work-tree
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO -Port 8788
+```
+
+- ポート番号は固定ではありません（`8788` は例）。
+- `file://` 直開きは `fetch` / 相対パス / ルーティング検証が Pages とズレるため禁止です。
+
 ## 開発同期（GitHub↔ローカル）
 
 ```powershell
@@ -56,7 +71,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\setup.ps1" -RepoPat
 ### 2) 初回 seed（buildings投入）
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPath .
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
 ```
 
 - 手動確認済み CSV（`buildings_seed_ui.csv`）を canonical DB の `buildings` へ投入します。
@@ -71,12 +87,14 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPa
 
 #### 推奨実行例
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPath .
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
 ```
 
 #### 旧フローを手動で分けたい場合
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPath .
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
 ```
 
 - `run_all_latest` は `buildings` を再構築しません（空室取り込み + 建物突合 + 公開生成）。
@@ -227,17 +245,18 @@ $env:PYTHONPATH = "src"
 - 実行コマンド（dist 生成 + ガード + Pages-like 配信）:
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_dist.ps1
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO -Port 8788
 ```
 
-- `scripts/dev_dist.ps1` は**どの作業ディレクトリから実行しても OK**です（スクリプト自身がリポジトリルートを解決します。`cd` 不要）。
+- `$REPO` を明示して実行すると、どの作業ディレクトリからでも迷わず同じ手順で起動できます。
 - `scripts/dev_dist.ps1` は `data/public/public.sqlite3` を再生成しません（`git status` を不要に汚さないため）。公開DBを更新したいときだけ `scripts/publish_public.ps1` または `scripts/run_to_pages.ps1` を使ってください。
 - ローカルプレビューは **HTTP 配信のみ対応** です。**`file://` は禁止**（GitHub Pages と挙動が一致しません）。
 
 - 確認 URL（必ずこの形）:
 
 ```text
-http://127.0.0.1:8787/tatemono-map/
+http://127.0.0.1:8788/tatemono-map/
 ```
 
 - **`file://` で `dist/index.html` を直接開くのは禁止**です。`fetch` / 相対パス / ルーティング検証が壊れて、GitHub Pages との挙動差分が出ます。
@@ -249,14 +268,15 @@ http://127.0.0.1:8787/tatemono-map/
 
 ```powershell
 # 1) プレビュー起動（唯一の正解）
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev_dist.ps1
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO -Port 8788
 
 # 2) 別ターミナルで状態確認（通常は clean のまま）
-git status -sb
+git -C $REPO status -sb
 # 想定: 変更なし、または公開DB更新を明示実行した場合のみ data/public/public.sqlite3 の差分
 
 # 3) エントリポイント確認
-# http://127.0.0.1:8787/tatemono-map/
+# http://127.0.0.1:8788/tatemono-map/
 ```
 
 ### Pagesとローカルの一致確認
@@ -324,7 +344,8 @@ Invoke-WebRequest -Method Head https://aik38.github.io/tatemono-map/data/buildin
 ### Pagesズレ防止の運用コマンド（JSON再生成 + 0件ガード込み）
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPath .
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
 ```
 
 - `run_to_pages.ps1` は `data/public/public.sqlite3` 生成後に必ず以下を更新します。
@@ -334,7 +355,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPa
 - ローカル検証は `file://` 直開きではなく、`scripts/dev_dist.ps1` による HTTP 配信のみを使用してください。
 
 ```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_dist.ps1
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO -Port 8788
 ```
 
-- ローカル確認 URL: `http://127.0.0.1:8787/tatemono-map/`
+- ローカル確認 URL 例: `http://127.0.0.1:8788/tatemono-map/`（ポートは任意）
