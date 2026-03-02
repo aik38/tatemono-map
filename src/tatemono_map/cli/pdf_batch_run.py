@@ -446,6 +446,7 @@ class UlucksParser:
                                 ["退予", "入居", "入居時期", "入居可能", "退去予定", "状態"],
                             )
                         built_raw = get_cell_text(r, idx, ["築年", "築年月"])
+                        built_raw = re.sub(r"\s+", " ", built_raw).strip()
                         structure_raw = get_cell_text(r, idx, ["構造"])
                         raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")
                         rows.append(

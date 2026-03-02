@@ -585,7 +585,7 @@ def test_extract_with_parser_includes_kind_and_file_on_failure(tmp_path: Path):
 
     mod.PARSERS = [_BoomParser()]
     try:
-        with __import__("pytest").raises(RuntimeError, match=r"pdf_parse_failed kind=boom file=.*dummy\\.pdf"):
+        with __import__("pytest").raises(RuntimeError, match=r"pdf_parse_failed kind=boom file=.*dummy\.pdf"):
             mod._extract_with_parser("boom", tmp_path / "dummy.pdf")
     finally:
         mod.PARSERS = original_parsers
