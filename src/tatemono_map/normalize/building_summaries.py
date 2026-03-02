@@ -149,6 +149,7 @@ def rebuild(db_path: str) -> int:
         fallback_age = building["age_years"] if building else None
         fallback_structure = normalize_text(building["structure"]) if building else None
         fallback_built_year_month = f"{building['built_year']}-01" if building and building["built_year"] else None
+        fallback_availability_label = (normalize_text(building["availability_label"]) if building else "") or None
 
         replace_building_summary(
             conn,
@@ -168,7 +169,7 @@ def rebuild(db_path: str) -> int:
                 "building_built_year_month": listing_built_year_month or fallback_built_year_month,
                 "building_built_age_years": listing_built_age if listing_built_age is not None else fallback_age,
                 "building_structure": listing_building_structure or fallback_structure,
-                "building_availability_label": _select_availability_label(move_in_dates, items) if items else None,
+                "building_availability_label": (_select_availability_label(move_in_dates, items) if items else None) or fallback_availability_label,
                 "vacancy_count": len(items),
                 "last_updated": latest,
             },

@@ -255,3 +255,58 @@ def test_run_crawl_records_actual_page_url_for_rows(monkeypatch: pytest.MonkeyPa
         "https://www.mansion-review.jp/chintai/city/1619.html",
         "https://www.mansion-review.jp/chintai/city/1619_2.html",
     ]
+
+
+def test_parse_detail_facts_extracts_structure_age_and_availability() -> None:
+    html = _read_fixture("chintai_detail_facts_min.html")
+    row = crawl.parse_detail_facts(
+        html,
+        detail_url="https://www.mansion-review.jp/chintai/99999",
+        fallback_name="fallback",
+        fallback_address="fallback address",
+    )
+
+    assert row.building_name == "サンプル小倉北レジデンス"
+    assert row.address.startswith("福岡県北九州市小倉北区")
+    assert row.structure == "RC"
+    assert row.age_years == 8
+    assert row.availability_label == "即入居"
+
+
+def test_run_crawl_facts_writes_combined_facts_csv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    class FakeSession:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+
+    list_page = """
+    <html><body>
+      <section class="property-card"><h2>A</h2><a href="/chintai/1">detail</a><dd class="address">福岡県北九州市小倉北区魚町2-2-2</dd></section>
+    </body></html>
+    """
+    detail_page = _read_fixture("chintai_detail_facts_min.html")
+
+    def fake_fetch_html(_session, url: str, *_args, **_kwargs):
+        if url.endswith("/chintai/city/1619.html"):
+            return list_page, False
+        if url.endswith("/chintai/1"):
+            return detail_page, False
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(crawl.requests, "Session", FakeSession)
+    monkeypatch.setattr(crawl, "fetch_html", fake_fetch_html)
+
+    _out_dir, facts_csv, stats = crawl.run_crawl(
+        city_ids=["1619"],
+        kinds=["chintai"],
+        mode="facts",
+        out_root=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        sleep_sec=0,
+        max_pages=1,
+        retry_count=0,
+        user_agent="ua",
+    )
+
+    assert facts_csv.name.startswith("building_facts_")
+    assert facts_csv.exists()
+    assert stats["facts_total"] == 1
