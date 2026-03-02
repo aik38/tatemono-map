@@ -31,6 +31,14 @@ data/canonical/*
       -> GitHub Pages UI
 ```
 
+## Deployment Model (Current)
+
+- main branch tracks source code only.
+- dist/ is a generated build artifact.
+- dist/ is NOT committed to main.
+- GitHub Pages is deployed via GitHub Actions.
+- Local preview must be served over HTTP (file:// is not supported).
+
 ## 運用の唯一の正解（Windows / PowerShell 7）
 
 > 週次運用の 1 コマンドは `scripts/run_all_latest.ps1` です（sync -> run_pdf_zip_latest -> 最新 master_import.csv 自動選択 -> run_to_pages -> 入居ラベル検証）。
@@ -114,7 +122,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 
 - 上記 1 行で、`master_import.csv` の自動検出 → main DB ingest → `publish_public.ps1` → `dist/data/buildings.v2.min.json` / `dist/data/buildings.json` 再生成 → 0件ガード → `git add/commit/push` まで完了します。
 - CSV を明示したい場合は `-CsvPath <path-to-master_import.csv>`、コミット文言を固定したい場合は `-Message "..."` を追加します。
-- `scripts/run_to_pages.ps1` は `data/public/public.sqlite3` と `dist/data/buildings.v2.min.json` / `dist/data/buildings.json` を stage します（`git add -f` は不要）。
+- `scripts/run_to_pages.ps1` は ingest と公開データ更新の運用コマンドです。Pages への公開物は Actions が `data/public/public.sqlite3` を入力に再生成します。
 
 ### フォルダ役割（固定）
 
@@ -228,7 +236,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_dist.ps1
 - 確認 URL（必ずこの形）:
 
 ```text
-http://127.0.0.1:8787/tatemono-map/index.html
+http://127.0.0.1:8787/tatemono-map/
 ```
 
 - **`file://` で `dist/index.html` を直接開くのは禁止**です。`fetch` / 相対パス / ルーティング検証が壊れて、GitHub Pages との挙動差分が出ます。
@@ -306,10 +314,10 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_to_pages.ps1 -RepoPa
   - `dist/data/buildings.v2.min.json`
   - `dist/data/buildings.json`
 - `dist/data/buildings.v2.min.json` の件数が `0` の場合は `throw` して終了し、壊れた成果物を push しません。
-- ローカル検証は `file://` 直開きではなく、`dist` 配下を HTTP 配信して確認してください。
+- ローカル検証は `file://` 直開きではなく、`scripts/dev_dist.ps1` による HTTP 配信のみを使用してください。
 
 ```powershell
 pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_dist.ps1
-# または Pages と同じURL構造で確認
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/dev_pageslike.ps1
 ```
+
+- ローカル確認 URL: `http://127.0.0.1:8787/tatemono-map/`

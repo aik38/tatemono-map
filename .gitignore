@@ -80,3 +80,6 @@ tmp/manual/
 *~
 tmp/pages_like_root/
 dist/
+*.bak2
+*.swp
+tmp/pdf_pipeline/
