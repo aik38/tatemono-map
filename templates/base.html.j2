@@ -8,7 +8,8 @@
     (() => {
       const allowed = new Set(["default", "ph", "mercari"]);
       const q = new URLSearchParams(window.location.search).get("theme");
-      const theme = allowed.has(q) ? q : (localStorage.getItem("tm_theme") || "default");
+      const stored = localStorage.getItem("tm_theme");
+      const theme = allowed.has(q) ? q : (allowed.has(stored) ? stored : "ph");
       if (allowed.has(q)) {
         localStorage.setItem("tm_theme", theme);
       }
