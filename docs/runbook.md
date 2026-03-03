@@ -2,7 +2,7 @@
 
 ## 最短運用（これだけ）
 
-1. `scripts/weekly_update.ps1` か `scripts/run_to_pages.ps1` で **`data/public/public.sqlite3` を更新**する。
+1. 空室（Ulucks/RealPro）優先の更新は `scripts/run_all_latest.ps1` で実行し、**`data/public/public.sqlite3` を更新**する。
 2. Git では **`data/public/public.sqlite3` だけ** commit/push する（`dist/` は commit しない）。
 3. `main` への push をトリガーに GitHub Actions が `dist/` を生成し、Pages へ deploy する。
 
@@ -22,11 +22,25 @@
 
 ## コマンド例
 
+### Ulucks/RealPro 最新反映 → ローカル確認（一発）
+
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$ZIP_DIR = Join-Path $REPO "tmp/manual/inputs/pdf_zips"
+$SRC = if (Test-Path $ZIP_DIR) { $ZIP_DIR } else { Join-Path $env:USERPROFILE "Downloads" }
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\sync.ps1" -RepoPath $REPO
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_all_latest.ps1" -RepoPath $REPO -DownloadsDir $SRC -QcMode warn -SkipPush
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO -Port 8788
+```
+
+- ZIP 置き場は原則 `tmp/manual/inputs/pdf_zips`。無ければ `Downloads` から最新 `リアプロ-*.zip` / `ウラックス-*.zip` を使います。
+
 ### 週次更新（public DB 更新まで）
 
 ```powershell
-$REPO = "C:\path\to\tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\weekly_update.ps1" -RepoPath $REPO
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$ZIP_DIR = Join-Path $REPO "tmp/manual/inputs/pdf_zips"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_all_latest.ps1" -RepoPath $REPO -DownloadsDir $ZIP_DIR -QcMode warn
 ```
 
 ### ingest + publish + commit/push（ワンショット）
@@ -35,6 +49,12 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\weekly_update.ps1" 
 $REPO = "C:\path\to\tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
 ```
+
+### スクリプトの役割分担（要点）
+
+- `scripts/run_all_latest.ps1`: 空室（Ulucks/RealPro）を最優先で更新。`sync` → `run_pdf_zip_latest` → 最新 `master_import.csv` を `run_to_pages` へ渡す。
+- `scripts/mvp_refresh.ps1`: Mansion-Review / ORIENT 補助ルート。`fill_only` で building facts を補完し、doctor tri-state（OK/WARN/NG）で判定。
+- `scripts/dev_dist.ps1`: `data/public/public.sqlite3` から `dist` を再生成し、Pages-like (`/tatemono-map/`) でローカルHTTP確認する。
 
 ---
 
@@ -58,6 +78,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 
 ```powershell
 Invoke-WebRequest https://aik38.github.io/tatemono-map/index.html | Select-Object StatusCode,Headers
+curl.exe -s https://aik38.github.io/tatemono-map/build_info.json
 ```
 
 - `Headers.Last-Modified` / `Headers.ETag` が更新されていることを確認する。
