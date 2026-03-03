@@ -4,6 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}tatemono-map{% endblock %}</title>
+  <script>
+    (() => {
+      const allowed = new Set(["default", "ph", "mercari"]);
+      const q = new URLSearchParams(window.location.search).get("theme");
+      const theme = allowed.has(q) ? q : (localStorage.getItem("tm_theme") || "default");
+      if (allowed.has(q)) {
+        localStorage.setItem("tm_theme", theme);
+      }
+      const root = document.documentElement;
+      root.classList.remove("theme-ph", "theme-mercari");
+      if (theme === "ph") root.classList.add("theme-ph");
+      if (theme === "mercari") root.classList.add("theme-mercari");
+    })();
+  </script>
   <style>
     :root {
       color-scheme: light;
@@ -16,22 +30,98 @@
       --brand: #1d4ed8;
       --brand-strong: #1e40af;
       --accent: #0f766e;
+      --surface-2: var(--surface-soft);
+      --surface-3: #e2e8f0;
+      --link: inherit;
+      --accent-ui: #bfdbfe;
+      --accent-ui-border: #93c5fd;
+      --line: #10b981;
+      --line-strong: #059669;
+      --line-border: #bbf7d0;
+      --line-cta-text: #0f172a;
+      --line-list-text: #166534;
+      --line-bg-start: #ecfeff;
+      --line-bg-end: #ecfdf5;
+      --header-bg: rgba(246, 248, 251, 0.78);
+      --header-border: rgba(220, 227, 236, 0.95);
+      --brand-text: #0f172a;
+      --kpi-text: #0f172a;
+      --meta-text: #0f172a;
       --radius: 14px;
       --shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
       --max-width: 1040px;
+    }
+
+    html.theme-ph {
+      --bg: #121212;
+      --surface: #1b1b1b;
+      --surface-soft: #2a2a2a;
+      --surface-2: #2a2a2a;
+      --surface-3: #2f2f2f;
+      --text: #ffffff;
+      --muted: #d1d5db;
+      --border: #3f3f46;
+      --brand: #f90;
+      --brand-strong: #b26a00;
+      --accent: #f90;
+      --link: #ffffff;
+      --accent-ui: #f90;
+      --accent-ui-border: #f90;
+      --line: #f90;
+      --line-strong: #b26a00;
+      --line-border: #b26a00;
+      --line-cta-text: #fff2db;
+      --line-list-text: #ffe2b5;
+      --line-bg-start: #2b2114;
+      --line-bg-end: #21190f;
+      --header-bg: rgba(18, 18, 18, 0.92);
+      --header-border: #3f3f46;
+      --brand-text: #ffffff;
+      --kpi-text: #ffffff;
+      --meta-text: #ffffff;
+      --shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    }
+
+    html.theme-mercari {
+      --bg: #ffffff;
+      --surface: #ffffff;
+      --surface-soft: #f5f5f5;
+      --surface-2: #f5f5f5;
+      --surface-3: #f5f5f5;
+      --text: #222222;
+      --muted: #4b5563;
+      --border: #e5e7eb;
+      --brand: #FF0211;
+      --brand-strong: #d9000e;
+      --accent: #4DC9FF;
+      --link: #4DC9FF;
+      --accent-ui: #4DC9FF;
+      --accent-ui-border: #4DC9FF;
+      --line: #FF0211;
+      --line-strong: #d9000e;
+      --line-border: #ffb3b8;
+      --line-cta-text: #222222;
+      --line-list-text: #222222;
+      --line-bg-start: #ffffff;
+      --line-bg-end: #f5f5f5;
+      --header-bg: rgba(255, 255, 255, 0.92);
+      --header-border: #e5e7eb;
+      --brand-text: #222222;
+      --kpi-text: #222222;
+      --meta-text: #222222;
     }
 
     * { box-sizing: border-box; }
 
     body {
       margin: 0;
-      background: linear-gradient(180deg, #eef3ff 0%, var(--bg) 240px);
+      background: linear-gradient(180deg, var(--surface-2) 0%, var(--bg) 240px);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", Meiryo, sans-serif;
       line-height: 1.55;
     }
 
-    a { color: inherit; }
+    a { color: var(--link); }
 
     .page {
       width: min(calc(100% - 24px), var(--max-width));
@@ -44,8 +134,8 @@
       top: 0;
       z-index: 10;
       backdrop-filter: blur(8px);
-      background: rgba(246, 248, 251, 0.78);
-      border-bottom: 1px solid rgba(220, 227, 236, 0.95);
+      background: var(--header-bg);
+      border-bottom: 1px solid var(--header-border);
     }
 
     .site-header__inner {
@@ -63,7 +153,7 @@
       font-size: 1rem;
       letter-spacing: 0.02em;
       font-weight: 700;
-      color: #0f172a;
+      color: var(--brand-text);
       text-decoration: none;
     }
 
@@ -100,7 +190,7 @@
 
     .button--line {
       color: #fff;
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      background: linear-gradient(135deg, var(--line) 0%, var(--line-strong) 100%);
     }
 
     .kpis {
@@ -118,10 +208,10 @@
       gap: 6px;
       border: 1px solid var(--border);
       border-radius: 999px;
-      background: var(--surface-soft);
+      background: var(--surface-2);
       padding: 6px 10px;
       font-size: .9rem;
-      color: #0f172a;
+      color: var(--kpi-text);
       white-space: nowrap;
     }
 

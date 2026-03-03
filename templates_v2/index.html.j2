@@ -15,7 +15,7 @@
   .field { display: grid; gap: 6px; }
   .field label { font-size: .82rem; color: var(--muted); font-weight: 600; }
   .field input, .field select {
-    width: 100%; border: 1px solid var(--border); background: #fff; border-radius: 10px;
+    width: 100%; border: 1px solid var(--border); background: var(--surface); border-radius: 10px;
     padding: 11px 12px; font-size: 1rem;
   }
   #building-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
@@ -28,7 +28,7 @@
   .meta-row dt { color: var(--muted); }
   .meta-row dd { margin: 0; font-weight: 600; }
   .kpis { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-  .kpi { border-radius: 999px; background: #f2f4f8; padding: 5px 10px; font-size: .84rem; }
+  .kpi { border-radius: 999px; background: var(--surface-2); padding: 5px 10px; font-size: .84rem; }
   .kpi span { color: var(--muted); margin-right: 6px; }
   #result-counts[hidden] { display: none; }
   .empty { margin-top: 20px; padding: 20px; text-align: center; }
@@ -36,7 +36,7 @@
   .actions { margin-top: 16px; display: flex; justify-content: center; }
   #load-more[hidden] { display: none; }
   .button-secondary {
-    border: 1px solid var(--border); background: #fff; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--surface); border-radius: 10px;
     padding: 10px 16px; font-size: .95rem; font-weight: 600; cursor: pointer;
   }
   @media (max-width: 740px) {

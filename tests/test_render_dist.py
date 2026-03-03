@@ -486,3 +486,31 @@ def test_build_dist_versions_outputs_build_info_json(tmp_path):
     assert build_info["buildings_count_db"] >= 0
     assert "generated_at" in build_info
     assert "git_sha" in build_info
+
+
+def test_build_dist_versions_theme_init_and_theme_variables_present(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("テーマ確認マンション", "福岡県北九州市小倉北区", 84000, 29.0, "1LDK", "2027-02-01", "ulucks", "theme-check"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+    detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
+
+    for html in (index_v2, detail_v2):
+        assert 'new Set(["default", "ph", "mercari"])' in html
+        assert 'localStorage.getItem("tm_theme")' in html
+        assert 'localStorage.setItem("tm_theme", theme)' in html
+        assert 'root.classList.remove("theme-ph", "theme-mercari")' in html
+        assert 'if (theme === "ph") root.classList.add("theme-ph")' in html
+        assert 'if (theme === "mercari") root.classList.add("theme-mercari")' in html
+        assert 'html.theme-ph' in html
+        assert 'html.theme-mercari' in html
+
