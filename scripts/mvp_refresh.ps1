@@ -134,14 +134,19 @@ print(f"[MVP_FINAL] mansion_review_created={created}")
   if ($LASTEXITCODE -ne 0) { throw "MVP final stats collection failed" }
 
   Write-Host "[STEP] doctor gate"
-  & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts/run_mvp_doctor.ps1") -RepoPath $repo
+  $doctorOutput = & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts/run_mvp_doctor.ps1") -RepoPath $repo -UnmatchedFactsPolicy "warn" 2>&1
+  $doctorOutput | ForEach-Object { Write-Host $_ }
+  $doctorResultLine = ($doctorOutput | Where-Object { $_ -match "\[doctor\] RESULT=(OK|WARN|NG)" } | Select-Object -Last 1)
+  if ($doctorResultLine) {
+    $doctorMatch = [regex]::Match($doctorResultLine, "RESULT=(OK|WARN|NG)")
+    if ($doctorMatch.Success) { $doctorStatus = $doctorMatch.Groups[1].Value }
+  }
   if ($LASTEXITCODE -ne 0) {
-    $doctorStatus = "NG"
     Write-Host "DOCTOR=$doctorStatus"
     exit 1
   }
 
-  $doctorStatus = "OK"
+  if (-not $doctorResultLine) { $doctorStatus = "OK" }
   Write-Host "OUT=$outDir"
   Write-Host "DOCTOR=$doctorStatus"
 }

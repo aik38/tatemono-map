@@ -105,7 +105,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\mvp_refresh.ps1" `
   -CreateMissingSafe:$false
 ```
 
-- 出力ログに `BACKUP=...`, `OUT=...`, `DOCTOR=OK/NG` を表示します。
+- 出力ログに `BACKUP=...`, `OUT=...`, `DOCTOR=OK/WARN/NG` を表示します。
 - `-CreateMissingSafe` を付けると Mansion-Review listfacts ingest の「安全な新規建物作成」を有効化します。
 - `data/manual/orient_building_facts.csv` が存在する場合のみ、`ingest_building_facts --merge fill_only` で補完します。
 
@@ -128,13 +128,33 @@ Copy-Item "$REPO\tmp\backup\$TS\dist" "$REPO\dist" -Recurse -Force
 
 ### doctor gate の意味
 
-`run_mvp_doctor.ps1` は以下がゼロであることを必須にします。
+`run_mvp_doctor.ps1` は `RESULT=OK/WARN/NG` を返します（`NG` のみ non-zero exit）。
 
-- duplicates（`norm_name + norm_address` / `canonical_address` の重複）
-- orphans（`listings.building_key` が `buildings` に存在しない行）
-- unmatched（最新 review CSV の `unmatched_listings_*` と `unmatched_building_facts_*` の行数）
+- **NG（必須停止）**
+  - duplicates（`norm_name + norm_address` / `canonical_address` の重複）
+  - orphans（`listings.building_key` が `buildings` に存在しない行）
+- **WARN（既定）**
+  - 最新 `unmatched_building_facts_*.csv` に未解決行がある場合（Mansion-Review facts は後続の Google API enrich 前提で保留可能）
+- **INFO（現状維持）**
+  - `unmatched_listings_*` は件数表示のみ（ゲート判定には未使用）
 
-`unmatched` は誤結合リスクが高いため、自動統合しません。`mvp_refresh.ps1` の最後の doctor gate で `unmatched_building_facts_*.csv` の最新ファイルに1件でも未解決行があれば `DOCTOR=NG` で停止し、unmatched CSV は安全のためそのまま残します。必ず review CSV を人手で確認してから次の更新へ進めてください。
+`mvp_refresh.ps1` は doctor を `-UnmatchedFactsPolicy warn` で呼び出すため、facts の未解決は `DOCTOR=WARN` になります。最新の unmatched CSV パスと行数は `WARN/NG` いずれでも常に出力されます。
+
+必要に応じて `run_mvp_doctor.ps1 -UnmatchedFactsPolicy ng|warn|ignore` を指定できます（既定: `warn`）。
+
+### 重複建物の安全マージ
+
+重複解消は `scripts/merge_duplicate_buildings.ps1` を使用してください。以下の「安全条件」を満たす場合のみ自動マージします。
+
+- 片方のみ `listings_cnt > 0`（もう片方は `0`）
+- または両方 `listings_cnt = 0` かつ `canonical_address` が一致、さらに `canonical_name` 正規化一致
+
+上記以外（曖昧ケース）は **DBを変更せず**、`tmp/review/duplicate_candidates_<timestamp>.csv` を出力します。実行のたびに `tmp/review/duplicate_merge_<timestamp>.csv` も出力し、適用内容（または未適用）を監査できます。
+
+```powershell
+$REPO = "C:\path\to\tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\merge_duplicate_buildings.ps1" -RepoPath $REPO
+```
 
 ---
 
