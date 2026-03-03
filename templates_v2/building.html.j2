@@ -12,22 +12,22 @@
   .hero, .info, .line-cta { padding: clamp(16px, 2.5vw, 24px); }
   .hero p { margin: 8px 0 0; color: var(--muted); }
   .kpis { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
-  .kpi { border-radius: 999px; background: #f2f4f8; padding: 5px 10px; font-size: .84rem; }
+  .kpi { border-radius: 999px; background: var(--surface-2); padding: 5px 10px; font-size: .84rem; }
   .kpi span { color: var(--muted); margin-right: 6px; }
   .cta-row { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
   .facts { margin: 0; display: grid; gap: 10px; }
-  .fact { margin: 0; display: grid; grid-template-columns: 128px minmax(0,1fr); border-top: 1px solid #f0f2f6; padding-top: 9px; }
+  .fact { margin: 0; display: grid; grid-template-columns: 128px minmax(0,1fr); border-top: 1px solid var(--border-soft); padding-top: 9px; }
   .fact:first-child { border-top: 0; padding-top: 0; }
   .fact dt { color: var(--muted); }
   .fact dd { margin: 0; font-weight: 600; }
   .line-cta {
-    border: 1px solid #d7f4e4;
-    background: linear-gradient(180deg, #f9fffc 0%, #f4fcf8 100%);
+    border: 1px solid var(--line-border);
+    background: linear-gradient(180deg, var(--line-bg-start) 0%, var(--line-bg-end) 100%);
     display: grid;
     gap: 10px;
     justify-items: start;
   }
-  .line-cta p { margin: 0; color: #2f5141; }
+  .line-cta p { margin: 0; color: var(--line-cta-text); }
   @media (max-width: 740px) {
     .fact { grid-template-columns: 1fr; gap: 2px; }
     .cta-row { flex-direction: column; align-items: stretch; }
@@ -50,7 +50,7 @@
     </ul>
     <div class="cta-row">
       {% if maps_url %}<a class="button button--primary" href="{{ maps_url }}" target="_blank" rel="noopener">Googleマップを開く</a>{% endif %}
-      <a class="button" href="../index.html" style="background:#eceff4;color:#111827;">一覧へ戻る</a>
+      <a class="button" href="../index.html" style="background:var(--surface-3);color:var(--text);">一覧へ戻る</a>
     </div>
   </section>
 

@@ -15,6 +15,15 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 - ポート番号は固定ではありません（`8788` は例）。
 - `file://` 直開きは `fetch` / 相対パス / ルーティング検証が Pages とズレるため禁止です。
 
+
+## フロント配色テーマ切替（静的・クエリ指定）
+
+- URL クエリで配色テーマのみ切替できます（UI/DOM は不変）。
+  - `?theme=default`（現行互換）
+  - `?theme=ph`（黒 + 白 + オレンジ）
+  - `?theme=mercari`（#FF0211 / #4DC9FF / #222222 / #FFFFFF）
+- クエリ指定時は `localStorage("tm_theme")` に保存され、ページ遷移後も維持されます。
+
 ## 開発同期（GitHub↔ローカル）
 
 ```powershell

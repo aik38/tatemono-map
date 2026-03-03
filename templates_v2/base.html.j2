@@ -4,6 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}tatemono-map{% endblock %}</title>
+  <script>
+    (() => {
+      const allowed = new Set(["default", "ph", "mercari"]);
+      const q = new URLSearchParams(window.location.search).get("theme");
+      const theme = allowed.has(q) ? q : (localStorage.getItem("tm_theme") || "default");
+      if (allowed.has(q)) {
+        localStorage.setItem("tm_theme", theme);
+      }
+      const root = document.documentElement;
+      root.classList.remove("theme-ph", "theme-mercari");
+      if (theme === "ph") root.classList.add("theme-ph");
+      if (theme === "mercari") root.classList.add("theme-mercari");
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;700&display=swap" rel="stylesheet">
@@ -11,14 +25,69 @@
     :root {
       --bg: #f8f9fb;
       --surface: #fff;
+      --surface-2: #f2f4f8;
+      --surface-3: #eceff4;
       --text: #111827;
       --muted: #6b7280;
       --border: #e5e7eb;
+      --border-soft: #eef1f5;
       --brand: #f0447e;
+      --link: inherit;
+      --accent: #111827;
+      --accent-contrast: #fff;
+      --accent2: #f0447e;
       --line: #06c755;
+      --line-contrast: #fff;
+      --line-border: #d7f4e4;
+      --line-cta-text: #2f5141;
+      --line-bg-start: #f9fffc;
+      --line-bg-end: #f4fcf8;
+      --header-bg: rgba(248, 249, 251, 0.92);
       --radius: 12px;
       --shadow-soft: 0 4px 18px rgba(15, 23, 42, 0.05);
       --max-width: 980px;
+    }
+    html.theme-ph {
+      --bg: #121212;
+      --surface: #1b1b1b;
+      --surface-2: #2a2a2a;
+      --surface-3: #2f2f2f;
+      --text: #ffffff;
+      --muted: #d1d5db;
+      --border: #3f3f46;
+      --border-soft: #3f3f46;
+      --link: #ffffff;
+      --accent: #f90;
+      --accent-contrast: #111111;
+      --accent2: #f90;
+      --line: #f90;
+      --line-contrast: #111111;
+      --line-border: #b26a00;
+      --line-cta-text: #fff2db;
+      --line-bg-start: #2b2114;
+      --line-bg-end: #21190f;
+      --header-bg: rgba(18, 18, 18, 0.92);
+    }
+    html.theme-mercari {
+      --bg: #ffffff;
+      --surface: #ffffff;
+      --surface-2: #f5f5f5;
+      --surface-3: #f5f5f5;
+      --text: #222222;
+      --muted: #4b5563;
+      --border: #e5e7eb;
+      --border-soft: #e5e7eb;
+      --link: #4DC9FF;
+      --accent: #FF0211;
+      --accent-contrast: #ffffff;
+      --accent2: #4DC9FF;
+      --line: #FF0211;
+      --line-contrast: #ffffff;
+      --line-border: #ffb3b8;
+      --line-cta-text: #222222;
+      --line-bg-start: #ffffff;
+      --line-bg-end: #f5f5f5;
+      --header-bg: rgba(255, 255, 255, 0.92);
     }
     * { box-sizing: border-box; }
     body {
@@ -29,12 +98,12 @@
       font-size: 16px;
       line-height: 1.6;
     }
-    a { color: inherit; }
+    a { color: var(--link); }
     .site-header {
       position: sticky;
       top: 0;
       z-index: 20;
-      background: rgba(248, 249, 251, 0.92);
+      background: var(--header-bg);
       border-bottom: 1px solid var(--border);
       backdrop-filter: blur(6px);
     }
@@ -63,7 +132,7 @@
       background: var(--surface);
       border-radius: var(--radius);
       box-shadow: var(--shadow-soft);
-      border: 1px solid #eef1f5;
+      border: 1px solid var(--border-soft);
     }
     .button {
       display: inline-flex;
@@ -82,12 +151,12 @@
       pointer-events: auto;
     }
     .button--primary {
-      background: #111827;
-      color: #fff;
+      background: var(--accent);
+      color: var(--accent-contrast);
     }
     .button--line {
       background: var(--line);
-      color: #fff;
+      color: var(--line-contrast);
       width: 100%;
       max-width: 320px;
     }
