@@ -47,18 +47,28 @@
   .field select {
     appearance: none;
     width: 100%;
-    border: 1px solid var(--border);
+    border: 1px solid var(--control-border);
     border-radius: 10px;
     padding: 10px 12px;
     font-size: 1rem;
-    background: var(--surface);
-    color: var(--text);
+    background: var(--control-bg);
+    color: var(--control-text);
+  }
+
+  .field input::placeholder {
+    color: var(--control-placeholder);
   }
 
   .field input:focus,
   .field select:focus {
-    outline: 2px solid var(--accent-ui);
+    outline: none;
     border-color: var(--accent-ui-border);
+    box-shadow: 0 0 0 3px var(--control-focus-ring);
+  }
+
+  .field select option {
+    background: var(--control-bg);
+    color: var(--control-text);
   }
 
   #building-list {
@@ -91,6 +101,30 @@
     text-decoration: underline;
     text-decoration-thickness: 2px;
     text-underline-offset: 2px;
+  }
+
+
+  .hero h1,
+  .hero h1 a,
+  .building-card h2 {
+    color: var(--text);
+  }
+
+  html.theme-ph .brand,
+  html.theme-mercari .brand,
+  html.theme-ph .hero h1,
+  html.theme-mercari .hero h1 {
+    color: var(--accent);
+  }
+
+  html.theme-ph .kpi,
+  html.theme-mercari .kpi {
+    border-color: color-mix(in srgb, var(--accent) 28%, var(--border));
+    background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+  }
+
+  .building-link:hover h2 {
+    color: color-mix(in srgb, var(--accent) 75%, var(--text));
   }
 
   .address {

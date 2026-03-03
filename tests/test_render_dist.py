@@ -514,3 +514,34 @@ def test_build_dist_versions_theme_init_and_theme_variables_present(tmp_path):
         assert 'html.theme-ph' in html
         assert 'html.theme-mercari' in html
 
+
+
+def test_build_dist_versions_define_control_tokens_and_apply_form_text_color(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("コントロール配色確認", "東京都台東区1-2-3", 93000, 28.0, "1DK", "2026-12-01", "ulucks", "control-theme"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v1 = (out / "v1" / "index.html").read_text(encoding="utf-8")
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+
+    for html in (index_v1, index_v2):
+        assert "--control-bg" in html
+        assert "--control-text" in html
+        assert "--control-placeholder" in html
+        assert "--control-border" in html
+        assert "--control-focus-ring" in html
+        assert "--control-icon" in html
+        assert "html.theme-ph" in html and "--control-text: #f4f4f4;" in html
+        assert "html.theme-mercari" in html and "--control-text: #222222;" in html
+        assert "input," in html
+        assert "select," in html
+        assert "textarea" in html
+        assert "color: var(--control-text);" in html
