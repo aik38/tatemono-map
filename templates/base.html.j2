@@ -42,6 +42,12 @@
       --line-list-text: #166534;
       --line-bg-start: #ecfeff;
       --line-bg-end: #ecfdf5;
+      --control-bg: var(--surface);
+      --control-text: var(--text);
+      --control-placeholder: var(--muted);
+      --control-border: var(--border);
+      --control-focus-ring: var(--accent-ui);
+      --control-icon: var(--muted);
       --header-bg: rgba(246, 248, 251, 0.78);
       --header-border: rgba(220, 227, 236, 0.95);
       --brand-text: #0f172a;
@@ -74,6 +80,12 @@
       --line-list-text: #ffe2b5;
       --line-bg-start: #2b2114;
       --line-bg-end: #21190f;
+      --control-bg: #242424;
+      --control-text: #f4f4f4;
+      --control-placeholder: #b9b9b9;
+      --control-border: #4b4b53;
+      --control-focus-ring: rgba(255, 153, 0, 0.35);
+      --control-icon: #d6d6d6;
       --header-bg: rgba(18, 18, 18, 0.92);
       --header-border: #3f3f46;
       --brand-text: #ffffff;
@@ -104,6 +116,12 @@
       --line-list-text: #222222;
       --line-bg-start: #ffffff;
       --line-bg-end: #f5f5f5;
+      --control-bg: #ffffff;
+      --control-text: #222222;
+      --control-placeholder: #6b7280;
+      --control-border: #e5e7eb;
+      --control-focus-ring: rgba(255, 2, 17, 0.24);
+      --control-icon: #6b7280;
       --header-bg: rgba(255, 255, 255, 0.92);
       --header-border: #e5e7eb;
       --brand-text: #222222;
@@ -122,6 +140,35 @@
     }
 
     a { color: var(--link); }
+
+    input,
+    select,
+    textarea {
+      color: var(--control-text);
+      background-color: var(--control-bg);
+      border-color: var(--control-border);
+      caret-color: var(--control-text);
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: var(--control-placeholder);
+      opacity: 1;
+    }
+
+    input:focus,
+    select:focus,
+    textarea:focus {
+      border-color: var(--accent-ui-border);
+      box-shadow: 0 0 0 3px var(--control-focus-ring);
+    }
+
+    select { color: var(--control-text); }
+
+    select option {
+      background: var(--control-bg);
+      color: var(--control-text);
+    }
 
     .page {
       width: min(calc(100% - 24px), var(--max-width));
