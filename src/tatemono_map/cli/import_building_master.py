@@ -61,7 +61,7 @@ def run(db_path: str, csv_path: str, source: str) -> tuple[int, int]:
                     """,
                     (
                         normalized.raw_name,
-                        normalized.raw_address,
+                        normalized.canonical_address,
                         structure,
                         age_years,
                         built_year,
@@ -85,7 +85,7 @@ def run(db_path: str, csv_path: str, source: str) -> tuple[int, int]:
                     (
                         building_id,
                         normalized.raw_name,
-                        normalized.raw_address,
+                        normalized.canonical_address,
                         structure,
                         age_years,
                         built_year,

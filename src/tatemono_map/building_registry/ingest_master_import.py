@@ -377,7 +377,9 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                 conn.execute(
                     """
                     UPDATE buildings
-                    SET structure=COALESCE(NULLIF(?, ''), structure),
+                    SET canonical_name=COALESCE(NULLIF(canonical_name, ''), ?),
+                        canonical_address=COALESCE(NULLIF(canonical_address, ''), ?),
+                        structure=COALESCE(NULLIF(?, ''), structure),
                         age_years=COALESCE(?, age_years),
                         built_year=COALESCE(?, built_year),
                         availability_raw=COALESCE(NULLIF(?, ''), availability_raw),
@@ -385,7 +387,7 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                         updated_at=CURRENT_TIMESTAMP
                     WHERE building_id=?
                     """,
-                    (building_structure, building_age_years, built_year, availability_raw, availability_label, building_id),
+                    (normalized.raw_name, normalized.canonical_address, building_structure, building_age_years, built_year, availability_raw, availability_label, building_id),
                 )
 
             conn.execute(

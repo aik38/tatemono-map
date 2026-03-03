@@ -63,7 +63,7 @@ def seed_from_ui_csv(db_path: str, csv_path: str, source: str = "ui_seed") -> tu
                     (
                         building_id,
                         normalized.raw_name,
-                        normalized.raw_address,
+                        normalized.canonical_address,
                         normalized.normalized_name,
                         normalized.normalized_address,
                     ),

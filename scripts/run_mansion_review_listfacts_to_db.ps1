@@ -5,6 +5,7 @@ param(
   [double]$SleepSec = 0.7,
   [int]$MaxPages = 0,
   [string]$Merge = "fill_only",
+  [switch]$CreateMissingSafe = $false,
   [switch]$RunPublish = $true
 )
 
@@ -35,7 +36,7 @@ try {
   Write-Host "[OK] facts_csv=$($factsCsv.FullName)"
 
   $dbPath = Join-Path $repo "data\tatemono_map.sqlite3"
-  & $py -m tatemono_map.building_registry.ingest_building_facts --db $dbPath --csv $factsCsv.FullName --source mansion_review_list_facts --merge $Merge
+  & $py -m tatemono_map.building_registry.ingest_building_facts --db $dbPath --csv $factsCsv.FullName --source mansion_review_list_facts --merge $Merge $(if($CreateMissingSafe){"--create-missing-safe"})
   if ($LASTEXITCODE -ne 0) { throw "ingest_building_facts failed" }
   Write-Host "[OK] ingest_building_facts db=$dbPath merge=$Merge"
 

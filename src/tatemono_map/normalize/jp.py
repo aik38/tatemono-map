@@ -5,7 +5,7 @@ import unicodedata
 
 RE_MULTI_SPACE = re.compile(r"\s+")
 RE_ROOM_SUFFIX = re.compile(r"(?:\s|#|-|－)?\d{1,4}[A-Za-z]?(?:号?室?)$")
-RE_HYPHENS = re.compile(r"[‐‑‒–—―ーｰ－]+")
+RE_HYPHENS = re.compile(r"[‐‑‒–—―ーｰ－−]+")
 RE_CHOME_NOISY = re.compile(r"(\d+)\s*-?\s*(?:丁目)+")
 RE_CHOME = re.compile(r"(\d+)\s*-?\s*丁目")
 RE_BANCHI = re.compile(r"(\d+)番地?")
