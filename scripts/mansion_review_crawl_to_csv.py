@@ -57,7 +57,17 @@ class FactsRow:
     building_name: str
     address: str
     structure: str
-    age_years: int | None
+    built_year_month: str
+    property_kind: str
+    sale_price_yen_min: int | None
+    sale_price_yen_max: int | None
+    sale_price_yen_avg: int | None
+    sale_area_sqm_min: float | None
+    sale_area_sqm_max: float | None
+    sale_layout_types_json: str
+    sale_listing_count: int | None
+    avg_rent_yen: int | None
+    rental_listing_count: int | None
     availability_label: str
     evidence_id: str
     raw_block: str
@@ -137,6 +147,7 @@ def _find_text_with_pattern(card: Node, patterns: list[str]) -> str:
 
 def detect_card_nodes(tree: HTMLParser) -> tuple[list[Node], ParseDebug]:
     selectors = [
+        "li.property-detail-list-item",
         "section.property-card",
         "article.property-card",
         "li.property-card",
@@ -183,6 +194,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         address = _pick_first_text(card, [".address", "dd.address", "dd", "[class*='address']"])
         if not address:
             address = _find_text_with_pattern(card, [r"(?:福岡県)?北九州市[^\s]{0,20}区[^\s]{0,120}"])
+        address = _strip_fukuoka_prefix(address)
 
         price_or_rent_text = _pick_first_text(
             card,
@@ -340,6 +352,126 @@ def write_csv(rows: list[ListRow], out_csv: Path) -> None:
             writer.writerow(asdict(row))
 
 
+
+
+def _strip_fukuoka_prefix(address: str) -> str:
+    text = normalize_space(address)
+    return re.sub(r"^福岡県", "", text)
+
+
+def _parse_built_year_month(text: str) -> str:
+    m = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月", text)
+    if not m:
+        return ""
+    return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}"
+
+
+def _parse_price_to_yen(text: str) -> int | None:
+    t = normalize_space(text).replace(",", "")
+    m = re.search(r"(\d+(?:\.\d+)?)\s*万円", t)
+    if m:
+        return int(float(m.group(1)) * 10000)
+    m = re.search(r"(\d+)\s*円", t)
+    if m:
+        return int(m.group(1))
+    return None
+
+
+def _parse_area_sqm(text: str) -> float | None:
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:㎡|m²|m2)", normalize_space(text))
+    return float(m.group(1)) if m else None
+
+
+def _extract_recommend_rows(card: Node) -> tuple[list[int], list[float], list[str], int]:
+    prices: list[int] = []
+    areas: list[float] = []
+    layouts: list[str] = []
+
+    table = card.css_first("table.recommendTable")
+    if not table:
+        return prices, areas, layouts, 0
+
+    headers = [normalize_space(th.text(separator=" ")) for th in table.css("thead th")]
+    idx_price = idx_area = idx_layout = -1
+    for i, h in enumerate(headers):
+        if "価格" in h:
+            idx_price = i
+        elif "専有面積" in h:
+            idx_area = i
+        elif "間取り" in h:
+            idx_layout = i
+
+    body_rows = table.css("tbody.recommend_row tr") or table.css("tbody.recommend_row")
+    row_count = len(body_rows)
+    for tr in body_rows:
+        cells = tr.css("td")
+        if idx_price >= 0 and idx_price < len(cells):
+            p = _parse_price_to_yen(cells[idx_price].text(separator=" "))
+            if p is not None:
+                prices.append(p)
+        if idx_area >= 0 and idx_area < len(cells):
+            a = _parse_area_sqm(cells[idx_area].text(separator=" "))
+            if a is not None:
+                areas.append(a)
+        if idx_layout >= 0 and idx_layout < len(cells):
+            l = normalize_space(cells[idx_layout].text(separator=" "))
+            if l:
+                layouts.append(l)
+
+    return prices, areas, sorted(set(layouts)), row_count
+
+
+def parse_list_card_facts(card: Node, kind: str, detail_url: str, fallback_name: str, fallback_address: str) -> FactsRow:
+    full_text = normalize_space(card.text(separator=" "))
+    building_name = _pick_first_text(card, ["h1", "h2", "h3", ".mansionName", ".property-name", "a[title]", "a"]) or normalize_space(fallback_name)
+    address = _pick_first_text(card, [".address", "dd.address", "dd", "[class*='address']"])
+    if not address:
+        m_addr = re.search(r"(?:福岡県)?北九州市[^\s]{0,10}区[^\s]{0,120}", full_text)
+        if m_addr:
+            address = normalize_space(m_addr.group(0))
+    address = _strip_fukuoka_prefix(address or fallback_address)
+
+    built_year_month = _parse_built_year_month(full_text)
+    evidence_id = f"mansion_review:{detail_url or building_name}"
+
+    avg_price = None
+    m_avg_price = re.search(r"平均価格\s*[:：]?\s*(\d+(?:\.\d+)?)\s*万円", full_text)
+    if m_avg_price:
+        avg_price = int(float(m_avg_price.group(1)) * 10000)
+
+    avg_rent = None
+    m_avg_rent = re.search(r"平均賃料\s*[:：]?\s*(\d+(?:\.\d+)?)\s*万円", full_text)
+    if m_avg_rent:
+        avg_rent = int(float(m_avg_rent.group(1)) * 10000)
+
+    prices, areas, layouts, rec_count = _extract_recommend_rows(card)
+
+    sale_min = min(prices) if prices else avg_price
+    sale_max = max(prices) if prices else avg_price
+
+    property_kind = "bunjo" if kind == "mansion" else "chintai"
+    structure = "RC" if property_kind == "bunjo" else ""
+
+    return FactsRow(
+        building_name=building_name,
+        address=address,
+        structure=structure,
+        built_year_month=built_year_month,
+        property_kind=property_kind,
+        sale_price_yen_min=sale_min if property_kind == "bunjo" else None,
+        sale_price_yen_max=sale_max if property_kind == "bunjo" else None,
+        sale_price_yen_avg=avg_price if property_kind == "bunjo" else None,
+        sale_area_sqm_min=min(areas) if (areas and property_kind == "bunjo") else None,
+        sale_area_sqm_max=max(areas) if (areas and property_kind == "bunjo") else None,
+        sale_layout_types_json=json.dumps(layouts, ensure_ascii=False) if (layouts and property_kind == "bunjo") else "",
+        sale_listing_count=rec_count if property_kind == "bunjo" else None,
+        avg_rent_yen=avg_rent if property_kind == "chintai" else None,
+        rental_listing_count=rec_count if property_kind == "chintai" else None,
+        availability_label="",
+        evidence_id=evidence_id,
+        raw_block=full_text[:1200],
+    )
+
 def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_address: str) -> FactsRow:
     tree = HTMLParser(html)
     full_text = normalize_space(tree.text(separator=" "))
@@ -404,9 +536,19 @@ def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_
     raw_block = full_text[:1200]
     return FactsRow(
         building_name=building_name,
-        address=address,
+        address=_strip_fukuoka_prefix(address),
         structure=structure,
-        age_years=age_years,
+        built_year_month=_parse_built_year_month(full_text),
+        property_kind="",
+        sale_price_yen_min=None,
+        sale_price_yen_max=None,
+        sale_price_yen_avg=None,
+        sale_area_sqm_min=None,
+        sale_area_sqm_max=None,
+        sale_layout_types_json="",
+        sale_listing_count=None,
+        avg_rent_yen=None,
+        rental_listing_count=None,
         availability_label=availability_label,
         evidence_id=evidence_id,
         raw_block=raw_block,
@@ -421,8 +563,9 @@ def write_facts_csv(rows: list[FactsRow], out_csv: Path) -> None:
         writer.writeheader()
         for row in rows:
             payload = asdict(row)
-            if payload["age_years"] is None:
-                payload["age_years"] = ""
+            for key, value in list(payload.items()):
+                if value is None:
+                    payload[key] = ""
             writer.writerow(payload)
 
 
@@ -455,6 +598,7 @@ def run_crawl(
     )
 
     all_rows: list[ListRow] = []
+    all_facts_rows: list[FactsRow] = []
     stats: dict[str, Any] = {
         "timestamp": timestamp,
         "mode": mode,
@@ -534,6 +678,12 @@ def run_crawl(
                 rows, parse_debug = parse_list_page(page_html, page_url, kind, city_id, page)
                 stats["pages_total"] += 1
                 all_rows.extend(rows)
+                tree = HTMLParser(page_html)
+                for card in tree.css("li.property-detail-list-item"):
+                    detail_url = _find_detail_url(card, page_url, kind)
+                    fallback_name = _pick_first_text(card, ["h1", "h2", "h3", ".mansionName", ".property-name", "a"])
+                    fallback_address = _pick_first_text(card, [".address", "dd.address", "dd", "[class*='address']"])
+                    all_facts_rows.append(parse_list_card_facts(card, kind, detail_url, fallback_name, fallback_address))
 
                 detail_urls = {row.detail_url for row in rows if row.detail_url}
                 same_as_previous = prev_detail_urls is not None and detail_urls == prev_detail_urls
@@ -622,32 +772,36 @@ def run_crawl(
 
     if mode == "facts":
         facts_map: dict[str, FactsRow] = {}
-        for row in all_rows:
-            detail_url = normalize_space(row.detail_url)
-            if not detail_url or detail_url in facts_map:
+        for fact in all_facts_rows:
+            key = f"{fact.property_kind}|{normalize_space(fact.building_name)}|{normalize_space(fact.address)}"
+            if key in facts_map:
                 continue
-            try:
-                detail_html, from_cache = fetch_html(
-                    session,
-                    detail_url,
-                    cache_dir,
-                    retry_count=retry_count,
-                    sleep_sec=sleep_sec,
-                )
-                if from_cache:
-                    stats["cache_hits"] += 1
-                facts_map[detail_url] = parse_detail_facts(detail_html, detail_url, row.building_name, row.address)
-            except Exception as err:  # noqa: BLE001
-                stats["errors"].append(
-                    {
-                        "kind": row.kind,
-                        "city_id": row.city_id,
-                        "page": row.city_page,
-                        "url": detail_url,
-                        "error": f"detail fetch failed: {err}",
-                    }
-                )
+            facts_map[key] = fact
 
+        if not facts_map:
+            for row in all_rows:
+                key = f"{row.kind}|{normalize_space(row.building_name)}|{_strip_fukuoka_prefix(row.address)}"
+                if key in facts_map:
+                    continue
+                facts_map[key] = FactsRow(
+                    building_name=row.building_name,
+                    address=_strip_fukuoka_prefix(row.address),
+                    structure="RC" if row.kind == "mansion" else "",
+                    built_year_month="",
+                    property_kind="bunjo" if row.kind == "mansion" else "chintai",
+                    sale_price_yen_min=None,
+                    sale_price_yen_max=None,
+                    sale_price_yen_avg=None,
+                    sale_area_sqm_min=None,
+                    sale_area_sqm_max=None,
+                    sale_layout_types_json="",
+                    sale_listing_count=None,
+                    avg_rent_yen=None,
+                    rental_listing_count=None,
+                    availability_label="",
+                    evidence_id=f"mansion_review:{normalize_space(row.detail_url) or key}",
+                    raw_block="",
+                )
         facts_rows = list(facts_map.values())
         combined_dir = out_root / "combined"
         facts_csv = combined_dir / f"building_facts_{timestamp}.csv"

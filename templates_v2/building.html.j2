@@ -41,10 +41,11 @@
 <div class="stack">
   <section class="hero card" aria-label="建物概要">
     <h1>{{ building.name or "名称未設定" }}</h1>
+    {% if building.property_kind == "bunjo" %}<span class="kpi">分譲マンション</span>{% endif %}
     <p>{{ building.address or "住所情報なし" }}</p>
     <ul class="kpis" aria-label="注目情報">
-      <li class="kpi"><span>空室</span>{{ building.vacancy_count if building.vacancy_count is not none else "—" }}件</li>
-      <li class="kpi"><span>家賃</span>{{ building.rent_yen_min|yen }}円〜{{ building.rent_yen_max|yen }}円</li>
+      {% if building.property_kind == "bunjo" %}<li class="kpi"><span>販売情報</span>{{ building.sale_listing_count if building.sale_listing_count is not none else "—" }}件</li>{% else %}<li class="kpi"><span>空室</span>{{ building.vacancy_count if building.vacancy_count is not none else "—" }}件</li>{% endif %}
+      {% if building.property_kind == "bunjo" %}<li class="kpi"><span>価格</span>{{ ((building.sale_price_yen_avg / 10000)|int ~ "万円") if building.sale_price_yen_avg is not none else "—" }}</li>{% else %}<li class="kpi"><span>家賃</span>{{ building.rent_yen_min|yen }}円〜{{ building.rent_yen_max|yen }}円</li>{% endif %}
       <li class="kpi"><span>面積</span>{{ (building.area_sqm_min ~ '㎡') if building.area_sqm_min is not none else '—' }}〜{{ (building.area_sqm_max ~ '㎡') if building.area_sqm_max is not none else '—' }}</li>
     </ul>
     <div class="cta-row">
@@ -56,11 +57,11 @@
   <section class="info card" aria-label="詳細情報">
     <h2>募集情報</h2>
     <dl class="facts">
-      <div class="fact"><dt>空室数</dt><dd>{{ building.vacancy_count if building.vacancy_count is not none else "—" }}件</dd></div>
-      <div class="fact"><dt>家賃レンジ</dt><dd>{{ building.rent_yen_min|yen }}円 〜 {{ building.rent_yen_max|yen }}円</dd></div>
+      {% if building.property_kind == "bunjo" %}<div class="fact"><dt>販売情報</dt><dd>{{ building.sale_listing_count if building.sale_listing_count is not none else "—" }}件</dd></div>{% else %}<div class="fact"><dt>空室数</dt><dd>{{ building.vacancy_count if building.vacancy_count is not none else "—" }}件</dd></div>{% endif %}
+      <div class="fact"><dt>{% if building.property_kind == "bunjo" %}価格レンジ{% else %}家賃レンジ{% endif %}</dt><dd>{% if building.property_kind == "bunjo" %}{{ ((building.sale_price_yen_avg / 10000)|int ~ "万円") if building.sale_price_yen_avg is not none else "—" }}{% else %}{{ building.rent_yen_min|yen }}円 〜 {{ building.rent_yen_max|yen }}円{% endif %}</dd></div>
       <div class="fact"><dt>面積レンジ</dt><dd>{{ (building.area_sqm_min ~ '㎡') if building.area_sqm_min is not none else '—' }} 〜 {{ (building.area_sqm_max ~ '㎡') if building.area_sqm_max is not none else '—' }}</dd></div>
       <div class="fact"><dt>間取りタイプ</dt><dd>{{ building.layout_types | join(', ') if building.layout_types else '—' }}</dd></div>
-      <div class="fact"><dt>入居可能日</dt><dd>{% if building.building_availability_label == '入居' %}即入居{% elif building.building_availability_label %}{{ building.building_availability_label }}{% else %}{{ building.move_in_dates | join(', ') if building.move_in_dates else '—' }}{% endif %}</dd></div>
+      <div class="fact"><dt>入居可能日</dt><dd>{% if building.property_kind == 'bunjo' or (building.vacancy_count or 0) <= 0 %}—{% elif building.building_availability_label == '入居' %}即入居{% elif building.building_availability_label %}{{ building.building_availability_label }}{% else %}{{ building.move_in_dates | join(', ') if building.move_in_dates else '—' }}{% endif %}</dd></div>
       <div class="fact"><dt>築年数</dt><dd>{% if building.building_built_year_month %}{{ building.building_built_year_month }}{% if building.building_built_age_years is not none %} ({{ building.building_built_age_years }}年){% endif %}{% elif building.building_built_age_years is not none %}{{ building.building_built_age_years }}年{% elif building.age_years is not none %}{{ building.age_years }}年{% else %}—{% endif %}</dd></div>
       <div class="fact"><dt>建物構造</dt><dd>{{ building.building_structure or building.structure or '—' }}</dd></div>
     </dl>

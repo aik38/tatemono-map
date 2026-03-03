@@ -110,6 +110,34 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_mansion_review_
 
 ---
 
+
+## マンションレビュー（一覧ページのみ）で分譲データ更新
+
+> 必ず先にリポジトリへ移動してから実行してください（相対パス事故防止）。
+
+```powershell
+$REPO = "C:\path\to\tatemono-map"
+Set-Location $REPO
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_mansion_review_listfacts_to_db.ps1" `
+  -RepoPath $REPO `
+  -CityIds "1616,1619" `
+  -Kinds "mansion,chintai" `
+  -SleepSec 0.7 `
+  -MaxPages 0 `
+  -Merge fill_only
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\publish_public.ps1" -RepoPath $REPO
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO
+```
+
+- 取得元は city 一覧ページ（`/mansion/city/...`, `/chintai/city/...`）のみです。詳細ページには入りません。
+- 分譲は「価格レンジ（平均価格）」と「販売情報件数」を public DB / dist に反映します。
+- 入居可能日は `vacancy_count > 0` のときのみ表示対象です（分譲/空室0件は `—`）。
+- 賃貸は Ulucks/RealPro 優先を維持し、マンションレビュー賃貸は建物facts補完として扱います。
+
+---
+
 ## トラブルシュート
 
 1. Actions の `Deploy GitHub Pages` が Success か確認。

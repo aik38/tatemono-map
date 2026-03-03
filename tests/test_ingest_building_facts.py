@@ -17,6 +17,17 @@ def _write_facts_csv(path: Path, rows: list[dict[str, str]]) -> None:
                 "address",
                 "structure",
                 "age_years",
+                "built_year_month",
+                "property_kind",
+                "sale_price_yen_min",
+                "sale_price_yen_max",
+                "sale_price_yen_avg",
+                "sale_area_sqm_min",
+                "sale_area_sqm_max",
+                "sale_layout_types_json",
+                "sale_listing_count",
+                "avg_rent_yen",
+                "rental_listing_count",
                 "availability_label",
                 "evidence_id",
                 "raw_block",
@@ -110,4 +121,59 @@ def test_ingest_building_facts_populates_summaries_for_building_without_listings
     assert row["age_years"] == 5
     assert row["building_structure"] == "RC"
     assert row["building_built_age_years"] == 5
-    assert row["building_availability_label"] == "相談"
+    assert row["building_availability_label"] is None
+
+
+def test_ingest_building_facts_updates_bunjo_fields(tmp_path: Path) -> None:
+    db = tmp_path / "facts3.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address)
+        VALUES ('b3','Cマンション','北九州市小倉北区浅野2-1-1','cまんしょん','北九州市小倉北区浅野2-1-1')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    csv_path = tmp_path / "facts3.csv"
+    _write_facts_csv(
+        csv_path,
+        [
+            {
+                "building_name": "Cマンション",
+                "address": "北九州市小倉北区浅野2-1-1",
+                "structure": "RC",
+                "age_years": "",
+                "built_year_month": "2011-02",
+                "property_kind": "bunjo",
+                "sale_price_yen_min": "39800000",
+                "sale_price_yen_max": "42000000",
+                "sale_price_yen_avg": "40410000",
+                "sale_area_sqm_min": "65",
+                "sale_area_sqm_max": "70.1",
+                "sale_layout_types_json": "[\"2LDK\",\"3LDK\"]",
+                "sale_listing_count": "2",
+                "avg_rent_yen": "",
+                "rental_listing_count": "",
+                "availability_label": "",
+                "evidence_id": "mr:3",
+                "raw_block": "dummy",
+            }
+        ],
+    )
+
+    ingest_building_facts_csv(str(db), str(csv_path), merge="fill_only")
+    rebuild(str(db))
+
+    conn = connect(db)
+    row = conn.execute(
+        "SELECT property_kind, sale_price_yen_avg, sale_listing_count, building_built_year_month, building_availability_label FROM building_summaries WHERE building_key='b3'"
+    ).fetchone()
+    conn.close()
+
+    assert row["property_kind"] == "bunjo"
+    assert row["sale_price_yen_avg"] == 40410000
+    assert row["sale_listing_count"] == 2
+    assert row["building_built_year_month"] == "2011-02"
+    assert row["building_availability_label"] is None
