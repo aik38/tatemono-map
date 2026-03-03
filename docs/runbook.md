@@ -134,7 +134,7 @@ Copy-Item "$REPO\tmp\backup\$TS\dist" "$REPO\dist" -Recurse -Force
 - orphans（`listings.building_key` が `buildings` に存在しない行）
 - unmatched（最新 review CSV の `unmatched_listings_*` と `unmatched_building_facts_*` の行数）
 
-`unmatched` は誤結合リスクが高いため、自動統合しません。必ず review CSV を人手で確認してから次の更新へ進めてください。
+`unmatched` は誤結合リスクが高いため、自動統合しません。`mvp_refresh.ps1` の最後の doctor gate で `unmatched_building_facts_*.csv` の最新ファイルに1件でも未解決行があれば `DOCTOR=NG` で停止し、unmatched CSV は安全のためそのまま残します。必ず review CSV を人手で確認してから次の更新へ進めてください。
 
 ---
 

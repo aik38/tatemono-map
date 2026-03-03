@@ -11,24 +11,28 @@ if (-not $DbPath) { $DbPath = Join-Path $repo "data\tatemono_map.sqlite3" }
 
 Push-Location $repo
 try {
-  & $py - <<'PY' $DbPath $repo
+  $code = @'
 import csv
 import sqlite3
 import sys
 from pathlib import Path
 
 
-def latest_data_rows(base: Path, pattern: str) -> int:
+def latest_data_rows(base: Path, pattern: str) -> tuple[int, Path | None]:
     files = sorted(base.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
     if not files:
-        return 0
+        return 0, None
     latest = files[0]
     with latest.open("r", encoding="utf-8-sig", newline="") as fh:
         reader = csv.reader(fh)
         rows = list(reader)
     if not rows:
-        return 0
-    return max(0, len(rows) - 1)
+        return 0, latest
+    return max(0, len(rows) - 1), latest
+
+
+def table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
 
 
 db_path = sys.argv[1]
@@ -36,33 +40,74 @@ repo = Path(sys.argv[2])
 conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
 
-queries = {
-    "duplicates_norm": """
-        SELECT norm_name, norm_address, COUNT(*) AS c
+buildings_cols = table_columns(conn, "buildings")
+listings_cols = table_columns(conn, "listings")
+
+name_col = "normalized_name" if "normalized_name" in buildings_cols else "norm_name"
+address_col = "normalized_address" if "normalized_address" in buildings_cols else "norm_address"
+has_norm_pair = name_col in buildings_cols and address_col in buildings_cols
+has_canonical_address = "canonical_address" in buildings_cols
+
+building_key_col = "building_id" if "building_id" in buildings_cols else None
+listing_building_col = "building_key" if "building_key" in listings_cols else None
+
+status_ok = True
+
+print("[doctor] mvp_doctor start")
+
+if not has_norm_pair:
+    print(f"[doctor][WARN] normalized duplicate check skipped (columns missing): name_col={name_col} address_col={address_col}")
+else:
+    duplicates_norm = conn.execute(
+        f"""
+        SELECT {name_col}, {address_col}, COUNT(*) AS c
         FROM buildings
-        GROUP BY norm_name, norm_address
+        WHERE COALESCE({name_col}, '') <> '' AND COALESCE({address_col}, '') <> ''
+        GROUP BY {name_col}, {address_col}
         HAVING COUNT(*) > 1
-        ORDER BY c DESC
-    """,
-    "duplicates_canonical_address": """
+        """
+    ).fetchone()
+    duplicates_norm_count = 0 if duplicates_norm is None else duplicates_norm["c"]
+    print(f"[doctor] duplicates_buildings_normalized={duplicates_norm_count}")
+    if duplicates_norm is not None:
+        status_ok = False
+        print("[doctor][NG] Duplicate buildings found for normalized_name + normalized_address")
+
+if has_canonical_address:
+    duplicates_canonical = conn.execute(
+        """
         SELECT canonical_address, COUNT(*) AS c
         FROM buildings
         WHERE canonical_address IS NOT NULL AND canonical_address <> ''
         GROUP BY canonical_address
         HAVING COUNT(*) > 1
-        ORDER BY c DESC
-    """,
-    "orphans": """
-        SELECT l.listing_key, l.building_key
-        FROM listings l
-        LEFT JOIN buildings b ON b.building_id = l.building_key
-        WHERE l.building_key IS NOT NULL AND l.building_key <> '' AND b.building_id IS NULL
-    """,
-}
+        """
+    ).fetchone()
+    duplicates_canonical_count = 0 if duplicates_canonical is None else duplicates_canonical["c"]
+    print(f"[doctor] duplicates_buildings_canonical_address={duplicates_canonical_count}")
+    if duplicates_canonical is not None:
+        status_ok = False
+        print("[doctor][NG] Duplicate buildings found for canonical_address")
+else:
+    print("[doctor][WARN] canonical_address duplicate check skipped (column missing)")
 
-for label, sql in queries.items():
-    rows = conn.execute(sql).fetchall()
-    print(f"{label}={len(rows)}")
+if not building_key_col or not listing_building_col:
+    print("[doctor][WARN] orphan listing check skipped (building_id/building_key column missing)")
+else:
+    orphan_count = conn.execute(
+        f"""
+        SELECT COUNT(*) AS c
+        FROM listings l
+        LEFT JOIN buildings b ON b.{building_key_col} = l.{listing_building_col}
+        WHERE l.{listing_building_col} IS NOT NULL
+          AND l.{listing_building_col} <> ''
+          AND b.{building_key_col} IS NULL
+        """
+    ).fetchone()["c"]
+    print(f"[doctor] orphan_listings={orphan_count}")
+    if orphan_count > 0:
+        status_ok = False
+        print("[doctor][NG] Orphan listings found (listings.building_key not present in buildings)")
 
 buildings_count = conn.execute("SELECT COUNT(*) AS c FROM buildings").fetchone()["c"]
 summaries_count = conn.execute("SELECT COUNT(*) AS c FROM building_summaries").fetchone()["c"]
@@ -84,26 +129,25 @@ print(f"bunjo_with_sale_price_avg={bunjo['with_sale_price_avg'] or 0}")
 print(f"bunjo_with_sale_listing_count={bunjo['with_sale_listing_count'] or 0}")
 
 review_dir = repo / "tmp" / "review"
-unmatched_listings = latest_data_rows(review_dir, "unmatched_listings_*.csv")
-unmatched_facts = latest_data_rows(review_dir, "unmatched_building_facts_*.csv")
-unmatched_total = unmatched_listings + unmatched_facts
-print(f"unmatched_listings_latest={unmatched_listings}")
-print(f"unmatched_building_facts_latest={unmatched_facts}")
-print(f"unmatched_total_latest={unmatched_total}")
-
-has_issues = False
-if conn.execute(queries['duplicates_norm']).fetchone() is not None:
-    has_issues = True
-if conn.execute(queries['duplicates_canonical_address']).fetchone() is not None:
-    has_issues = True
-if conn.execute(queries['orphans']).fetchone() is not None:
-    has_issues = True
-if unmatched_total > 0:
-    has_issues = True
+unmatched_listings, unmatched_listings_file = latest_data_rows(review_dir, "unmatched_listings_*.csv")
+unmatched_facts, unmatched_facts_file = latest_data_rows(review_dir, "unmatched_building_facts_*.csv")
+print(f"[doctor] unmatched_listings_latest_rows={unmatched_listings}")
+print(f"[doctor] unmatched_listings_latest_file={unmatched_listings_file or 'missing'}")
+print(f"[doctor] unmatched_building_facts_latest_rows={unmatched_facts}")
+print(f"[doctor] unmatched_building_facts_latest_file={unmatched_facts_file or 'missing'}")
+if unmatched_facts_file is not None and unmatched_facts > 0:
+    status_ok = False
+    print("[doctor][NG] Latest unmatched_building_facts CSV has unresolved rows; manual review required")
 
 conn.close()
-sys.exit(1 if has_issues else 0)
-PY
+if status_ok:
+    print("[doctor] RESULT=OK")
+    sys.exit(0)
+
+print("[doctor] RESULT=NG")
+sys.exit(1)
+'@
+  & $py -c $code $DbPath $repo
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 finally {
