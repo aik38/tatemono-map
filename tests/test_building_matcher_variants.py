@@ -14,7 +14,7 @@ def _seed(db_path: Path, rows: str) -> None:
     seed_from_ui_csv(str(db_path), str(seed_csv))
 
 
-def test_matcher_address_variants_comma_range_and_fused(tmp_path: Path) -> None:
+def test_matcher_blocks_multi_lot_or_range_and_accepts_fused(tmp_path: Path) -> None:
     db_path = tmp_path / "matcher_variants.sqlite3"
     _seed(
         db_path,
@@ -28,8 +28,10 @@ def test_matcher_address_variants_comma_range_and_fused(tmp_path: Path) -> None:
     fused_match = match_building(conn, "テストマンション", "北九州市小倉北区紺屋町83番")
     conn.close()
 
-    assert comma_match.building_id is not None
-    assert range_match.building_id is not None
+    assert comma_match.building_id is None
+    assert comma_match.reason == "address_multi_or_range"
+    assert range_match.building_id is None
+    assert range_match.reason == "address_multi_or_range"
     assert fused_match.building_id is not None
 
 
@@ -71,3 +73,25 @@ def test_safe_create_missing_blocks_close_match_and_vague_address(tmp_path: Path
 
     assert report.created == 0
     assert buildings == 1
+
+
+def test_safe_create_missing_blocks_multi_lot_or_range_address(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+
+    csv_path = tmp_path / "facts.csv"
+    csv_path.write_text(
+        "building_name,address,evidence_id,property_kind\n"
+        "複数地番マンション,福岡県北九州市小倉北区紺屋町8-3、49号,mr:multi,chintai\n"
+        "レンジ地番マンション,福岡県北九州市小倉北区紺屋町22-23〜24,mr:range,chintai\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_building_facts_csv(str(db_path), str(csv_path), source="mansion_review_list_facts", create_missing_safe=True)
+
+    conn = connect(str(db_path))
+    buildings = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
+    conn.close()
+
+    assert report.created == 0
+    assert report.unresolved == 2
+    assert buildings == 0

@@ -12,6 +12,7 @@ MATCH_SCORE_THRESHOLD = 0.91
 UNIQUE_MARGIN = 0.02
 
 RE_FUSED_BAN = re.compile(r"^(.*?)(\d{2,4})(?:番)?$")
+MULTI_LOT_TOKENS = ("、", "〜")
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,10 @@ def _has_digit(text: str) -> bool:
     return any(ch.isdigit() for ch in text)
 
 
+def _has_multi_lot_or_range(address: str) -> bool:
+    return any(token in address for token in MULTI_LOT_TOKENS)
+
+
 def _pick_strong_unique(candidates: list[tuple[str, float, float, float]], variant: str) -> MatchResult:
     if not candidates:
         return MatchResult(None, "unmatched", [], [], variant)
@@ -86,6 +91,9 @@ def _pick_strong_unique(candidates: list[tuple[str, float, float, float]], varia
 
 
 def match_building(conn: Any, normalized_name: str, normalized_address: str) -> MatchResult:
+    if _has_multi_lot_or_range(normalized_address):
+        return MatchResult(None, "address_multi_or_range", [], [])
+
     alias_rows = conn.execute(
         """
         SELECT s.building_id, s.raw_name

@@ -89,6 +89,55 @@ Invoke-WebRequest -Method Head https://aik38.github.io/tatemono-map/data/buildin
 ---
 
 
+
+## MVPローンチ手順（安全版）
+
+ローンチ前の全ソース取り直しは `scripts/mvp_refresh.ps1` を正とします。以下を一発実行すると、バックアップ→Mansion-Review listfacts ingest→（任意）Orient facts ingest→publish→doctor gate まで実行します。
+
+```powershell
+$REPO = "C:\path\to\tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\mvp_refresh.ps1" `
+  -RepoPath $REPO `
+  -CityIds "1616,1619" `
+  -Kinds "mansion,chintai" `
+  -SleepSec 0.7 `
+  -MaxPages 0 `
+  -CreateMissingSafe:$false
+```
+
+- 出力ログに `BACKUP=...`, `OUT=...`, `DOCTOR=OK/NG` を表示します。
+- `-CreateMissingSafe` を付けると Mansion-Review listfacts ingest の「安全な新規建物作成」を有効化します。
+- `data/manual/orient_building_facts.csv` が存在する場合のみ、`ingest_building_facts --merge fill_only` で補完します。
+
+### バックアップ先
+
+- `tmp/backup/<timestamp>/data/tatemono_map.sqlite3`
+- `tmp/backup/<timestamp>/data/public/public.sqlite3`
+- `tmp/backup/<timestamp>/dist/`
+
+### 復旧手順（バックアップから戻す）
+
+```powershell
+$REPO = "C:\path\to\tatemono-map"
+$TS = "20260101_120000"  # 例
+Copy-Item "$REPO\tmp\backup\$TS\data\tatemono_map.sqlite3" "$REPO\data\tatemono_map.sqlite3" -Force
+Copy-Item "$REPO\tmp\backup\$TS\data\public\public.sqlite3" "$REPO\data\public\public.sqlite3" -Force
+Remove-Item "$REPO\dist" -Recurse -Force -ErrorAction SilentlyContinue
+Copy-Item "$REPO\tmp\backup\$TS\dist" "$REPO\dist" -Recurse -Force
+```
+
+### doctor gate の意味
+
+`run_mvp_doctor.ps1` は以下がゼロであることを必須にします。
+
+- duplicates（`norm_name + norm_address` / `canonical_address` の重複）
+- orphans（`listings.building_key` が `buildings` に存在しない行）
+- unmatched（最新 review CSV の `unmatched_listings_*` と `unmatched_building_facts_*` の行数）
+
+`unmatched` は誤結合リスクが高いため、自動統合しません。必ず review CSV を人手で確認してから次の更新へ進めてください。
+
+---
+
 ## Mansion-Review/Orient building facts update (fill-only)
 
 Mansion-Review / Orient 由来の建物ファクト（構造・築年数・入居ラベル）を canonical Buildings DB に補完する運用です。Ulucks/RealPro の listing 由来データを上書きしないため、既存値保護の `fill_only` を使います。

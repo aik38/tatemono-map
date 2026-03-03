@@ -11,11 +11,28 @@ if (-not $DbPath) { $DbPath = Join-Path $repo "data\tatemono_map.sqlite3" }
 
 Push-Location $repo
 try {
-  & $py - <<'PY' $DbPath
+  & $py - <<'PY' $DbPath $repo
+import csv
 import sqlite3
 import sys
+from pathlib import Path
+
+
+def latest_data_rows(base: Path, pattern: str) -> int:
+    files = sorted(base.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+    if not files:
+        return 0
+    latest = files[0]
+    with latest.open("r", encoding="utf-8-sig", newline="") as fh:
+        reader = csv.reader(fh)
+        rows = list(reader)
+    if not rows:
+        return 0
+    return max(0, len(rows) - 1)
+
 
 db_path = sys.argv[1]
+repo = Path(sys.argv[2])
 conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
 
@@ -66,12 +83,22 @@ print(f"bunjo_count={bunjo['bunjo_count'] or 0}")
 print(f"bunjo_with_sale_price_avg={bunjo['with_sale_price_avg'] or 0}")
 print(f"bunjo_with_sale_listing_count={bunjo['with_sale_listing_count'] or 0}")
 
+review_dir = repo / "tmp" / "review"
+unmatched_listings = latest_data_rows(review_dir, "unmatched_listings_*.csv")
+unmatched_facts = latest_data_rows(review_dir, "unmatched_building_facts_*.csv")
+unmatched_total = unmatched_listings + unmatched_facts
+print(f"unmatched_listings_latest={unmatched_listings}")
+print(f"unmatched_building_facts_latest={unmatched_facts}")
+print(f"unmatched_total_latest={unmatched_total}")
+
 has_issues = False
 if conn.execute(queries['duplicates_norm']).fetchone() is not None:
     has_issues = True
 if conn.execute(queries['duplicates_canonical_address']).fetchone() is not None:
     has_issues = True
 if conn.execute(queries['orphans']).fetchone() is not None:
+    has_issues = True
+if unmatched_total > 0:
     has_issues = True
 
 conn.close()
