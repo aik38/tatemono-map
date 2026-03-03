@@ -56,8 +56,15 @@
   .actions { margin-top: 16px; display: flex; justify-content: center; }
   #load-more[hidden] { display: none; }
   .button-secondary {
-    border: 1px solid var(--border); background: var(--surface); border-radius: 10px;
+    border: 1px solid var(--control-border); background: var(--control-bg); color: var(--control-text); border-radius: 10px;
     padding: 10px 16px; font-size: .95rem; font-weight: 600; cursor: pointer;
+  }
+  .button-secondary:hover {
+    background: color-mix(in srgb, var(--control-bg) 88%, var(--accent) 12%);
+  }
+  .button-secondary:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px var(--control-focus-ring);
   }
   @media (max-width: 740px) {
     .intro { padding: 18px; }

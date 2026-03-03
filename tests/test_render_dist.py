@@ -507,6 +507,7 @@ def test_build_dist_versions_theme_init_and_theme_variables_present(tmp_path):
     for html in (index_v2, detail_v2):
         assert 'new Set(["default", "ph", "mercari"])' in html
         assert 'localStorage.getItem("tm_theme")' in html
+        assert 'const theme = allowed.has(q) ? q : (allowed.has(stored) ? stored : "ph");' in html
         assert 'localStorage.setItem("tm_theme", theme)' in html
         assert 'root.classList.remove("theme-ph", "theme-mercari")' in html
         assert 'if (theme === "ph") root.classList.add("theme-ph")' in html
@@ -545,3 +546,7 @@ def test_build_dist_versions_define_control_tokens_and_apply_form_text_color(tmp
         assert "select," in html
         assert "textarea" in html
         assert "color: var(--control-text);" in html
+
+    assert ".button-secondary" in index_v2
+    assert "border: 1px solid var(--control-border); background: var(--control-bg); color: var(--control-text);" in index_v2
+    assert ".button-secondary:focus-visible" in index_v2 and "box-shadow: 0 0 0 3px var(--control-focus-ring);" in index_v2
