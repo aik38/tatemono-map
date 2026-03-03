@@ -17,12 +17,21 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 
 
 ## フロント配色テーマ切替（静的・クエリ指定）
+### 本番（GitHub Pages）
+- default（現行互換）
+  - https://aik38.github.io/tatemono-map/?theme=default
+- ph（黒 + 白 + オレンジ）
+  - https://aik38.github.io/tatemono-map/?theme=ph
+- mercari（赤/青/白/黒）
+  - https://aik38.github.io/tatemono-map/?theme=mercari
 
-- URL クエリで配色テーマのみ切替できます（UI/DOM は不変）。
-  - `?theme=default`（現行互換）
-  - `?theme=ph`（黒 + 白 + オレンジ）
-  - `?theme=mercari`（#FF0211 / #4DC9FF / #222222 / #FFFFFF）
-- クエリ指定時は `localStorage("tm_theme")` に保存され、ページ遷移後も維持されます。
+### ローカル（dev_dist.ps1 起動後）
+- default
+  - http://127.0.0.1:8788/tatemono-map/?theme=default
+- ph
+  - http://127.0.0.1:8788/tatemono-map/?theme=ph
+- mercari
+  - http://127.0.0.1:8788/tatemono-map/?theme=mercari
 
 ## 開発同期（GitHub↔ローカル）
 
