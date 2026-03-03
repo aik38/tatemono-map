@@ -43,3 +43,4 @@ def test_run_mvp_doctor_help_smoke() -> None:
     assert result.returncode == 0
     assert "RepoPath" in result.stdout
     assert "DbPath" in result.stdout
+    assert "UnmatchedFactsPolicy" in result.stdout

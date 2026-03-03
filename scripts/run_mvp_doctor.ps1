@@ -1,6 +1,8 @@
 param(
   [string]$RepoPath = (Resolve-Path (Join-Path $PSScriptRoot "..") | Select-Object -ExpandProperty Path),
-  [string]$DbPath = ""
+  [string]$DbPath = "",
+  [ValidateSet("warn", "ng", "ignore")]
+  [string]$UnmatchedFactsPolicy = "warn"
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,6 +39,10 @@ def table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 db_path = sys.argv[1]
 repo = Path(sys.argv[2])
+unmatched_facts_policy = (sys.argv[3] or "warn").strip().lower()
+if unmatched_facts_policy not in {"warn", "ng", "ignore"}:
+    raise SystemExit(f"invalid unmatched facts policy: {unmatched_facts_policy}")
+
 conn = sqlite3.connect(db_path)
 conn.row_factory = sqlite3.Row
 
@@ -51,7 +57,8 @@ has_canonical_address = "canonical_address" in buildings_cols
 building_key_col = "building_id" if "building_id" in buildings_cols else None
 listing_building_col = "building_key" if "building_key" in listings_cols else None
 
-status_ok = True
+has_ng = False
+has_warn = False
 
 print("[doctor] mvp_doctor start")
 
@@ -70,7 +77,7 @@ else:
     duplicates_norm_count = 0 if duplicates_norm is None else duplicates_norm["c"]
     print(f"[doctor] duplicates_buildings_normalized={duplicates_norm_count}")
     if duplicates_norm is not None:
-        status_ok = False
+        has_ng = True
         print("[doctor][NG] Duplicate buildings found for normalized_name + normalized_address")
 
 if has_canonical_address:
@@ -86,7 +93,7 @@ if has_canonical_address:
     duplicates_canonical_count = 0 if duplicates_canonical is None else duplicates_canonical["c"]
     print(f"[doctor] duplicates_buildings_canonical_address={duplicates_canonical_count}")
     if duplicates_canonical is not None:
-        status_ok = False
+        has_ng = True
         print("[doctor][NG] Duplicate buildings found for canonical_address")
 else:
     print("[doctor][WARN] canonical_address duplicate check skipped (column missing)")
@@ -106,7 +113,7 @@ else:
     ).fetchone()["c"]
     print(f"[doctor] orphan_listings={orphan_count}")
     if orphan_count > 0:
-        status_ok = False
+        has_ng = True
         print("[doctor][NG] Orphan listings found (listings.building_key not present in buildings)")
 
 buildings_count = conn.execute("SELECT COUNT(*) AS c FROM buildings").fetchone()["c"]
@@ -136,18 +143,29 @@ print(f"[doctor] unmatched_listings_latest_file={unmatched_listings_file or 'mis
 print(f"[doctor] unmatched_building_facts_latest_rows={unmatched_facts}")
 print(f"[doctor] unmatched_building_facts_latest_file={unmatched_facts_file or 'missing'}")
 if unmatched_facts_file is not None and unmatched_facts > 0:
-    status_ok = False
-    print("[doctor][NG] Latest unmatched_building_facts CSV has unresolved rows; manual review required")
+    if unmatched_facts_policy == "ng":
+        has_ng = True
+        print("[doctor][NG] Latest unmatched_building_facts CSV has unresolved rows; manual review required")
+    elif unmatched_facts_policy == "warn":
+        has_warn = True
+        print("[doctor][WARN] Latest unmatched_building_facts CSV has unresolved rows; hold for later enrichment")
+    else:
+        print("[doctor][INFO] Latest unmatched_building_facts CSV has unresolved rows; policy=ignore")
 
 conn.close()
-if status_ok:
-    print("[doctor] RESULT=OK")
+if has_ng:
+    print("[doctor] RESULT=NG")
+    sys.exit(1)
+
+if has_warn:
+    print("[doctor] RESULT=WARN")
     sys.exit(0)
 
-print("[doctor] RESULT=NG")
-sys.exit(1)
+if not has_ng and not has_warn:
+    print("[doctor] RESULT=OK")
+    sys.exit(0)
 '@
-  & $py -c $code $DbPath $repo
+  & $py -c $code $DbPath $repo $UnmatchedFactsPolicy
   if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 finally {
