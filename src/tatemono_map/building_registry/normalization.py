@@ -60,6 +60,7 @@ PREFECTURE_PREFIXES = (
 class NormalizedBuilding:
     raw_name: str
     raw_address: str
+    canonical_address: str
     normalized_name: str
     normalized_address: str
 
@@ -72,12 +73,22 @@ def strip_prefecture_prefix(address: str | None) -> str:
     return value
 
 
+def normalize_canonical_address(address: str | None) -> str:
+    return normalize_address_jp((address or "").strip())
+
+
+def normalize_address_for_matching(address: str | None) -> str:
+    return strip_prefecture_prefix(normalize_canonical_address(address))
+
+
 def normalize_building_input(name: str | None, address: str | None) -> NormalizedBuilding:
     raw_name = (name or "").strip()
     raw_address = (address or "").strip()
+    canonical_address = normalize_canonical_address(raw_address)
     return NormalizedBuilding(
         raw_name=raw_name,
         raw_address=raw_address,
+        canonical_address=canonical_address,
         normalized_name=normalize_building_name(raw_name),
-        normalized_address=strip_prefecture_prefix(normalize_address_jp(raw_address)),
+        normalized_address=strip_prefecture_prefix(canonical_address),
     )

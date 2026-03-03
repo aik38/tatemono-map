@@ -21,6 +21,12 @@ INPUT_REQUIRED_COLUMNS = (
     "evidence_id",
 )
 
+AMBIGUOUS_REASONS = {
+    "alias_ambiguous",
+    "address_candidates_low_confidence",
+    "address_name_low_confidence",
+}
+
 
 @dataclass
 class Report:
@@ -28,7 +34,7 @@ class Report:
     matched: int = 0
     updated: int = 0
     unresolved: int = 0
-
+    created: int = 0
 
 
 def _parse_age_years(value: str | None) -> int | None:
@@ -42,8 +48,6 @@ def _parse_age_years(value: str | None) -> int | None:
     if numeric < 0:
         return None
     return int(numeric)
-
-
 
 
 def _parse_int(value: str | None) -> int | None:
@@ -64,8 +68,40 @@ def _parse_float(value: str | None) -> float | None:
         return float(cleaned.replace(",", ""))
     except ValueError:
         return None
+
+
 def _fill_only_sql(column: str, value: str = "?") -> str:
     return f"CASE WHEN {column} IS NULL OR {column} = '' THEN {value} ELSE {column} END"
+
+
+def _contains_digit(value: str) -> bool:
+    return any(ch.isdigit() for ch in value)
+
+
+def _simplify_for_create(address: str) -> tuple[str, bool]:
+    simplified = address
+    is_multi_or_range = False
+    if "、" in simplified:
+        simplified = simplified.split("、", 1)[0]
+        is_multi_or_range = True
+    if "〜" in simplified:
+        simplified = simplified.split("〜", 1)[0]
+        is_multi_or_range = True
+    return simplified, is_multi_or_range
+
+
+def _register_alias(conn, normalized_name: str, normalized_address: str, building_id: str) -> None:
+    alias_key = make_alias_key(normalized_name, normalized_address)
+    conn.execute(
+        """
+        INSERT INTO building_key_aliases(alias_key, canonical_key, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(alias_key) DO UPDATE SET
+            canonical_key=excluded.canonical_key,
+            updated_at=CURRENT_TIMESTAMP
+        """,
+        (alias_key, building_id),
+    )
 
 
 def ingest_building_facts_csv(
@@ -74,6 +110,7 @@ def ingest_building_facts_csv(
     *,
     source: str = "mansion_review_facts",
     merge: str = "fill_only",
+    create_missing_safe: bool = False,
 ) -> Report:
     if merge not in {"fill_only", "overwrite"}:
         raise ValueError(f"Unsupported merge mode: {merge}")
@@ -87,6 +124,7 @@ def ingest_building_facts_csv(
     review_dir.mkdir(parents=True, exist_ok=True)
     suspect_rows: list[dict[str, str]] = []
     unmatched_rows: list[dict[str, str]] = []
+    created_rows: list[dict[str, str]] = []
 
     alias_rows = conn.execute("SELECT alias_key, canonical_key FROM building_key_aliases").fetchall()
     alias_map = {row["alias_key"]: row["canonical_key"] for row in alias_rows}
@@ -122,11 +160,56 @@ def ingest_building_facts_csv(
 
             match = match_building(conn, normalized.normalized_name, normalized.normalized_address)
             building_id = match.building_id
-            if not building_id and match.reason == "unmatched":
+            if not building_id and match.reason in {"unmatched", "address_without_digits"}:
                 alias_key = make_alias_key(normalized.normalized_name, normalized.normalized_address)
                 building_id = alias_map.get(alias_key, "")
                 if not building_id:
                     building_id = alias_map.get(make_legacy_alias_key(normalized.normalized_name, normalized.normalized_address), "")
+
+            if building_id:
+                alias_key_current = make_alias_key(normalized.normalized_name, normalized.normalized_address)
+                if alias_key_current != building_id and alias_map.get(alias_key_current) != building_id:
+                    _register_alias(conn, normalized.normalized_name, normalized.normalized_address, building_id)
+                    alias_map[alias_key_current] = building_id
+
+            if not building_id and create_missing_safe and source == "mansion_review_list_facts":
+                simplified_addr, is_multi_or_range = _simplify_for_create(normalized.normalized_address)
+                is_safe_to_create = (
+                    _contains_digit(simplified_addr)
+                    and not is_multi_or_range
+                    and match.reason not in AMBIGUOUS_REASONS
+                    and match.reason != "address_without_digits"
+                )
+                if is_safe_to_create:
+                    building_id = make_alias_key(normalized.normalized_name, simplified_addr)
+                    exists = conn.execute("SELECT 1 FROM buildings WHERE building_id=?", (building_id,)).fetchone()
+                    if exists is None:
+                        conn.execute(
+                            """
+                            INSERT INTO buildings(
+                                building_id, canonical_name, canonical_address,
+                                norm_name, norm_address, created_at, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                            """,
+                            (
+                                building_id,
+                                normalized.raw_name,
+                                normalized.canonical_address,
+                                normalized.normalized_name,
+                                simplified_addr,
+                            ),
+                        )
+                        report.created += 1
+                        created_rows.append(
+                            {
+                                "name": normalized.raw_name,
+                                "address": normalized.canonical_address,
+                                "norm": simplified_addr,
+                                "source_url": _clean_text(row.get("source_url")) or "",
+                            }
+                        )
+                    _register_alias(conn, normalized.normalized_name, normalized.normalized_address, building_id)
+                    alias_map[make_alias_key(normalized.normalized_name, normalized.normalized_address)] = building_id
 
             if not building_id:
                 report.unresolved += 1
@@ -162,11 +245,16 @@ def ingest_building_facts_csv(
             avg_rent_yen = _parse_int(row.get("avg_rent_yen"))
             rental_listing_count = _parse_int(row.get("rental_listing_count"))
 
-            if merge == "overwrite":
+            is_mansion_review = source.startswith("mansion_review")
+            is_bunjo = property_kind == "bunjo"
+
+            if merge == "overwrite" and not is_mansion_review:
                 conn.execute(
                     """
                     UPDATE buildings
-                    SET structure=COALESCE(NULLIF(?, ''), structure),
+                    SET canonical_name=COALESCE(NULLIF(canonical_name, ''), ?),
+                        canonical_address=COALESCE(NULLIF(canonical_address, ''), ?),
+                        structure=COALESCE(NULLIF(?, ''), structure),
                         age_years=COALESCE(?, age_years),
                         availability_label=COALESCE(NULLIF(?, ''), availability_label),
                         built_year_month=COALESCE(NULLIF(?, ''), built_year_month),
@@ -184,6 +272,7 @@ def ingest_building_facts_csv(
                     WHERE building_id=?
                     """,
                     (
+                        normalized.raw_name, normalized.canonical_address,
                         structure, age_years, availability_label, built_year_month, property_kind,
                         sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
                         sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json,
@@ -191,33 +280,52 @@ def ingest_building_facts_csv(
                     ),
                 )
             else:
-                conn.execute(
-                    f"""
-                    UPDATE buildings
-                    SET structure={_fill_only_sql('structure')},
-                        age_years=CASE WHEN age_years IS NULL THEN ? ELSE age_years END,
-                        availability_label={_fill_only_sql('availability_label')},
-                        built_year_month={_fill_only_sql('built_year_month')},
-                        property_kind={_fill_only_sql('property_kind')},
-                        sale_price_yen_min=CASE WHEN sale_price_yen_min IS NULL THEN ? ELSE sale_price_yen_min END,
-                        sale_price_yen_max=CASE WHEN sale_price_yen_max IS NULL THEN ? ELSE sale_price_yen_max END,
-                        sale_price_yen_avg=CASE WHEN sale_price_yen_avg IS NULL THEN ? ELSE sale_price_yen_avg END,
-                        sale_area_sqm_min=CASE WHEN sale_area_sqm_min IS NULL THEN ? ELSE sale_area_sqm_min END,
-                        sale_area_sqm_max=CASE WHEN sale_area_sqm_max IS NULL THEN ? ELSE sale_area_sqm_max END,
-                        sale_layout_types_json={_fill_only_sql('sale_layout_types_json')},
-                        sale_listing_count=CASE WHEN sale_listing_count IS NULL THEN ? ELSE sale_listing_count END,
-                        avg_rent_yen=CASE WHEN avg_rent_yen IS NULL THEN ? ELSE avg_rent_yen END,
-                        rental_listing_count=CASE WHEN rental_listing_count IS NULL THEN ? ELSE rental_listing_count END,
-                        updated_at=CURRENT_TIMESTAMP
-                    WHERE building_id=?
-                    """,
-                    (
-                        structure, age_years, availability_label, built_year_month, property_kind,
-                        sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
-                        sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json,
-                        sale_listing_count, avg_rent_yen, rental_listing_count, building_id,
-                    ),
-                )
+                if is_mansion_review and not is_bunjo:
+                    conn.execute(
+                        f"""
+                        UPDATE buildings
+                        SET canonical_name=COALESCE(NULLIF(canonical_name, ''), ?),
+                            canonical_address=COALESCE(NULLIF(canonical_address, ''), ?),
+                            structure={_fill_only_sql('structure')},
+                            age_years=CASE WHEN age_years IS NULL THEN ? ELSE age_years END,
+                            built_year_month={_fill_only_sql('built_year_month')},
+                            property_kind={_fill_only_sql('property_kind')},
+                            updated_at=CURRENT_TIMESTAMP
+                        WHERE building_id=?
+                        """,
+                        (normalized.raw_name, normalized.canonical_address, structure, age_years, built_year_month, property_kind, building_id),
+                    )
+                else:
+                    conn.execute(
+                        f"""
+                        UPDATE buildings
+                        SET canonical_name=COALESCE(NULLIF(canonical_name, ''), ?),
+                            canonical_address=COALESCE(NULLIF(canonical_address, ''), ?),
+                            structure={_fill_only_sql('structure')},
+                            age_years=CASE WHEN age_years IS NULL THEN ? ELSE age_years END,
+                            availability_label={_fill_only_sql('availability_label')},
+                            built_year_month={_fill_only_sql('built_year_month')},
+                            property_kind={_fill_only_sql('property_kind')},
+                            sale_price_yen_min=CASE WHEN sale_price_yen_min IS NULL THEN ? ELSE sale_price_yen_min END,
+                            sale_price_yen_max=CASE WHEN sale_price_yen_max IS NULL THEN ? ELSE sale_price_yen_max END,
+                            sale_price_yen_avg=CASE WHEN sale_price_yen_avg IS NULL THEN ? ELSE sale_price_yen_avg END,
+                            sale_area_sqm_min=CASE WHEN sale_area_sqm_min IS NULL THEN ? ELSE sale_area_sqm_min END,
+                            sale_area_sqm_max=CASE WHEN sale_area_sqm_max IS NULL THEN ? ELSE sale_area_sqm_max END,
+                            sale_layout_types_json={_fill_only_sql('sale_layout_types_json')},
+                            sale_listing_count=CASE WHEN sale_listing_count IS NULL THEN ? ELSE sale_listing_count END,
+                            avg_rent_yen=CASE WHEN avg_rent_yen IS NULL THEN ? ELSE avg_rent_yen END,
+                            rental_listing_count=CASE WHEN rental_listing_count IS NULL THEN ? ELSE rental_listing_count END,
+                            updated_at=CURRENT_TIMESTAMP
+                        WHERE building_id=?
+                        """,
+                        (
+                            normalized.raw_name, normalized.canonical_address,
+                            structure, age_years, availability_label, built_year_month, property_kind,
+                            sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
+                            sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json,
+                            sale_listing_count, avg_rent_yen, rental_listing_count, building_id,
+                        ),
+                    )
 
             report.updated += conn.execute("SELECT changes()").fetchone()[0]
             conn.execute(
@@ -235,6 +343,13 @@ def ingest_building_facts_csv(
 
     conn.commit()
     conn.close()
+
+    if created_rows:
+        out_created = review_dir / f"created_buildings_{now}.csv"
+        with out_created.open("w", encoding="utf-8-sig", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=["name", "address", "norm", "source_url"])
+            writer.writeheader()
+            writer.writerows(created_rows)
 
     if suspect_rows:
         out_sus = review_dir / f"suspects_{now}.csv"
@@ -259,9 +374,16 @@ def main() -> None:
     parser.add_argument("--csv", required=True)
     parser.add_argument("--source", default="mansion_review_facts")
     parser.add_argument("--merge", default="fill_only", choices=["fill_only", "overwrite"])
+    parser.add_argument("--create-missing-safe", action="store_true")
     args = parser.parse_args()
 
-    report = ingest_building_facts_csv(args.db, args.csv, source=args.source, merge=args.merge)
+    report = ingest_building_facts_csv(
+        args.db,
+        args.csv,
+        source=args.source,
+        merge=args.merge,
+        create_missing_safe=args.create_missing_safe,
+    )
     print(
         " ".join(
             [
@@ -269,6 +391,7 @@ def main() -> None:
                 f"matched={report.matched}",
                 f"updated={report.updated}",
                 f"unresolved={report.unresolved}",
+                f"created={report.created}",
             ]
         )
     )

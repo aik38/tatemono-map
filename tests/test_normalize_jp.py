@@ -23,3 +23,14 @@ def test_normalize_address_jp_handles_chome_banchi_go_variants() -> None:
 
     normalized = {normalize_address_jp(v) for v in values}
     assert normalized == {"福岡県北九州市小倉北区日明3-14-12"}
+
+
+def test_normalize_address_jp_fullwidth_and_hyphen_variants() -> None:
+    values = [
+        "北九州市小倉北区魚町１丁目１番１号",
+        "北九州市小倉北区魚町1丁目1番1号",
+        "北九州市小倉北区魚町1ー1−1",
+        "北九州市小倉北区魚町1―1-1",
+    ]
+    normalized = {normalize_address_jp(v) for v in values}
+    assert normalized == {"福岡県北九州市小倉北区魚町1-1-1"}
