@@ -18,9 +18,6 @@ from .renormalize_buildings import renormalize_buildings
 INPUT_REQUIRED_COLUMNS = (
     "building_name",
     "address",
-    "structure",
-    "age_years",
-    "availability_label",
     "evidence_id",
 )
 
@@ -47,6 +44,26 @@ def _parse_age_years(value: str | None) -> int | None:
     return int(numeric)
 
 
+
+
+def _parse_int(value: str | None) -> int | None:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return None
+    try:
+        return int(float(cleaned.replace(",", "")))
+    except ValueError:
+        return None
+
+
+def _parse_float(value: str | None) -> float | None:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return None
+    try:
+        return float(cleaned.replace(",", ""))
+    except ValueError:
+        return None
 def _fill_only_sql(column: str, value: str = "?") -> str:
     return f"CASE WHEN {column} IS NULL OR {column} = '' THEN {value} ELSE {column} END"
 
@@ -133,6 +150,17 @@ def ingest_building_facts_csv(
             structure = _clean_text(row.get("structure"))
             age_years = _parse_age_years(row.get("age_years"))
             availability_label = _clean_text(row.get("availability_label"))
+            built_year_month = _clean_text(row.get("built_year_month"))
+            property_kind = _clean_text(row.get("property_kind"))
+            sale_price_yen_min = _parse_int(row.get("sale_price_yen_min"))
+            sale_price_yen_max = _parse_int(row.get("sale_price_yen_max"))
+            sale_price_yen_avg = _parse_int(row.get("sale_price_yen_avg"))
+            sale_area_sqm_min = _parse_float(row.get("sale_area_sqm_min"))
+            sale_area_sqm_max = _parse_float(row.get("sale_area_sqm_max"))
+            sale_layout_types_json = _clean_text(row.get("sale_layout_types_json"))
+            sale_listing_count = _parse_int(row.get("sale_listing_count"))
+            avg_rent_yen = _parse_int(row.get("avg_rent_yen"))
+            rental_listing_count = _parse_int(row.get("rental_listing_count"))
 
             if merge == "overwrite":
                 conn.execute(
@@ -141,10 +169,26 @@ def ingest_building_facts_csv(
                     SET structure=COALESCE(NULLIF(?, ''), structure),
                         age_years=COALESCE(?, age_years),
                         availability_label=COALESCE(NULLIF(?, ''), availability_label),
+                        built_year_month=COALESCE(NULLIF(?, ''), built_year_month),
+                        property_kind=COALESCE(NULLIF(?, ''), property_kind),
+                        sale_price_yen_min=COALESCE(?, sale_price_yen_min),
+                        sale_price_yen_max=COALESCE(?, sale_price_yen_max),
+                        sale_price_yen_avg=COALESCE(?, sale_price_yen_avg),
+                        sale_area_sqm_min=COALESCE(?, sale_area_sqm_min),
+                        sale_area_sqm_max=COALESCE(?, sale_area_sqm_max),
+                        sale_layout_types_json=COALESCE(NULLIF(?, ''), sale_layout_types_json),
+                        sale_listing_count=COALESCE(?, sale_listing_count),
+                        avg_rent_yen=COALESCE(?, avg_rent_yen),
+                        rental_listing_count=COALESCE(?, rental_listing_count),
                         updated_at=CURRENT_TIMESTAMP
                     WHERE building_id=?
                     """,
-                    (structure, age_years, availability_label, building_id),
+                    (
+                        structure, age_years, availability_label, built_year_month, property_kind,
+                        sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
+                        sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json,
+                        sale_listing_count, avg_rent_yen, rental_listing_count, building_id,
+                    ),
                 )
             else:
                 conn.execute(
@@ -153,10 +197,26 @@ def ingest_building_facts_csv(
                     SET structure={_fill_only_sql('structure')},
                         age_years=CASE WHEN age_years IS NULL THEN ? ELSE age_years END,
                         availability_label={_fill_only_sql('availability_label')},
+                        built_year_month={_fill_only_sql('built_year_month')},
+                        property_kind={_fill_only_sql('property_kind')},
+                        sale_price_yen_min=CASE WHEN sale_price_yen_min IS NULL THEN ? ELSE sale_price_yen_min END,
+                        sale_price_yen_max=CASE WHEN sale_price_yen_max IS NULL THEN ? ELSE sale_price_yen_max END,
+                        sale_price_yen_avg=CASE WHEN sale_price_yen_avg IS NULL THEN ? ELSE sale_price_yen_avg END,
+                        sale_area_sqm_min=CASE WHEN sale_area_sqm_min IS NULL THEN ? ELSE sale_area_sqm_min END,
+                        sale_area_sqm_max=CASE WHEN sale_area_sqm_max IS NULL THEN ? ELSE sale_area_sqm_max END,
+                        sale_layout_types_json={_fill_only_sql('sale_layout_types_json')},
+                        sale_listing_count=CASE WHEN sale_listing_count IS NULL THEN ? ELSE sale_listing_count END,
+                        avg_rent_yen=CASE WHEN avg_rent_yen IS NULL THEN ? ELSE avg_rent_yen END,
+                        rental_listing_count=CASE WHEN rental_listing_count IS NULL THEN ? ELSE rental_listing_count END,
                         updated_at=CURRENT_TIMESTAMP
                     WHERE building_id=?
                     """,
-                    (structure, age_years, availability_label, building_id),
+                    (
+                        structure, age_years, availability_label, built_year_month, property_kind,
+                        sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
+                        sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json,
+                        sale_listing_count, avg_rent_yen, rental_listing_count, building_id,
+                    ),
                 )
 
             report.updated += conn.execute("SELECT changes()").fetchone()[0]

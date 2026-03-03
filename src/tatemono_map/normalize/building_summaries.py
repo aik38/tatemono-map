@@ -96,7 +96,10 @@ def rebuild(db_path: str) -> int:
     building_rows = conn.execute(
         """
         SELECT building_id, canonical_name, canonical_address,
-               structure, age_years, built_year, availability_raw, availability_label
+               structure, age_years, built_year, built_year_month, availability_raw, availability_label,
+               property_kind, sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
+               sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json, sale_listing_count,
+               avg_rent_yen, rental_listing_count
         FROM buildings
         """
     ).fetchall()
@@ -148,8 +151,24 @@ def rebuild(db_path: str) -> int:
 
         fallback_age = building["age_years"] if building else None
         fallback_structure = normalize_text(building["structure"]) if building else None
-        fallback_built_year_month = f"{building['built_year']}-01" if building and building["built_year"] else None
+        fallback_built_year_month = (
+            normalize_text(building["built_year_month"]) if building and building["built_year_month"] else None
+        ) or (f"{building['built_year']}-01" if building and building["built_year"] else None)
         fallback_availability_label = (normalize_text(building["availability_label"]) if building else "") or None
+        fallback_property_kind = normalize_text(building["property_kind"]) if building and building["property_kind"] else ""
+
+        sale_price_min = building["sale_price_yen_min"] if building else None
+        sale_price_max = building["sale_price_yen_max"] if building else None
+        sale_price_avg = building["sale_price_yen_avg"] if building else None
+        sale_area_min = building["sale_area_sqm_min"] if building else None
+        sale_area_max = building["sale_area_sqm_max"] if building else None
+        sale_layout_types_json = building["sale_layout_types_json"] if building else None
+        sale_listing_count = building["sale_listing_count"] if building else None
+
+        availability_label = (_select_availability_label(move_in_dates, items) if items else None) or fallback_availability_label
+        vacancy_count = len(items)
+        if fallback_property_kind == "bunjo" or vacancy_count <= 0:
+            availability_label = None
 
         replace_building_summary(
             conn,
@@ -158,19 +177,27 @@ def rebuild(db_path: str) -> int:
                 "name": summary_name,
                 "raw_name": summary_raw_name,
                 "address": summary_address,
-                "rent_yen_min": min(rents) if rents else None,
-                "rent_yen_max": max(rents) if rents else None,
+                "property_kind": fallback_property_kind,
+                "rent_yen_min": min(rents) if rents else (building["avg_rent_yen"] if building else None),
+                "rent_yen_max": max(rents) if rents else (building["avg_rent_yen"] if building else None),
+                "sale_price_yen_min": sale_price_min,
+                "sale_price_yen_max": sale_price_max,
+                "sale_price_yen_avg": sale_price_avg,
                 "area_sqm_min": min(areas) if areas else None,
                 "area_sqm_max": max(areas) if areas else None,
+                "sale_area_sqm_min": sale_area_min,
+                "sale_area_sqm_max": sale_area_max,
                 "layout_types": layouts,
+                "sale_layout_types_json": sale_layout_types_json,
                 "move_in_dates": move_in_dates,
                 "age_years": listing_age if listing_age is not None else fallback_age,
                 "structure": listing_structure or fallback_structure,
                 "building_built_year_month": listing_built_year_month or fallback_built_year_month,
                 "building_built_age_years": listing_built_age if listing_built_age is not None else fallback_age,
                 "building_structure": listing_building_structure or fallback_structure,
-                "building_availability_label": (_select_availability_label(move_in_dates, items) if items else None) or fallback_availability_label,
-                "vacancy_count": len(items),
+                "building_availability_label": availability_label,
+                "vacancy_count": vacancy_count,
+                "sale_listing_count": sale_listing_count,
                 "last_updated": latest,
             },
         )

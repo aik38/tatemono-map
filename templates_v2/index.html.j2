@@ -135,7 +135,7 @@
   let displayLimit = PAGE_SIZE;
   let currentQuery = '';
   let debounceTimer = null;
-  const REQUIRED_KEYS = ['id', 'name', 'address', 'vacancy_count', 'rent_min', 'rent_max', 'area_min', 'area_max', 'updated_epoch'];
+  const REQUIRED_KEYS = ['id', 'name', 'address', 'vacancy_count', 'rent_min', 'rent_max', 'area_min', 'area_max', 'updated_epoch', 'property_kind'];
 
   function getMatchScore(card, q) {
     if (!q) return 0;
@@ -192,10 +192,10 @@
     kpis.className = 'kpis';
     const vacancyKpi = document.createElement('li');
     vacancyKpi.className = 'kpi';
-    vacancyKpi.innerHTML = `<span>空室</span>${Number.isFinite(Number(item.vacancyCount)) ? Number(item.vacancyCount) : '—'}件`;
+    vacancyKpi.innerHTML = item.propertyKind === 'bunjo' ? `<span>販売情報</span>${Number.isFinite(Number(item.saleListingCount)) ? Number(item.saleListingCount) : '—'}件` : `<span>空室</span>${Number.isFinite(Number(item.vacancyCount)) ? Number(item.vacancyCount) : '—'}件`;
     const rentKpi = document.createElement('li');
     rentKpi.className = 'kpi';
-    rentKpi.innerHTML = `<span>家賃</span>${formatYen(item.rentMin)}〜${formatYen(item.rentMax)}`;
+    rentKpi.innerHTML = item.propertyKind === 'bunjo' ? `<span>価格</span>${Number.isFinite(Number(item.salePriceAvg)) ? `${formatCount(Math.floor(Number(item.salePriceAvg) / 10000))}万円` : '—'}` : `<span>家賃</span>${formatYen(item.rentMin)}〜${formatYen(item.rentMax)}`;
     kpis.append(vacancyKpi, rentKpi);
 
     const meta = document.createElement('dl');
@@ -208,7 +208,7 @@
     updatedRow.innerHTML = `<dt>建物構造</dt><dd>${item.buildingStructure || '—'}</dd>`;
     meta.append(areaRow, updatedRow);
 
-    li.append(link, address, kpis, meta);
+    if (item.propertyKind === 'bunjo') { const badge=document.createElement('span'); badge.className='kpi'; badge.textContent='分譲マンション'; link.appendChild(badge);} li.append(link, address, kpis, meta);
     return li;
   }
 
@@ -351,6 +351,9 @@
         id: item.id,
         name: item.name || '',
         address: item.address || '',
+        propertyKind: item.property_kind || '',
+        salePriceAvg: item.sale_price_avg,
+        saleListingCount: item.sale_listing_count,
         vacancyCount: safeNumber(item.vacancy_count, 0),
         vacancyCountSafe: Math.max(0, safeNumber(item.vacancy_count, 0)),
         rentMin: item.rent_min,

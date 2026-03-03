@@ -171,12 +171,12 @@
         data-rent-min="{{ b.rent_yen_min if b.rent_yen_min is not none else 999999999 }}"
       >
         <a class="building-link" href="b/{{ b.building_key }}.html">
-          <h2>{{ b.name or "名称未設定" }}</h2>
+          <h2>{{ b.name or "名称未設定" }}</h2>{% if b.property_kind == "bunjo" %}<span class="kpi">分譲マンション</span>{% endif %}
         </a>
         <p class="address">{{ b.address or "住所情報なし" }}</p>
         <ul class="kpis" aria-label="建物の主要情報">
-          <li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>
-          <li class="kpi"><span>家賃</span>{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円</li>
+          {% if b.property_kind == "bunjo" %}<li class="kpi"><span>販売情報</span>{{ b.sale_listing_count if b.sale_listing_count is not none else "—" }}件</li>{% else %}<li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>{% endif %}
+          <li class="kpi"><span>家賃</span>{% if b.property_kind == "bunjo" %}{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}{% else %}{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円{% endif %}</li>
         </ul>
         <dl class="meta">
           <div class="meta-row">

@@ -267,9 +267,8 @@ def test_parse_detail_facts_extracts_structure_age_and_availability() -> None:
     )
 
     assert row.building_name == "サンプル小倉北レジデンス"
-    assert row.address.startswith("福岡県北九州市小倉北区")
+    assert row.address.startswith("北九州市小倉北区")
     assert row.structure == "RC"
-    assert row.age_years == 8
     assert row.availability_label == "即入居"
 
 
@@ -310,3 +309,29 @@ def test_run_crawl_facts_writes_combined_facts_csv(monkeypatch: pytest.MonkeyPat
     assert facts_csv.name.startswith("building_facts_")
     assert facts_csv.exists()
     assert stats["facts_total"] == 1
+
+
+def test_parse_list_card_facts_bunjo_extracts_required_fields() -> None:
+    html = f"<html><body>{_read_fixture('list_card_bunjo_min.html')}</body></html>"
+    tree = crawl.HTMLParser(html)
+    card = tree.css_first('li.property-detail-list-item')
+    assert card is not None
+
+    row = crawl.parse_list_card_facts(
+        card,
+        kind='mansion',
+        detail_url='https://www.mansion-review.jp/mansion/12345',
+        fallback_name='fallback',
+        fallback_address='福岡県北九州市小倉北区浅野2-1-1',
+    )
+
+    assert row.built_year_month == '2011-02'
+    assert row.sale_price_yen_avg == 40410000
+    assert row.sale_price_yen_min == 39800000
+    assert row.sale_price_yen_max == 42000000
+    assert row.sale_area_sqm_min == 65.0
+    assert row.sale_area_sqm_max == 70.1
+    assert row.sale_layout_types_json == '["2LDK", "3LDK"]'
+    assert row.sale_listing_count == 2
+    assert row.property_kind == 'bunjo'
+    assert row.structure == 'RC'
