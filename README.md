@@ -85,10 +85,18 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 - 命名: `リアプロ-*.zip` / `ウラックス-*.zip`
 - ZIP はローカル入力物として扱い、コミットしません（`.gitignore`）。
 
-#### 推奨実行例
+#### 推奨実行例（ZIP 置き場を repo 内に固定）
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
+$ZIP_DIR = Join-Path $REPO "tmp/manual/inputs/pdf_zips"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_all_latest.ps1" -RepoPath $REPO -DownloadsDir $ZIP_DIR -QcMode warn
+```
+
+#### push したくない場合
+```powershell
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+$ZIP_DIR = Join-Path $REPO "tmp/manual/inputs/pdf_zips"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_all_latest.ps1" -RepoPath $REPO -DownloadsDir $ZIP_DIR -QcMode warn -SkipPush
 ```
 
 #### 旧フローを手動で分けたい場合
@@ -178,7 +186,8 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 ### トラブルシュート（反映されない時）
 1. GitHub の **Actions** で `Deploy static site to GitHub Pages` が `Success` になっているか確認する。
 2. `git log -- data/public/public.sqlite3` で最新コミットに DB 更新が含まれているか確認する。
-3. スマホ/ブラウザで古く見える場合は、シークレットウィンドウで開くか、対象サイトのキャッシュ/サイトデータを削除して再読み込みする。
+3. `curl.exe -s https://aik38.github.io/tatemono-map/build_info.json` で Pages 配信中の build 情報を確認する。
+4. スマホ/ブラウザで古く見える場合は、シークレットウィンドウで開くか、対象サイトのキャッシュ/サイトデータを削除して再読み込みする。
 
 ### よくあるミス
 - `dist/` を push しても公開反映には使われない（CI が再生成する）。**正道は `data/public/public.sqlite3` を commit/push すること。**
