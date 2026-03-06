@@ -429,3 +429,33 @@ python -m tatemono_map.cli.diagnose_availability --csv tmp/manual/inputs/master_
 - `zero_vacancy_buildings`
 - `zero_vacancy_structure_filled`（埋まり率%）
 - `zero_vacancy_age_filled`（埋まり率%）
+
+
+## buildings.age_years の backfill（built_year_month 起点）
+
+既存DBで `buildings.age_years` が壊れている場合は、`built_year_month (YYYY-MM)` から一括再計算して SoT を補正できます。
+
+```powershell
+# まず差分確認（dry-run）
+python scripts/backfill_building_age_years.py --db-path data/tatemono_map.sqlite3 --dry-run
+
+# 問題なければ反映（SoT: data/tatemono_map.sqlite3 を更新）
+python scripts/backfill_building_age_years.py --db-path data/tatemono_map.sqlite3
+
+# building_summaries を再構築
+PYTHONPATH=src python -m tatemono_map.normalize.building_summaries --db-path data/tatemono_map.sqlite3
+
+# 公開DBへ反映
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish_public.ps1 -RepoPath .
+
+# 必要時のみ dist 再生成（ローカル確認用）
+PYTHONPATH=src python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version all
+```
+
+補足:
+- 未来年月・当月完成は `age_years=0`。
+- `0` は有効値で、unknown 扱いしません。
+- 不正な `built_year_month`（例: `2025-13`）は更新スキップします。
+
+補足:
+- `data/public/public.sqlite3` などのバイナリDBは、差分レビュー性のため原則コミットせず、上記手順を各環境で実行して再生成します。
