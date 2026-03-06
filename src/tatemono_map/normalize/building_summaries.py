@@ -155,7 +155,13 @@ def rebuild(db_path: str) -> int:
         fallback_built_year_month = (
             normalize_text(building["built_year_month"]) if building and building["built_year_month"] else None
         ) or (f"{building['built_year']}-01" if building and building["built_year"] else None)
+        listing_derived_age_from_built = age_years_from_built_year_month(listing_built_year_month)
         derived_age_from_built = age_years_from_built_year_month(fallback_built_year_month)
+        resolved_built_age_years = (
+            listing_derived_age_from_built
+            if listing_derived_age_from_built is not None
+            else (listing_built_age if listing_built_age is not None else (derived_age_from_built if derived_age_from_built is not None else fallback_age))
+        )
         fallback_availability_label = (normalize_text(building["availability_label"]) if building else "") or None
         fallback_property_kind = normalize_text(building["property_kind"]) if building and building["property_kind"] else ""
 
@@ -192,10 +198,10 @@ def rebuild(db_path: str) -> int:
                 "layout_types": layouts,
                 "sale_layout_types_json": sale_layout_types_json,
                 "move_in_dates": move_in_dates,
-                "age_years": listing_age if listing_age is not None else (derived_age_from_built if derived_age_from_built is not None else fallback_age),
+                "age_years": resolved_built_age_years if resolved_built_age_years is not None else listing_age,
                 "structure": listing_structure or fallback_structure,
                 "building_built_year_month": listing_built_year_month or fallback_built_year_month,
-                "building_built_age_years": listing_built_age if listing_built_age is not None else (derived_age_from_built if derived_age_from_built is not None else fallback_age),
+                "building_built_age_years": resolved_built_age_years,
                 "building_structure": listing_building_structure or fallback_structure,
                 "building_availability_label": availability_label,
                 "vacancy_count": vacancy_count,
