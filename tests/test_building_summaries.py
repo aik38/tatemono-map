@@ -1,5 +1,6 @@
 from tatemono_map.db.repo import ListingRecord, connect, upsert_listing
 from tatemono_map.normalize.building_summaries import rebuild
+from tatemono_map.util.building_age import age_years_from_built_year_month
 
 
 def test_summary_ranges(tmp_path):
@@ -266,8 +267,9 @@ def test_summary_fallbacks_to_buildings_for_zero_vacancy(tmp_path):
 
     assert row["vacancy_count"] == 0
     assert row["structure"] == "SRC"
-    assert row["age_years"] == 21
+    expected_age = age_years_from_built_year_month("2004-01")
+    assert row["age_years"] == expected_age
     assert row["building_built_year_month"] == "2004-01"
-    assert row["building_built_age_years"] == 21
+    assert row["building_built_age_years"] == expected_age
     assert row["building_structure"] == "SRC"
     assert row["building_availability_label"] is None

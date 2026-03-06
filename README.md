@@ -457,5 +457,52 @@ PYTHONPATH=src python -m tatemono_map.render.build --db-path data/public/public.
 - `0` は有効値で、unknown 扱いしません。
 - 不正な `built_year_month`（例: `2025-13`）は更新スキップします。
 
+### 実行チェックリスト（ローカル）
+1. backfill dry-run
+```powershell
+python scripts/backfill_building_age_years.py --db-path data/tatemono_map.sqlite3 --dry-run
+```
+2. backfill 本実行
+```powershell
+python scripts/backfill_building_age_years.py --db-path data/tatemono_map.sqlite3
+```
+3. `building_summaries` 再構築
+```powershell
+PYTHONPATH=src python -m tatemono_map.normalize.building_summaries --db-path data/tatemono_map.sqlite3
+```
+4. `public.sqlite3` / `dist` 再生成
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish_public.ps1 -RepoPath .
+PYTHONPATH=src python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version all
+```
+5. 確認SQL
+```sql
+-- age_years=1 の不整合候補（built_year_month から見て 1年ではない行）
+SELECT id, name, built_year_month, age_years
+FROM buildings
+WHERE age_years = 1
+  AND built_year_month GLOB '____-__'
+  AND CAST(substr(built_year_month, 1, 4) AS INTEGER) > 0
+  AND CAST(substr(built_year_month, 6, 2) AS INTEGER) BETWEEN 1 AND 12
+  AND (
+    ((CAST(strftime('%Y','now') AS INTEGER) - CAST(substr(built_year_month,1,4) AS INTEGER))
+      - CASE WHEN CAST(strftime('%m','now') AS INTEGER) < CAST(substr(built_year_month,6,2) AS INTEGER) THEN 1 ELSE 0 END) < 0
+    OR
+    ((CAST(strftime('%Y','now') AS INTEGER) - CAST(substr(built_year_month,1,4) AS INTEGER))
+      - CASE WHEN CAST(strftime('%m','now') AS INTEGER) < CAST(substr(built_year_month,6,2) AS INTEGER) THEN 1 ELSE 0 END) > 1
+  )
+ORDER BY built_year_month, name;
+
+-- spot check
+SELECT name, built_year_month, age_years
+FROM buildings
+WHERE name IN ('サンパーク門司港', 'サンライフ恒見２', 'エクレール東新町')
+ORDER BY name;
+```
+6. 実機確認ポイント
+   - 築浅順が `future > 0年 > 1年,2年... > unknown` になっている。
+   - 検索時も選択した sort が維持され、relevance が上書きしない。
+   - 詳細の `YYYY-MM (N年)` は built_year_month 起点で表示される。
+
 補足:
 - `data/public/public.sqlite3` などのバイナリDBは、差分レビュー性のため原則コミットせず、上記手順を各環境で実行して再生成します。

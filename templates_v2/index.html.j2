@@ -169,10 +169,17 @@
   const formatArea = (value) => Number.isFinite(Number(value)) ? `${Number(value)}㎡` : '—';
 
   const byNumeric = (key, direction = 'asc') => (a, b) => compareWithUnknownLast(a, b, key, direction);
+  const compareBuiltAgeAsc = (a, b) => {
+    const futureDiff = Number(b.isFutureBuilt) - Number(a.isFutureBuilt);
+    if (futureDiff !== 0) return futureDiff;
+    const ageDiff = compareWithUnknownLast(a, b, 'builtAgeSort', 'asc');
+    if (ageDiff !== 0) return ageDiff;
+    return 0;
+  };
   const sorters = {
     recommended: byNumeric('recommendedScore', 'desc'),
     updated_desc: byNumeric('updatedEpochSort', 'desc'),
-    built_age_asc: byNumeric('builtAgeSort', 'asc'),
+    built_age_asc: compareBuiltAgeAsc,
     vacancy_desc: byNumeric('vacancySort', 'desc'),
     rent_min_asc: byNumeric('rentMinSort', 'asc'),
     rent_min_desc: byNumeric('rentMinSort', 'desc')
@@ -398,7 +405,18 @@
         const vacancyPositive = positiveNumberOrNull(item.vacancy_count);
         const rentMinPositive = item.property_kind === 'bunjo' ? null : positiveNumberOrNull(item.rent_min);
         const areaMinPositive = positiveNumberOrNull(item.area_min);
-        const builtAgePositive = positiveNumberOrNull(item.building_built_age_years);
+        const builtAgeKnown = knownNumberOrNull(item.building_built_age_years);
+        const builtYearMonth = normalizeText(item.building_built_year_month || '');
+        const isFutureBuilt = builtYearMonth !== '' && Number(item.building_built_age_years) === 0 && /^\d{4}-\d{1,2}$/.test(builtYearMonth) && (() => {
+          const [yearText, monthText] = builtYearMonth.split('-');
+          const year = Number(yearText);
+          const month = Number(monthText);
+          if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return false;
+          const now = new Date();
+          const nowYm = now.getFullYear() * 12 + (now.getMonth() + 1);
+          const builtYm = year * 12 + month;
+          return builtYm > nowYm;
+        })();
         const updatedEpoch = safeNumber(item.updated_epoch, -1);
         const updatedEpochSort = updatedEpoch > 0 ? updatedEpoch : null;
         const nameNormalized = normalizeText(item.name || '');
@@ -411,7 +429,7 @@
           hasAddress,
           rentMinPositive !== null,
           areaMinPositive !== null,
-          builtAgePositive !== null,
+          builtAgeKnown !== null,
           vacancyKnown !== null,
           !!(item.building_structure || item.structure)
         ].filter(Boolean).length;
@@ -442,8 +460,8 @@
           recommendedScore -= 26;
         }
 
-        if (builtAgePositive !== null) {
-          recommendedScore += Math.max(0, 18 - Math.min(builtAgePositive, 40) * 0.45);
+        if (builtAgeKnown !== null) {
+          recommendedScore += Math.max(0, 18 - Math.min(builtAgeKnown, 40) * 0.45);
         }
 
         if (updatedEpoch > 0) {
@@ -474,7 +492,8 @@
           recommendedScore,
           rentMinSort: rentMinPositive,
           vacancySort: vacancyPositive,
-          builtAgeSort: builtAgePositive,
+          builtAgeSort: builtAgeKnown,
+          isFutureBuilt,
           nameNormalized,
           addressNormalized,
           combined,
