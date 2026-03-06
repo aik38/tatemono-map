@@ -295,7 +295,7 @@ def test_build_dist_versions_v2_index_has_search_ranking_logic(tmp_path):
     assert "function getMatchScore" in index_v2
     assert "function compareCards" in index_v2
     assert "card.score === 0" in index_v2
-    assert "b.score - a.score" in index_v2
+    assert "b.score - a.score" not in index_v2
 
 
 def test_build_dist_versions_outputs_v2_min_json_with_contract(tmp_path):
@@ -550,3 +550,23 @@ def test_build_dist_versions_define_control_tokens_and_apply_form_text_color(tmp
     assert ".button-secondary" in index_v2
     assert "border: 1px solid var(--control-border); background: var(--control-bg); color: var(--control-text);" in index_v2
     assert ".button-secondary:focus-visible" in index_v2 and "box-shadow: 0 0 0 3px var(--control-focus-ring);" in index_v2
+
+
+def test_build_dist_versions_v2_index_applies_user_sort_without_relevance_override(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("砂津テストマンション", "福岡県北九州市小倉北区砂津", 78000, 25.0, "1K", "2026-11-01", "ulucks", "sort-guard"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+    assert "function compareCards(a, b, q, sorter)" in index_v2
+    assert "b.score - a.score" not in index_v2
+    assert "const builtAgePositive = positiveNumberOrNull(item.building_built_age_years);" in index_v2
+    assert "calcAgeYearsFromBuiltYearMonth" not in index_v2

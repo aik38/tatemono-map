@@ -91,6 +91,20 @@ def _simplify_for_create(address: str) -> tuple[str, bool]:
     return simplified, is_multi_or_range
 
 
+
+
+def _recompute_building_age_from_built_year_month(conn, building_id: str) -> None:
+    row = conn.execute("SELECT built_year_month FROM buildings WHERE building_id=?", (building_id,)).fetchone()
+    if not row:
+        return
+    recalculated_age = age_years_from_built_year_month(row["built_year_month"])
+    if recalculated_age is None:
+        return
+    conn.execute(
+        "UPDATE buildings SET age_years=?, updated_at=CURRENT_TIMESTAMP WHERE building_id=?",
+        (recalculated_age, building_id),
+    )
+
 def _register_alias(conn, normalized_name: str, normalized_address: str, building_id: str) -> None:
     alias_key = make_alias_key(normalized_name, normalized_address)
     conn.execute(
@@ -349,6 +363,7 @@ def ingest_building_facts_csv(
                         ),
                     )
 
+            _recompute_building_age_from_built_year_month(conn, building_id)
             report.updated += conn.execute("SELECT changes()").fetchone()[0]
             conn.execute(
                 """
