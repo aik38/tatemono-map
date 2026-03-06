@@ -568,5 +568,9 @@ def test_build_dist_versions_v2_index_applies_user_sort_without_relevance_overri
     index_v2 = (out / "index.html").read_text(encoding="utf-8")
     assert "function compareCards(a, b, q, sorter)" in index_v2
     assert "b.score - a.score" not in index_v2
-    assert "const builtAgePositive = positiveNumberOrNull(item.building_built_age_years);" in index_v2
+    assert "const builtAgeKnown = knownNumberOrNull(item.building_built_age_years);" in index_v2
     assert "calcAgeYearsFromBuiltYearMonth" not in index_v2
+    assert "const compareBuiltAgeAsc = (a, b) => {" in index_v2
+    assert "if (builtYearMonthSort && builtYearMonthSort.isFuture) return 0;" in index_v2
+    assert "if (builtAgeSort === 0) return 1;" in index_v2
+    assert "builtAgeSortRank: knownNumberOrNull(item.building_built_sort_rank)" in index_v2

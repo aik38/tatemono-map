@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from tatemono_map.db.repo import connect
-from tatemono_map.util.building_age import age_years_from_built_year_month
+from tatemono_map.util.building_age import age_years_from_built_year_month, built_age_sort_rank
 
 FORBIDDEN_PATTERNS = (
     r"mail=",
@@ -114,11 +114,13 @@ def _build_summary_date(building: dict) -> datetime | None:
 
 def _apply_built_age_guard(building: dict) -> dict:
     guarded = dict(building)
-    derived_age = age_years_from_built_year_month(guarded.get("building_built_year_month"))
+    built_year_month = guarded.get("building_built_year_month")
+    derived_age = age_years_from_built_year_month(built_year_month)
     if derived_age is None:
         derived_age = guarded.get("building_built_age_years")
     guarded["building_built_age_years"] = derived_age
     guarded["derived_built_age_years"] = derived_age
+    guarded["built_age_sort_rank"] = built_age_sort_rank(derived_age, built_year_month=built_year_month)
     return guarded
 
 
@@ -263,6 +265,7 @@ def _build_buildings_payload(buildings: list[dict]) -> list[dict]:
                 "building_structure": b.get("building_structure") or b.get("structure"),
                 "building_built_year_month": b.get("building_built_year_month"),
                 "building_built_age_years": b.get("derived_built_age_years") if b.get("derived_built_age_years") is not None else b.get("age_years"),
+                "building_built_sort_rank": b.get("built_age_sort_rank"),
                 "building_availability_label": b.get("building_availability_label"),
             }
         )
@@ -298,6 +301,7 @@ def _build_buildings_v2_min_payload(buildings: list[dict]) -> list[dict]:
                 "building_availability_label": b.get("building_availability_label"),
                 "building_built_year_month": b.get("building_built_year_month"),
                 "building_built_age_years": b.get("derived_built_age_years") if b.get("derived_built_age_years") is not None else b.get("age_years"),
+                "building_built_sort_rank": b.get("built_age_sort_rank"),
             }
         )
     normalized = []
