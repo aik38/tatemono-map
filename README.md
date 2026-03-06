@@ -172,7 +172,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 
 - `data/canonical/`: Canonical入力（追跡対象）。
 - `data/`: main DB（private運用。`data/tatemono_map.sqlite3`）。
-- `data/public/`: 公開DB（追跡対象。`data/public/public.sqlite3`）。ローカル確認だけでは更新せず、更新時のみ明示的に `scripts/publish_public.ps1` / `scripts/run_to_pages.ps1` を実行します。
+- `data/public/`: 公開DBのローカル生成先（`data/public/public.sqlite3`）。生成・確認で更新されることがありますが、原則としてバイナリ差分は Git に含めません。必要なら `git restore data/public/public.sqlite3` で戻します。
 - `tmp/`: 一時作業・review出力のみ（scratch）。
 
 #### “空部屋” の定義（UI 表示）
@@ -198,19 +198,19 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 
 ### 公開の仕組み
 - GitHub Pages の Source は **GitHub Actions**（`main` push 起動）を使用します。
-- 公開入力は `data/public/public.sqlite3` です（git 管理対象）。
+- 公開入力は `data/public/public.sqlite3` です（main DB からの生成物）。
 - `dist/` は git 管理対象ではなく、CI（`.github/workflows/deploy_pages.yml`）が毎回 `data/public/public.sqlite3` から再生成して deploy します。
 
 ### トラブルシュート（反映されない時）
 1. GitHub の **Actions** で `Deploy static site to GitHub Pages` が `Success` になっているか確認する。
-2. `git log -- data/public/public.sqlite3` で最新コミットに DB 更新が含まれているか確認する。
+2. `scripts/publish_public.ps1` の再実行ログを確認し、必要なら `data/public/public.sqlite3` をローカル再生成してから `scripts/dev_dist.ps1` で挙動確認する。
 3. `curl.exe -s https://aik38.github.io/tatemono-map/build_info.json` で Pages 配信中の build 情報を確認する。
 4. スマホ/ブラウザで古く見える場合は、シークレットウィンドウで開くか、対象サイトのキャッシュ/サイトデータを削除して再読み込みする。
 
 ### よくあるミス
-- `dist/` を push しても公開反映には使われない（CI が再生成する）。**正道は `data/public/public.sqlite3` を commit/push すること。**
+- `dist/` を push しても公開反映には使われない（CI が再生成する）。
 - `main` 以外のブランチに push している。
-- `data/public/public.sqlite3` の更新を commit していない。
+- `scripts/publish_public.ps1` または前段の集約処理が失敗して `public.sqlite3` が期待どおり再生成されていない。
 - ingest または `publish_public` が失敗して DB が更新されていない。
 
 ## Canonical DB 運用ルール
@@ -431,53 +431,67 @@ python -m tatemono_map.cli.diagnose_availability --csv tmp/manual/inputs/master_
 - `zero_vacancy_age_filled`（埋まり率%）
 
 
-## buildings.age_years の backfill（built_year_month 起点）
+## 築年数補正 / backfill / 並び替え仕様（2026-03 運用）
 
-既存DBで `buildings.age_years` が壊れている場合は、`built_year_month (YYYY-MM)` から一括再計算して SoT を補正できます。
+### 1) 築年数データの Source of Truth
+
+- `buildings.age_years` は過去取り込みの経路差により壊れ値が残る可能性があるため、**`buildings.built_year_month` を正として再計算**する方針です。
+- 背景は Mansion Review 系取り込みでの揺らぎであり、Ulucks / RealPro の取り込み品質を否定する話ではありません。あくまで **`buildings` テーブル最終値を補正**して一貫性を確保する運用です。
+- 詳細画面の築年数表示は、`built_year_month` から再計算された値と整合する前提で確認します。
+
+### 2) backfill CLI（既存DB補修用）
+
+`tatemono_map.cli.backfill_building_age_years` は、既存DBに対して `built_year_month (YYYY-MM)` から `age_years` を再計算し、差分のみ更新する **one-shot 補修コマンド**です。
+
+- 対象DB: `data/tatemono_map.sqlite3`（main SoT）
+- 毎回必須ではありません（既に補正済みなら `updated=0` で正常）
+- `--dry-run`: 更新せず件数とサンプルのみ確認
+- 本実行: 実際に `buildings.age_years` を更新
 
 ```powershell
-# まず差分確認（dry-run）
-python scripts/backfill_building_age_years.py --db-path data/tatemono_map.sqlite3 --dry-run
+# dry-run（差分確認のみ）
+python -m tatemono_map.cli.backfill_building_age_years --db data/tatemono_map.sqlite3 --dry-run
 
-# 問題なければ反映（SoT: data/tatemono_map.sqlite3 を更新）
-python scripts/backfill_building_age_years.py --db-path data/tatemono_map.sqlite3
+# 本実行（DB更新）
+python -m tatemono_map.cli.backfill_building_age_years --db data/tatemono_map.sqlite3
+```
 
-# building_summaries を再構築
-PYTHONPATH=src python -m tatemono_map.normalize.building_summaries --db-path data/tatemono_map.sqlite3
+### 3) 推奨再生成フロー（PowerShell）
 
-# 公開DBへ反映
+```powershell
+# 0) 最新 main 同期
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\sync.ps1" -RepoPath $REPO
+
+# 1) PYTHONPATH 設定
+$env:PYTHONPATH = "src"
+
+# 2) backfill dry-run
+python -m tatemono_map.cli.backfill_building_age_years --db data/tatemono_map.sqlite3 --dry-run
+
+# 3) backfill 本実行
+python -m tatemono_map.cli.backfill_building_age_years --db data/tatemono_map.sqlite3
+
+# 4) building_summaries 再構築
+python -m tatemono_map.normalize.building_summaries --db-path data/tatemono_map.sqlite3
+
+# 5) public.sqlite3 再生成
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish_public.ps1 -RepoPath .
 
-# 必要時のみ dist 再生成（ローカル確認用）
-PYTHONPATH=src python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version all
+# 6) 必要なら dist 再生成（ローカル確認用）
+python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version all
 ```
 
-補足:
-- 未来年月・当月完成は `age_years=0`。
-- `0` は有効値で、unknown 扱いしません。
-- 不正な `built_year_month`（例: `2025-13`）は更新スキップします。
+### 4) 確認用SQL（spot check）
 
-### 実行チェックリスト（ローカル）
-1. backfill dry-run
-```powershell
-python scripts/backfill_building_age_years.py --db-path data/tatemono_map.sqlite3 --dry-run
-```
-2. backfill 本実行
-```powershell
-python scripts/backfill_building_age_years.py --db-path data/tatemono_map.sqlite3
-```
-3. `building_summaries` 再構築
-```powershell
-PYTHONPATH=src python -m tatemono_map.normalize.building_summaries --db-path data/tatemono_map.sqlite3
-```
-4. `public.sqlite3` / `dist` 再生成
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\publish_public.ps1 -RepoPath .
-PYTHONPATH=src python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version all
-```
-5. 確認SQL
 ```sql
--- age_years=1 の不整合候補（built_year_month から見て 1年ではない行）
+-- A. 特定物件の built_year_month / age_years 確認
+SELECT name, built_year_month, age_years
+FROM buildings
+WHERE name IN ('サンパーク門司港', 'サンライフ恒見２', 'エクレール東新町')
+ORDER BY name;
+
+-- B. age_years=1 の不整合候補（built_year_month 起点で1年にならない行）
 SELECT id, name, built_year_month, age_years
 FROM buildings
 WHERE age_years = 1
@@ -493,16 +507,51 @@ WHERE age_years = 1
   )
 ORDER BY built_year_month, name;
 
--- spot check
-SELECT name, built_year_month, age_years
+-- C. unknown built_year_month 件数（空/不正/未取得の目安）
+SELECT COUNT(*) AS unknown_built_year_month_count
 FROM buildings
-WHERE name IN ('サンパーク門司港', 'サンライフ恒見２', 'エクレール東新町')
-ORDER BY name;
+WHERE built_year_month IS NULL
+   OR trim(built_year_month) = ''
+   OR built_year_month NOT GLOB '____-__'
+   OR CAST(substr(built_year_month, 1, 4) AS INTEGER) <= 0
+   OR CAST(substr(built_year_month, 6, 2) AS INTEGER) NOT BETWEEN 1 AND 12;
 ```
-6. 実機確認ポイント
-   - 築浅順が `future > 0年 > 1年,2年... > unknown` になっている。
-   - 検索時も選択した sort が維持され、relevance が上書きしない。
-   - 詳細の `YYYY-MM (N年)` は built_year_month 起点で表示される。
+
+### 5) 並び替え仕様（UI）
+
+- 家賃高い順: `rent_desc`
+- 家賃安い順: `rent_asc`
+- 更新日時順: `updated_desc`
+- 空室が多い順: `vacancy_desc`
+- 築浅順（`built_age_asc`）: 次の優先順でソート
+  1. future `built_year_month`（建築中 / 完成予定）
+  2. `0` 年
+  3. `1` 年, `2` 年, ...
+  4. `unknown`（空/不正/未取得）
 
 補足:
-- `data/public/public.sqlite3` などのバイナリDBは、差分レビュー性のため原則コミットせず、上記手順を各環境で実行して再生成します。
+- `unknown` は `0年` 相当として扱わず、上位に来ません。
+- `built_year_month` が同一月の tie-break は `property_kind` を使い、`chintai` を `bunjo` より優先します。
+- 検索キーワード一致（relevance）はユーザーが選択した sort を上書きしません（`filter -> sort -> render` の順を維持）。
+
+### 6) `data/public/public.sqlite3` の扱い
+
+- `data/public/public.sqlite3` は **ローカル生成物**です。
+- `scripts/publish_public.ps1` や検証フロー後に `git status` で `M data/public/public.sqlite3` が出るのは異常ではありません。
+- PR にバイナリ差分を含めない場合は次で戻します。
+
+```powershell
+git restore data/public/public.sqlite3
+```
+
+### 7) FAQ（トラブルシュート）
+
+- `ModuleNotFoundError: No module named 'tatemono_map.cli'`
+  - `$env:PYTHONPATH="src"` を設定してから再実行してください。
+- `git status` で `data/public/public.sqlite3` が変更扱いになる
+  - 生成物更新なので正常です。不要なら `git restore data/public/public.sqlite3` を実行してください。
+- backfill dry-run で `updated=0`
+  - 既に補正済みなら正常です。
+- スマホで古い表示のまま
+  - キャッシュの影響があるため、シークレットウィンドウまたはサイトデータ削除後に再確認してください。
+

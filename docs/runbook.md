@@ -2,11 +2,11 @@
 
 ## 最短運用（これだけ）
 
-1. 空室（Ulucks/RealPro）優先の更新は `scripts/run_all_latest.ps1` で実行し、**`data/public/public.sqlite3` を更新**する。
-2. Git では **`data/public/public.sqlite3` だけ** commit/push する（`dist/` は commit しない）。
+1. 空室（Ulucks/RealPro）優先の更新は `scripts/run_all_latest.ps1` で実行する。
+2. `data/public/public.sqlite3` はローカル生成物として扱い、通常のPRにはバイナリ差分を含めない（必要なら `git restore data/public/public.sqlite3`）。
 3. `main` への push をトリガーに GitHub Actions が `dist/` を生成し、Pages へ deploy する。
 
-> Pages 配信の正本入力は `data/public/public.sqlite3`。`dist/` は毎回 Actions で再生成する。
+> Pages は `dist/` を配信し、`dist/` は毎回 Actions で再生成する。
 
 ---
 
@@ -16,7 +16,7 @@
 - public DB（配信用スナップショット）: `data/public/public.sqlite3`
 - 公開物（Pages）: Actions で生成した `dist/`
 
-`public.sqlite3` はリポジトリで追跡する。`dist/` は `.gitignore` のまま維持する。
+`public.sqlite3` は main DB からの生成物として扱う。`dist/` は `.gitignore` のまま維持する。
 
 ---
 
@@ -231,7 +231,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 ## トラブルシュート
 
 1. Actions の `Deploy GitHub Pages` が Success か確認。
-2. `git status` で `data/public/public.sqlite3` が commit 済みか確認。
+2. `git status` で `data/public/public.sqlite3` が更新されていても生成物差分として扱う（不要なら restore）。
 3. `dist/` を commit していないことを確認。
 4. `https://aik38.github.io/tatemono-map/data/public/public.sqlite3` が 404 でも正常（Pages は `dist/` のみ配信）。
 5. プレビューで Not Found が出る場合は、環境ルーティング由来のことがあるため上記「2段確認」を優先する。
