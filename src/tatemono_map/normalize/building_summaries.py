@@ -115,10 +115,10 @@ def rebuild(db_path: str) -> int:
                built_year_month, built_age_years, availability_date, availability_flag_immediate
         FROM listings
         WHERE (
-            ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots WHERE source = 'master_import')
+            ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
             OR (
                 ingest_run_id IS NULL
-                AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots WHERE source = 'master_import')
+                AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)
             )
         )
         ORDER BY id DESC

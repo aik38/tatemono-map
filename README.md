@@ -48,7 +48,7 @@ git -C $REPO push
   - 建物 SoT: `data/tatemono_map.sqlite3` の `buildings`。
   - Canonical入力 SoT: `data/canonical/` 配下（例: `data/canonical/buildings_master.csv`）。
   - 空室 SoT: `data/tatemono_map.sqlite3` の `listings`（`public.sqlite3` は SoT ではない）。
-  - 空室集計は `current_ingest_snapshots(source='master_import')` が指す current snapshot のみを使用。
+  - 空室集計は `current_ingest_snapshots` に登録された **sourceごとの current snapshot を合成**して使用。
   - 既存 canonical 建物は週次 ingest で削除しない（空室0件でも `building_summaries` に残す）。
 - **公開DBの役割**
   - `scripts/publish_public.ps1` は main DB から公開に必要な最小テーブルのみを `data/public/public.sqlite3` にコピーする。
@@ -65,6 +65,14 @@ data/canonical/*
       -> dist/ (CI build artifact)
       -> GitHub Pages UI
 ```
+
+
+### PR1/PR2 運用モデル（重要）
+
+- PR1: listings は run/snapshot-aware になり、失敗 run は current にしない。
+- PR2: current snapshot は source 単位（Ulucks / RealPro / Mansion Review / 将来 source）で管理し、`building_summaries` は各 source の current を合成して空室を更新。
+- 原則: **建物は残る / 空室は sourceごとの current snapshot を合成して更新 / review CSV は例外処理**。
+- review CSV（`new_buildings_*.csv` / `suspects_*.csv` / `unmatched_listings_*.csv`）は異常時の例外ハンドリング用途であり、週次の主経路ではない。
 
 ## Deployment Model (Current)
 

@@ -38,8 +38,8 @@
 ## 7. 週次運用ポリシー
 - 週次は 1 コマンドで再現可能であること。
 - 週次は `buildings` を再構築しない（既存を維持しつつ、必要な新規のみ追加）。
-- 不明データがあっても処理は継続し、review CSV に必ず出力する。
-- 空室は ingest run/snapshot 単位で管理し、`current_ingest_snapshots` で選ばれた current snapshot のみを公開集計に使う。
+- 不明データがあっても処理は継続し、review CSV に必ず出力する（review CSV は例外処理用途）。
+- 空室は ingest run/snapshot 単位で管理し、`current_ingest_snapshots` の **sourceごとの current snapshot を合成**して公開集計に使う。
 - 失敗 run は current に切り替えない（既存 current を保持する）。
 - `building_summaries` は canonical `buildings` 全件を保持し、空室0件建物も残す。
 
@@ -47,3 +47,11 @@
 - 仕様変更時は、PLAN → spec → runbook/README/wbs の順で整合更新する。
 - 週次運用で発見した例外は runbook に追記し、恒久ルール化する場合は spec に昇格する。
 - 矛盾が出た場合は PLAN と本 spec を優先し、README は入口情報として追随する。
+
+
+## 9. PR1/PR2 時点の運用安全ルール
+- PR1: run/snapshot 基盤、failed run の current 化禁止、QC 後に current 切替。
+- PR2: source 単位 current 管理を前提に、1 source の異常 run が他 source の current を壊さない。
+- 週次ログは source / 入力CSV / outdir / ingest_run_id / QC結果 / current切替可否 / publish_public成否を明示する。
+- QC は保守的に運用し、急激な listing 減少・suspects/unmatched 急増・source空振りを警告または停止する。
+- canonical `buildings` は削除しない。canonical 確定値の安易な上書きを禁止する。
