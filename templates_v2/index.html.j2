@@ -167,11 +167,37 @@
   };
   const formatYen = (value) => Number.isFinite(Number(value)) ? `${formatCount(Number(value))}円` : '—';
   const formatArea = (value) => Number.isFinite(Number(value)) ? `${Number(value)}㎡` : '—';
+  const currentYm = (() => {
+    const now = new Date();
+    return now.getFullYear() * 12 + (now.getMonth() + 1);
+  })();
+  const parseBuiltYm = (value) => {
+    const text = normalizeText(value || '');
+    if (!/^\d{4}-\d{1,2}$/.test(text)) return null;
+    const [yearText, monthText] = text.split('-');
+    const year = Number(yearText);
+    const month = Number(monthText);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null;
+    return year * 12 + month;
+  };
+  const builtAgeBucket = (item) => {
+    if (item.builtYmSort === null) return 3; // unknown
+    if (item.builtYmSort > currentYm) return 0; // future
+    if (item.builtAgeSort === 0) return 1; // age 0
+    return 2; // age >= 1
+  };
+  const propertyKindRank = (item) => item.propertyKind === 'chintai' ? 0 : (item.propertyKind === 'bunjo' ? 1 : 2);
 
   const byNumeric = (key, direction = 'asc') => (a, b) => compareWithUnknownLast(a, b, key, direction);
   const compareBuiltAgeAsc = (a, b) => {
-    const futureDiff = Number(b.isFutureBuilt) - Number(a.isFutureBuilt);
-    if (futureDiff !== 0) return futureDiff;
+    const bucketDiff = builtAgeBucket(a) - builtAgeBucket(b);
+    if (bucketDiff !== 0) return bucketDiff;
+    if (a.builtYmSort !== null && b.builtYmSort !== null) {
+      const ymDiff = b.builtYmSort - a.builtYmSort;
+      if (ymDiff !== 0) return ymDiff;
+      const kindDiff = propertyKindRank(a) - propertyKindRank(b);
+      if (kindDiff !== 0) return kindDiff;
+    }
     const ageDiff = compareWithUnknownLast(a, b, 'builtAgeSort', 'asc');
     if (ageDiff !== 0) return ageDiff;
     return 0;
@@ -406,17 +432,8 @@
         const rentMinPositive = item.property_kind === 'bunjo' ? null : positiveNumberOrNull(item.rent_min);
         const areaMinPositive = positiveNumberOrNull(item.area_min);
         const builtAgeKnown = knownNumberOrNull(item.building_built_age_years);
-        const builtYearMonth = normalizeText(item.building_built_year_month || '');
-        const isFutureBuilt = builtYearMonth !== '' && Number(item.building_built_age_years) === 0 && /^\d{4}-\d{1,2}$/.test(builtYearMonth) && (() => {
-          const [yearText, monthText] = builtYearMonth.split('-');
-          const year = Number(yearText);
-          const month = Number(monthText);
-          if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return false;
-          const now = new Date();
-          const nowYm = now.getFullYear() * 12 + (now.getMonth() + 1);
-          const builtYm = year * 12 + month;
-          return builtYm > nowYm;
-        })();
+        const builtYmSort = parseBuiltYm(item.building_built_year_month);
+        const isFutureBuilt = builtYmSort !== null && builtYmSort > currentYm;
         const updatedEpoch = safeNumber(item.updated_epoch, -1);
         const updatedEpochSort = updatedEpoch > 0 ? updatedEpoch : null;
         const nameNormalized = normalizeText(item.name || '');
@@ -493,6 +510,7 @@
           rentMinSort: rentMinPositive,
           vacancySort: vacancyPositive,
           builtAgeSort: builtAgeKnown,
+          builtYmSort,
           isFutureBuilt,
           nameNormalized,
           addressNormalized,
