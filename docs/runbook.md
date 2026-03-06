@@ -43,6 +43,9 @@ $ZIP_DIR = Join-Path $REPO "tmp/manual/inputs/pdf_zips"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_all_latest.ps1" -RepoPath $REPO -DownloadsDir $ZIP_DIR -QcMode warn
 ```
 
+- `weekly_update.ps1` は ingest 後の QC 成功 run だけ current snapshot（`current_ingest_snapshots.source='master_import'`）へ切り替えます。
+- `publish_public.ps1` 失敗時は current snapshot を前回値へ戻し、公開状態を壊さない運用にしています。
+
 ### ingest + publish + commit/push（ワンショット）
 
 ```powershell

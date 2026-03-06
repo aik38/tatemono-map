@@ -47,7 +47,9 @@ git -C $REPO push
 - **Source of Truth（SoT）**
   - 建物 SoT: `data/tatemono_map.sqlite3` の `buildings`。
   - Canonical入力 SoT: `data/canonical/` 配下（例: `data/canonical/buildings_master.csv`）。
-  - listings SoT: `data/tatemono_map.sqlite3` の `listings` のみ（`public.sqlite3` は SoT ではない）。
+  - 空室 SoT: `data/tatemono_map.sqlite3` の `listings`（`public.sqlite3` は SoT ではない）。
+  - 空室集計は `current_ingest_snapshots(source='master_import')` が指す current snapshot のみを使用。
+  - 既存 canonical 建物は週次 ingest で削除しない（空室0件でも `building_summaries` に残す）。
 - **公開DBの役割**
   - `scripts/publish_public.ps1` は main DB から公開に必要な最小テーブルのみを `data/public/public.sqlite3` にコピーする。
   - 必須コピー: `buildings`, `building_summaries`。任意コピー: `building_key_aliases`（存在時のみ）。
@@ -554,4 +556,3 @@ git restore data/public/public.sqlite3
   - 既に補正済みなら正常です。
 - スマホで古い表示のまま
   - キャッシュの影響があるため、シークレットウィンドウまたはサイトデータ削除後に再確認してください。
-

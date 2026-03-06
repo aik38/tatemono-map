@@ -273,3 +273,44 @@ def test_summary_fallbacks_to_buildings_for_zero_vacancy(tmp_path):
     assert row["building_built_age_years"] == expected_age
     assert row["building_structure"] == "SRC"
     assert row["building_availability_label"] is None
+
+
+def test_summary_uses_current_snapshot_only_and_keeps_zero_vacancy_buildings(tmp_path):
+    db = tmp_path / "test9.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        "INSERT INTO buildings(building_id, canonical_name, canonical_address) VALUES ('b1','Aマンション','東京都A')"
+    )
+    conn.execute(
+        "INSERT INTO buildings(building_id, canonical_name, canonical_address) VALUES ('b2','Bマンション','東京都B')"
+    )
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (1, 'master', 's1', 'completed')")
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (2, 'master', 's2', 'completed')")
+    conn.execute("INSERT INTO current_ingest_snapshots(source, ingest_run_id) VALUES ('master_import', 2)")
+    conn.executemany(
+        """
+        INSERT INTO listings(
+            listing_key, building_key, name, address, room_label,
+            rent_yen, maint_yen, layout, area_sqm, move_in_date,
+            updated_at, source_kind, source_url, ingest_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("l-old", "b1", "Aマンション", "東京都A", "101", 50000, 0, "1K", 20.0, None, "2026-01-01", "master", "old", 1),
+            ("l-new", "b1", "Aマンション", "東京都A", "101", 70000, 0, "1LDK", 30.0, None, "2026-01-02", "master", "new", 2),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    a = conn.execute("SELECT vacancy_count, rent_yen_min, rent_yen_max FROM building_summaries WHERE building_key='b1'").fetchone()
+    b = conn.execute("SELECT vacancy_count FROM building_summaries WHERE building_key='b2'").fetchone()
+    conn.close()
+
+    assert a["vacancy_count"] == 1
+    assert a["rent_yen_min"] == 70000
+    assert a["rent_yen_max"] == 70000
+    assert b["vacancy_count"] == 0

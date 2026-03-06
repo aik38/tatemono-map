@@ -21,6 +21,8 @@ if (-not (Test-Path $venvPython)) {
 
 $dbMain = Join-Path $repo "data\tatemono_map.sqlite3"
 $dbPublic = Join-Path $repo "data\public\public.sqlite3"
+Write-Host "[publish_public] main_db: $dbMain"
+Write-Host "[publish_public] public_db: $dbPublic"
 
 if (Test-Path $dbPublic) {
   try {
@@ -158,6 +160,7 @@ def _windows_exclusive_open_status(path: Path) -> str:
 retries = 10
 for attempt in range(1, retries + 1):
     try:
+        print(f"[publish_public] replace attempt {attempt}/{retries}")
         os.replace(tmp_db, public_db)
         break
     except OSError as exc:
@@ -209,6 +212,7 @@ print(f"building_summaries distinct building_key (public): {distinct_keys_public
 print(f"public.sum(vacancy_count): {vacancy_sum_public}")
 if aliases_count_public is not None:
     print(f"building_key_aliases count (public): {aliases_count_public}")
+print(f"[publish_public] replacement_verified public_db={public_db} size_bytes={public_db.stat().st_size}")
 '@
 
 $env:TATEMONO_MAIN_DB = $dbMain

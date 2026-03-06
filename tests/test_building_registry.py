@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from tatemono_map.building_registry.ingest_master_import import ingest_master_import_csv
+from tatemono_map.building_registry.ingest_master_import import set_current_snapshot
 from tatemono_map.building_registry.keys import make_alias_key
 from tatemono_map.building_registry.seed_from_ui import seed_from_ui_csv
 from tatemono_map.db.repo import connect
@@ -283,3 +284,21 @@ def test_ingest_accepts_header_without_age_structure_columns(tmp_path: Path) -> 
     conn.close()
     assert row["age_years"] is None
     assert row["structure"] is None
+
+
+def test_failed_run_cannot_become_current_snapshot(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+    conn = connect(db_path)
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (10, 'master_import', 'ok', 'completed')")
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (11, 'master_import', 'ng', 'failed')")
+    set_current_snapshot(conn, "master_import", 10)
+    conn.commit()
+
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        set_current_snapshot(conn, "master_import", 11)
+
+    current = conn.execute("SELECT ingest_run_id FROM current_ingest_snapshots WHERE source='master_import'").fetchone()[0]
+    conn.close()
+    assert current == 10

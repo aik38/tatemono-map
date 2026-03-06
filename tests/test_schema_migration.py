@@ -271,3 +271,36 @@ def test_ensure_schema_adds_building_sources_columns_for_existing_db(tmp_path):
         cols = {r[1] for r in conn.execute("PRAGMA table_info(building_sources)")}
 
     assert {"raw_name", "raw_address", "extracted_at"}.issubset(cols)
+
+
+def test_ensure_schema_adds_snapshot_tables_and_listing_run_column(tmp_path):
+    db = tmp_path / "legacy_snapshot.sqlite3"
+    with sqlite3.connect(db) as conn:
+        conn.execute(
+            """
+            CREATE TABLE listings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                listing_key TEXT UNIQUE,
+                building_key TEXT,
+                name TEXT,
+                address TEXT,
+                room_label TEXT,
+                rent_yen INTEGER,
+                maint_yen INTEGER,
+                layout TEXT,
+                area_sqm REAL,
+                move_in_date TEXT,
+                updated_at TEXT,
+                source_kind TEXT,
+                source_url TEXT,
+                fetched_at TEXT
+            )
+            """
+        )
+    ensure_schema(db)
+    with sqlite3.connect(db) as conn:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        listing_cols = {r[1] for r in conn.execute("PRAGMA table_info(listings)")}
+    assert "ingest_runs" in tables
+    assert "current_ingest_snapshots" in tables
+    assert "ingest_run_id" in listing_cols

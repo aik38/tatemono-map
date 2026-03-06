@@ -39,6 +39,9 @@
 - 週次は 1 コマンドで再現可能であること。
 - 週次は `buildings` を再構築しない（既存を維持しつつ、必要な新規のみ追加）。
 - 不明データがあっても処理は継続し、review CSV に必ず出力する。
+- 空室は ingest run/snapshot 単位で管理し、`current_ingest_snapshots` で選ばれた current snapshot のみを公開集計に使う。
+- 失敗 run は current に切り替えない（既存 current を保持する）。
+- `building_summaries` は canonical `buildings` 全件を保持し、空室0件建物も残す。
 
 ## 8. 更新ポリシー
 - 仕様変更時は、PLAN → spec → runbook/README/wbs の順で整合更新する。

@@ -114,6 +114,13 @@ def rebuild(db_path: str) -> int:
                age_years, structure, availability_raw, built_raw, structure_raw,
                built_year_month, built_age_years, availability_date, availability_flag_immediate
         FROM listings
+        WHERE (
+            ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots WHERE source = 'master_import')
+            OR (
+                ingest_run_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots WHERE source = 'master_import')
+            )
+        )
         ORDER BY id DESC
         """
     ).fetchall()

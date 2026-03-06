@@ -104,6 +104,32 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
         columns=("id", "provider", "source_kind", "source_url", "content", "fetched_at"),
     ),
     TableSchema(
+        name="ingest_runs",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS ingest_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL,
+            snapshot_key TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'running',
+            started_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            finished_at TEXT,
+            UNIQUE(source, snapshot_key)
+        )
+        """,
+        columns=("id", "source", "snapshot_key", "status", "started_at", "finished_at"),
+    ),
+    TableSchema(
+        name="current_ingest_snapshots",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS current_ingest_snapshots (
+            source TEXT PRIMARY KEY,
+            ingest_run_id INTEGER NOT NULL,
+            switched_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        columns=("source", "ingest_run_id", "switched_at"),
+    ),
+    TableSchema(
         name="listings",
         ddl="""
         CREATE TABLE IF NOT EXISTS listings (
@@ -130,6 +156,7 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             updated_at TEXT,
             source_kind TEXT,
             source_url TEXT,
+            ingest_run_id INTEGER,
             fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
         """,
@@ -157,6 +184,7 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             "updated_at",
             "source_kind",
             "source_url",
+            "ingest_run_id",
             "fetched_at",
         ),
     ),
@@ -343,6 +371,7 @@ ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "built_age_years": "INTEGER",
         "availability_date": "TEXT",
         "availability_flag_immediate": "INTEGER",
+        "ingest_run_id": "INTEGER",
         "fetched_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
     },
     "raw_units": {
