@@ -92,10 +92,12 @@
     <div class="field">
       <label for="sort">並び替え</label>
       <select id="sort">
+        <option value="recommended">おすすめ順</option>
         <option value="updated_desc">更新日時（新しい順）</option>
-        <option value="vacancy_desc">空室数（多い順）</option>
-        <option value="rent_min_asc">家賃下限（安い順）</option>
-        <option value="rent_min_desc">家賃下限（高い順）</option>
+        <option value="rent_min_desc">家賃が高い順</option>
+        <option value="rent_min_asc">家賃が安い順</option>
+        <option value="built_age_asc">築浅順</option>
+        <option value="vacancy_desc">空室が多い順</option>
       </select>
     </div>
   </section>
@@ -139,19 +141,38 @@
   const empty = document.getElementById('empty-state');
   const loadMore = document.getElementById('load-more');
 
-  const PAGE_SIZE = 50;
+  const PAGE_SIZE = 16;
   const SEARCH_RENDER_LIMIT = 200;
   const SEARCH_DEBOUNCE_MS = 250;
   const formatCount = (n) => new Intl.NumberFormat('ja-JP').format(n);
   const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, ' ').trim();
   const safeNumber = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+  const positiveNumberOrNull = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const knownNumberOrNull = (value) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  };
+  const compareWithUnknownLast = (a, b, key, direction = 'asc') => {
+    const av = a[key];
+    const bv = b[key];
+    const aUnknown = av === null || av === undefined;
+    const bUnknown = bv === null || bv === undefined;
+    if (aUnknown && bUnknown) return 0;
+    if (aUnknown) return 1;
+    if (bUnknown) return -1;
+    return direction === 'asc' ? av - bv : bv - av;
+  };
   const formatYen = (value) => Number.isFinite(Number(value)) ? `${formatCount(Number(value))}円` : '—';
   const formatArea = (value) => Number.isFinite(Number(value)) ? `${Number(value)}㎡` : '—';
 
-  const byNumeric = (key, direction = 'asc') => (a, b) => direction === 'asc' ? a[key] - b[key] : b[key] - a[key];
-  const byText = (key, direction = 'asc') => (a, b) => direction === 'asc' ? a[key].localeCompare(b[key], 'ja') : b[key].localeCompare(a[key], 'ja');
+  const byNumeric = (key, direction = 'asc') => (a, b) => compareWithUnknownLast(a, b, key, direction);
   const sorters = {
-    updated_desc: byNumeric('updatedEpoch', 'desc'),
+    recommended: byNumeric('recommendedScore', 'desc'),
+    updated_desc: byNumeric('updatedEpochSort', 'desc'),
+    built_age_asc: byNumeric('builtAgeSort', 'asc'),
     vacancy_desc: byNumeric('vacancySort', 'desc'),
     rent_min_asc: byNumeric('rentMinSort', 'asc'),
     rent_min_desc: byNumeric('rentMinSort', 'desc')
@@ -271,7 +292,7 @@
 
   function applyFiltersAndSort(resetLimit = false, traceLabel = '') {
     const perfStart = performance.now();
-    const sorter = sorters[sortSelect.value] || sorters.updated_desc;
+    const sorter = sorters[sortSelect.value] || sorters.recommended;
     filtered = [];
 
     buildings.forEach((card) => {
@@ -374,30 +395,96 @@
       await logBuildInfo();
       const loadResult = await loadBuildingsWithFallback();
       const raw = loadResult.raw;
-      buildings = raw.map((item, index) => ({
-        id: item.id,
-        name: item.name || '',
-        address: item.address || '',
-        propertyKind: item.property_kind || '',
-        salePriceAvg: item.sale_price_avg,
-        saleListingCount: item.sale_listing_count,
-        vacancyCount: safeNumber(item.vacancy_count, 0),
-        vacancyCountSafe: Math.max(0, safeNumber(item.vacancy_count, 0)),
-        rentMin: item.rent_min,
-        rentMax: item.rent_max,
-        areaMin: item.area_min,
-        areaMax: item.area_max,
-        updatedAt: item.updated_at || '',
-        buildingStructure: item.building_structure || item.structure || '',
-        updatedEpoch: safeNumber(item.updated_epoch, -1),
-        rentMinSort: Number.isFinite(Number(item.rent_min)) ? Number(item.rent_min) : 999999999,
-        vacancySort: safeNumber(item.vacancy_count, -1),
-        nameNormalized: normalizeText(item.name || ''),
-        addressNormalized: normalizeText(item.address || ''),
-        combined: normalizeText(`${item.name || ''} ${item.address || ''}`),
-        originalIndex: index,
-        score: 0
-      }));
+      const nowEpoch = Date.now() / 1000;
+      buildings = raw.map((item, index) => {
+        const vacancyKnown = knownNumberOrNull(item.vacancy_count);
+        const vacancyPositive = positiveNumberOrNull(item.vacancy_count);
+        const rentMinPositive = positiveNumberOrNull(item.rent_min);
+        const areaMinPositive = positiveNumberOrNull(item.area_min);
+        const builtAgePositive = positiveNumberOrNull(item.building_built_age_years);
+        const updatedEpoch = safeNumber(item.updated_epoch, -1);
+        const updatedEpochSort = updatedEpoch > 0 ? updatedEpoch : null;
+        const nameNormalized = normalizeText(item.name || '');
+        const addressNormalized = normalizeText(item.address || '');
+        const combined = normalizeText(`${item.name || ''} ${item.address || ''}`);
+
+        const isNameWeak = nameNormalized === '' || /^(名称未設定|不明|unknown|なし|-+)$/.test(nameNormalized);
+        const hasAddress = addressNormalized !== '';
+        const infoFilled = [
+          hasAddress,
+          rentMinPositive !== null,
+          areaMinPositive !== null,
+          builtAgePositive !== null,
+          vacancyKnown !== null,
+          !!(item.building_structure || item.structure)
+        ].filter(Boolean).length;
+
+        let recommendedScore = 0;
+        if (vacancyPositive !== null) recommendedScore += 40;
+        if (rentMinPositive !== null) recommendedScore += 26;
+        if (areaMinPositive !== null) recommendedScore += 20;
+        if (!isNameWeak) recommendedScore += 18;
+        if (hasAddress) recommendedScore += 18;
+        recommendedScore += infoFilled * 6;
+
+        if (vacancyPositive !== null) {
+          recommendedScore += Math.min(vacancyPositive, 20) * 2;
+        } else if (vacancyKnown === 0) {
+          recommendedScore -= 44;
+        } else {
+          recommendedScore -= 24;
+        }
+
+        if (rentMinPositive !== null) {
+          recommendedScore += Math.min(rentMinPositive / 15000, 16);
+        } else {
+          recommendedScore -= 36;
+        }
+
+        if (areaMinPositive === null) {
+          recommendedScore -= 26;
+        }
+
+        if (builtAgePositive !== null) {
+          recommendedScore += Math.max(0, 18 - Math.min(builtAgePositive, 40) * 0.45);
+        }
+
+        if (updatedEpoch > 0) {
+          const daysFromUpdate = (nowEpoch - updatedEpoch) / 86400;
+          recommendedScore += Math.max(0, 8 - Math.min(daysFromUpdate, 120) * 0.06);
+        }
+
+        if (isNameWeak) recommendedScore -= 20;
+        if (!hasAddress) recommendedScore -= 24;
+
+        return {
+          id: item.id,
+          name: item.name || '',
+          address: item.address || '',
+          propertyKind: item.property_kind || '',
+          salePriceAvg: item.sale_price_avg,
+          saleListingCount: item.sale_listing_count,
+          vacancyCount: safeNumber(item.vacancy_count, 0),
+          vacancyCountSafe: Math.max(0, safeNumber(item.vacancy_count, 0)),
+          rentMin: item.rent_min,
+          rentMax: item.rent_max,
+          areaMin: item.area_min,
+          areaMax: item.area_max,
+          updatedAt: item.updated_at || '',
+          buildingStructure: item.building_structure || item.structure || '',
+          updatedEpoch,
+          updatedEpochSort,
+          recommendedScore,
+          rentMinSort: rentMinPositive,
+          vacancySort: vacancyPositive,
+          builtAgeSort: builtAgePositive,
+          nameNormalized,
+          addressNormalized,
+          combined,
+          originalIndex: index,
+          score: 0
+        };
+      });
 
       const totalBuildings = buildings.length;
       const totalVacancies = buildings.reduce((sum, b) => sum + b.vacancyCountSafe, 0);
