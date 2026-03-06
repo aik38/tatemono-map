@@ -569,9 +569,83 @@ def test_build_dist_versions_v2_index_applies_user_sort_without_relevance_overri
     assert "function compareCards(a, b, q, sorter)" in index_v2
     assert "b.score - a.score" not in index_v2
     assert "const compareBuiltAgeAsc = (a, b) => {" in index_v2
-    assert "const futureDiff = Number(b.isFutureBuilt) - Number(a.isFutureBuilt);" in index_v2
+    assert "const bucketDiff = builtAgeBucket(a) - builtAgeBucket(b);" in index_v2
+    assert "const ymDiff = b.builtYmSort - a.builtYmSort;" in index_v2
+    assert "const kindDiff = propertyKindRank(a) - propertyKindRank(b);" in index_v2
     assert "const ageDiff = compareWithUnknownLast(a, b, 'builtAgeSort', 'asc');" in index_v2
     assert "const builtAgeKnown = knownNumberOrNull(item.building_built_age_years);" in index_v2
-    assert "const isFutureBuilt = builtYearMonth !== '' && Number(item.building_built_age_years) === 0" in index_v2
+    assert "const builtYmSort = parseBuiltYm(item.building_built_year_month);" in index_v2
+    assert "const isFutureBuilt = builtYmSort !== null && builtYmSort > currentYm;" in index_v2
     assert "built_age_asc: compareBuiltAgeAsc" in index_v2
     assert "calcAgeYearsFromBuiltYearMonth" not in index_v2
+
+
+def test_built_age_asc_priority_rules_and_relevance_override_guard():
+    def compare_with_unknown_last(a, b, key):
+        av = a.get(key)
+        bv = b.get(key)
+        a_unknown = av is None
+        b_unknown = bv is None
+        if a_unknown and b_unknown:
+            return 0
+        if a_unknown:
+            return 1
+        if b_unknown:
+            return -1
+        return av - bv
+
+    def bucket(item, now_ym):
+        ym = item.get("builtYmSort")
+        if ym is None:
+            return 3
+        if ym > now_ym:
+            return 0
+        if item.get("builtAgeSort") == 0:
+            return 1
+        return 2
+
+    def kind_rank(item):
+        kind = item.get("propertyKind")
+        if kind == "chintai":
+            return 0
+        if kind == "bunjo":
+            return 1
+        return 2
+
+    def cmp(a, b, now_ym=2025 * 12 + 2):
+        bucket_diff = bucket(a, now_ym) - bucket(b, now_ym)
+        if bucket_diff != 0:
+            return bucket_diff
+        if a.get("builtYmSort") is not None and b.get("builtYmSort") is not None:
+            ym_diff = b["builtYmSort"] - a["builtYmSort"]
+            if ym_diff != 0:
+                return ym_diff
+            kind_diff = kind_rank(a) - kind_rank(b)
+            if kind_diff != 0:
+                return kind_diff
+        age_diff = compare_with_unknown_last(a, b, "builtAgeSort")
+        if age_diff != 0:
+            return age_diff
+        return 0
+
+    unknown = {"builtYmSort": None, "builtAgeSort": None, "propertyKind": "bunjo", "score": 999}
+    zero_year = {"builtYmSort": 2025 * 12 + 2, "builtAgeSort": 0, "propertyKind": "bunjo", "score": 0}
+    future = {"builtYmSort": 2025 * 12 + 3, "builtAgeSort": 0, "propertyKind": "bunjo", "score": 0}
+    y202503_bunjo = {"builtYmSort": 2025 * 12 + 3, "builtAgeSort": 0, "propertyKind": "bunjo", "score": 0}
+    y202503_chintai = {"builtYmSort": 2025 * 12 + 3, "builtAgeSort": 0, "propertyKind": "chintai", "score": 0}
+    y202502_chintai = {"builtYmSort": 2025 * 12 + 2, "builtAgeSort": 0, "propertyKind": "chintai", "score": 0}
+    y202501_bunjo = {"builtYmSort": 2025 * 12 + 1, "builtAgeSort": 0, "propertyKind": "bunjo", "score": 0}
+
+    # 1. unknown built age は 0年より下
+    assert cmp(unknown, zero_year) > 0
+    # 2. unknown built age は future より下
+    assert cmp(unknown, future) > 0
+    # 3. 2025-03 は 2025-01 より上（築浅順）
+    assert cmp(y202503_bunjo, y202501_bunjo) < 0
+    # 4. 2025-03 の bunjo より 2025-03 の chintai が上
+    assert cmp(y202503_chintai, y202503_bunjo) < 0
+    # 5. 2025-03 の bunjo は 2025-02 の chintai より上
+    assert cmp(y202503_bunjo, y202502_chintai) < 0
+    # 6. relevance が built_age_asc を上書きしない（scoreは比較に影響しない）
+    high_score_unknown = dict(unknown, score=10_000)
+    assert cmp(high_score_unknown, zero_year) > 0
