@@ -60,13 +60,15 @@ def test_weekly_update_idempotency_and_review_csv(tmp_path: Path) -> None:
 
     r1 = ingest_master_import_csv(str(db_path), str(master_csv))
     r2 = ingest_master_import_csv(str(db_path), str(master_csv))
-    assert r1.newly_added == 0
+    assert r1.newly_added == 1
     assert r2.newly_added == 0
+    assert r1.auto_seeded_count == 1
+    assert r1.auto_seed_blocked_count >= 0
     assert r1.suspect_count >= 1
     assert r1.unmatched_count >= 1
 
     conn = connect(db_path)
-    assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 2
+    assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 3
     canonical = conn.execute(
         "SELECT canonical_name, canonical_address FROM buildings WHERE canonical_name='Aマンション'"
     ).fetchone()
@@ -304,3 +306,117 @@ def test_failed_run_cannot_become_current_snapshot(tmp_path: Path) -> None:
     current = conn.execute("SELECT ingest_run_id FROM current_ingest_snapshots WHERE source='master_import'").fetchone()[0]
     conn.close()
     assert current == 10
+
+
+def test_ingest_auto_seeds_high_confidence_unmatched_and_preserves_traceability(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+    master_csv = tmp_path / "master_import.csv"
+    master_csv.write_text(
+        "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id\n"
+        "1,vacancy,2026/01/02 11:00,新規マンション,201,福岡県北九州市小倉南区城野2-2-2,12.2,0.3,2,1LDK,30.1,8,RC,raw-b,pdf:b\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_master_import_csv(str(db_path), str(master_csv))
+
+    assert report.newly_added == 1
+    assert report.auto_seeded_count == 1
+    assert report.unresolved == 0
+
+    conn = connect(db_path)
+    row = conn.execute(
+        "SELECT building_id, canonical_name, canonical_address FROM buildings WHERE canonical_name='新規マンション'"
+    ).fetchone()
+    src = conn.execute(
+        "SELECT building_id FROM building_sources WHERE source='master_import' AND evidence_id='pdf:b'"
+    ).fetchone()
+    alias = conn.execute(
+        "SELECT canonical_key FROM building_key_aliases WHERE alias_key=?",
+        (row[0],),
+    ).fetchone()
+    listing = conn.execute("SELECT building_key FROM listings").fetchone()
+    conn.close()
+
+    assert row is not None
+    assert src[0] == row[0]
+    assert alias[0] == row[0]
+    assert listing[0] == row[0]
+
+
+def test_ingest_low_confidence_unmatched_stays_review_only(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+    seed_csv = tmp_path / "buildings_seed_ui.csv"
+    seed_csv.write_text(
+        "building_name,address,evidence_url_or_id,merge_to_evidence\n"
+        "既存マンション,福岡県北九州市小倉北区魚町1-1-1,ui:a,\n",
+        encoding="utf-8",
+    )
+    seed_from_ui_csv(str(db_path), str(seed_csv))
+
+    master_csv = tmp_path / "master_import.csv"
+    master_csv.write_text(
+        "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id\n"
+        "1,vacancy,2026/01/03 12:00,既存マンション別棟,301,福岡県北九州市小倉北区魚町1丁目,11.0,0.2,3,1LDK,28.0,7,RC,raw-c,pdf:c\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_master_import_csv(str(db_path), str(master_csv))
+
+    assert report.newly_added == 0
+    assert report.auto_seed_blocked_count == 1
+    assert report.unresolved == 1
+
+    conn = connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM listings").fetchone()[0] == 0
+    conn.close()
+
+
+def test_ingest_disable_auto_seed_keeps_unmatched_review_only(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+    master_csv = tmp_path / "master_import.csv"
+    master_csv.write_text(
+        "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id\n"
+        "1,vacancy,2026/01/02 11:00,無効化テストマンション,201,福岡県北九州市小倉南区城野2-2-2,12.2,0.3,2,1LDK,30.1,8,RC,raw-b,pdf:disable\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_master_import_csv(str(db_path), str(master_csv), auto_seed_high_confidence=False)
+
+    assert report.auto_seed_enabled is False
+    assert report.newly_added == 0
+    assert report.unresolved == 1
+
+    conn = connect(db_path)
+    assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 0
+    conn.close()
+
+
+def test_future_ingest_matches_auto_seeded_building_stably(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+    master_csv = tmp_path / "master_import.csv"
+    master_csv.write_text(
+        "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id\n"
+        "1,vacancy,2026/01/02 11:00,継続マッチマンション,201,福岡県北九州市小倉南区城野2-2-2,12.2,0.3,2,1LDK,30.1,8,RC,raw-1,pdf:one\n",
+        encoding="utf-8",
+    )
+    first = ingest_master_import_csv(str(db_path), str(master_csv))
+
+    master_csv.write_text(
+        "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id\n"
+        "1,vacancy,2026/01/09 11:00,継続マッチマンション,301,福岡県北九州市小倉南区城野2-2-2,12.8,0.3,3,1LDK,31.0,8,RC,raw-2,pdf:two\n",
+        encoding="utf-8",
+    )
+    second = ingest_master_import_csv(str(db_path), str(master_csv))
+
+    assert first.auto_seeded_count == 1
+    assert second.auto_seeded_count == 0
+
+    conn = connect(db_path)
+    ids = conn.execute(
+        "SELECT evidence_id, building_id FROM building_sources WHERE source='master_import' ORDER BY evidence_id"
+    ).fetchall()
+    conn.close()
+
+    assert len(ids) == 2
+    assert ids[0][1] == ids[1][1]
