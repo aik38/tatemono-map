@@ -95,3 +95,27 @@ def test_safe_create_missing_blocks_multi_lot_or_range_address(tmp_path: Path) -
     assert report.created == 0
     assert report.unresolved == 2
     assert buildings == 0
+
+
+def test_matcher_alias_requires_address_match_to_avoid_sibling_mix(tmp_path: Path) -> None:
+    db_path = tmp_path / "alias_guard.sqlite3"
+    _seed(
+        db_path,
+        "サンライフ恒見,福岡県北九州市門司区恒見町1-1,ui:a,\n"
+        "サンライフ恒見２,福岡県北九州市門司区恒見町2-1,ui:b,\n",
+    )
+
+    conn = connect(str(db_path))
+    conn.execute(
+        """
+        INSERT INTO building_sources(source, evidence_id, building_id, raw_name, raw_address, extracted_at)
+        VALUES ('mansion_review_list_facts','src:1',(SELECT building_id FROM buildings WHERE canonical_name='サンライフ恒見'),'サンライフ恒見２','福岡県北九州市門司区恒見町1-1',CURRENT_TIMESTAMP)
+        """
+    )
+    conn.commit()
+
+    result = match_building(conn, "さんらいふ恒見2", "北九州市門司区恒見町2-1")
+    conn.close()
+
+    assert result.building_id is not None
+    assert result.reason != "alias_exact"

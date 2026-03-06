@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from tatemono_map.db.repo import connect
+from tatemono_map.util.building_age import age_years_from_built_year_month
 
 FORBIDDEN_PATTERNS = (
     r"mail=",
@@ -109,6 +110,16 @@ def _parse_date(value: object) -> datetime | None:
 
 def _build_summary_date(building: dict) -> datetime | None:
     return _parse_date(building.get("last_updated")) or _parse_date(building.get("updated_at"))
+
+
+def _apply_built_age_guard(building: dict) -> dict:
+    guarded = dict(building)
+    derived_age = age_years_from_built_year_month(guarded.get("building_built_year_month"))
+    if derived_age is None:
+        derived_age = guarded.get("building_built_age_years")
+    guarded["building_built_age_years"] = derived_age
+    guarded["derived_built_age_years"] = derived_age
+    return guarded
 
 
 def _build_google_maps_url(address: object) -> str | None:
@@ -210,7 +221,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         building["move_in_dates"] = json.loads(building.get("move_in_dates_json") or "[]")
         summary_date = _build_summary_date(building)
         building["updated_epoch"] = int(summary_date.timestamp()) if summary_date else -1
-        building_list.append(_sanitize_building(building))
+        building_list.append(_sanitize_building(_apply_built_age_guard(building)))
     conn.close()
     print(
         "render_kpi_counts canonical_buildings_count={} summary_buildings_count={} vacancy_total={}".format(
@@ -251,7 +262,7 @@ def _build_buildings_payload(buildings: list[dict]) -> list[dict]:
                 "built_year": b.get("age_years"),
                 "building_structure": b.get("building_structure") or b.get("structure"),
                 "building_built_year_month": b.get("building_built_year_month"),
-                "building_built_age_years": b.get("building_built_age_years") if b.get("building_built_age_years") is not None else b.get("age_years"),
+                "building_built_age_years": b.get("derived_built_age_years") if b.get("derived_built_age_years") is not None else b.get("age_years"),
                 "building_availability_label": b.get("building_availability_label"),
             }
         )
@@ -286,7 +297,7 @@ def _build_buildings_v2_min_payload(buildings: list[dict]) -> list[dict]:
                 "building_structure": b.get("building_structure") or b.get("structure"),
                 "building_availability_label": b.get("building_availability_label"),
                 "building_built_year_month": b.get("building_built_year_month"),
-                "building_built_age_years": b.get("building_built_age_years") if b.get("building_built_age_years") is not None else b.get("age_years"),
+                "building_built_age_years": b.get("derived_built_age_years") if b.get("derived_built_age_years") is not None else b.get("age_years"),
             }
         )
     normalized = []
