@@ -124,6 +124,8 @@ class Report:
     newly_added: int = 0
     attached_listings: int = 0
     unresolved: int = 0
+    suspect_count: int = 0
+    unmatched_count: int = 0
     ingest_run_id: int | None = None
 
 
@@ -516,6 +518,9 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
             writer.writeheader()
             writer.writerows(new_rows)
 
+    report.suspect_count = len(suspect_rows)
+    report.unmatched_count = len(unmatched_rows)
+
     if suspect_rows:
         out_sus = review_dir / f"suspects_{now}.csv"
         with out_sus.open("w", encoding="utf-8-sig", newline="") as fh:
@@ -562,6 +567,8 @@ def main() -> None:
                 f"newly_added={report.newly_added}",
                 f"attached_listings={report.attached_listings}",
                 f"unresolved={report.unresolved}",
+                f"suspects={report.suspect_count}",
+                f"unmatched={report.unmatched_count}",
                 f"ingest_run_id={report.ingest_run_id}",
             ]
         )

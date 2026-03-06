@@ -62,6 +62,8 @@ def test_weekly_update_idempotency_and_review_csv(tmp_path: Path) -> None:
     r2 = ingest_master_import_csv(str(db_path), str(master_csv))
     assert r1.newly_added == 0
     assert r2.newly_added == 0
+    assert r1.suspect_count >= 1
+    assert r1.unmatched_count >= 1
 
     conn = connect(db_path)
     assert conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0] == 2

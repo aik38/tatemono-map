@@ -12,6 +12,12 @@
 
 ## 役割分担
 
+### PR1/PR2 運用整理（要点）
+- 建物は残る（canonical `buildings` は削除しない）。
+- 空室は sourceごとの current snapshot を合成して更新する。
+- review CSV は主経路ではなく、異常時の例外ハンドリング出力として扱う。
+
+
 - main DB（SoT）: `data/tatemono_map.sqlite3`
 - public DB（配信用スナップショット）: `data/public/public.sqlite3`
 - 公開物（Pages）: Actions で生成した `dist/`
@@ -43,8 +49,11 @@ $ZIP_DIR = Join-Path $REPO "tmp/manual/inputs/pdf_zips"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_all_latest.ps1" -RepoPath $REPO -DownloadsDir $ZIP_DIR -QcMode warn
 ```
 
-- `weekly_update.ps1` は ingest 後の QC 成功 run だけ current snapshot（`current_ingest_snapshots.source='master_import'`）へ切り替えます。
-- `publish_public.ps1` 失敗時は current snapshot を前回値へ戻し、公開状態を壊さない運用にしています。
+- `weekly_update.ps1` は source / input_csv / outdir / run_id / QC結果 / snapshot切替可否 / publish_public成否 をログ出力します。
+- current snapshot は source 単位で保持され、`building_summaries` は sourceごとの current snapshot を合成して空室集計します。
+- `weekly_update.ps1` は QC 成功時のみ対象 source の current snapshot を切り替えます（他sourceの current は保持）。
+- `publish_public.ps1` 失敗時は対象 source の current snapshot を前回値へ戻し、公開状態を壊さない運用にしています。
+- review CSV（`new_buildings` / `suspects` / `unmatched_listings`）は例外処理のために維持し、通常週次では件数の異常監視を優先します。
 
 ### ingest + publish + commit/push（ワンショット）
 
