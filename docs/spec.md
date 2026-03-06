@@ -55,3 +55,15 @@
 - 週次ログは source / 入力CSV / outdir / ingest_run_id / QC結果 / current切替可否 / publish_public成否を明示する。
 - QC は保守的に運用し、急激な listing 減少・suspects/unmatched 急増・source空振りを警告または停止する。
 - canonical `buildings` は削除しない。canonical 確定値の安易な上書きを禁止する。
+
+
+## 10. PR3 高信頼 auto-seed ルール
+- 対象は `match_building` が `unmatched` の行のみ。
+- 以下をすべて満たすときのみ自動追加する。
+  - `normalized_name` / `normalized_address` が非空。
+  - 住所が十分に具体的（ハイフン区切り数字2要素以上、レンジ/複数地番記号なし）。
+  - 部屋番号らしき名称（短すぎる/`room`/`号室`系）ではない。
+  - 既存 canonical への近接衝突がない（高類似または近接同点を拒否）。
+- 上記を満たさない行は auto-seed せず、review CSV (`unmatched_listings`/`suspects`) に残す。
+- 既存 canonical 建物は削除しない。既存 `canonical_name` / `canonical_address` は自動上書きしない。
+- 運用スイッチとして `ingest_master_import --disable-auto-seed` を提供する。

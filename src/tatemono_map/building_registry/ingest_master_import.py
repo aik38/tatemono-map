@@ -5,6 +5,7 @@ import csv
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime
+from difflib import SequenceMatcher
 
 from tatemono_map.normalize.listing_fields import normalize_availability, normalize_built
 from pathlib import Path
@@ -14,7 +15,7 @@ from tatemono_map.db.repo import connect
 
 from .keys import make_alias_key, make_legacy_alias_key
 from .matcher import match_building
-from .normalization import normalize_building_input
+from .normalization import normalize_address_for_matching, normalize_building_input
 from .renormalize_buildings import renormalize_buildings
 
 MASTER_COLUMNS = (
@@ -117,6 +118,25 @@ REVIEW_COLUMNS = [
     "candidate_scores",
 ]
 
+AUTO_SEED_COLUMNS = [
+    "ingest_run_id",
+    "source",
+    "source_evidence_id",
+    "building_id",
+    "name",
+    "address",
+    "normalized_name",
+    "normalized_address",
+]
+
+AUTO_SEED_BLOCKED_REASONS = {
+    "alias_ambiguous",
+    "address_candidates_low_confidence",
+    "address_name_low_confidence",
+    "address_multi_or_range",
+    "address_without_digits",
+}
+
 
 @dataclass
 class Report:
@@ -126,7 +146,74 @@ class Report:
     unresolved: int = 0
     suspect_count: int = 0
     unmatched_count: int = 0
+    auto_seeded_count: int = 0
+    auto_seed_blocked_count: int = 0
+    auto_seed_enabled: bool = True
     ingest_run_id: int | None = None
+
+
+def _score_similarity(left: str, right: str) -> float:
+    return SequenceMatcher(None, left or "", right or "").ratio()
+
+
+def _has_minimum_address_granularity(normalized_address: str) -> bool:
+    if not normalized_address:
+        return False
+    if "、" in normalized_address or "〜" in normalized_address:
+        return False
+    digits = [part for part in normalized_address.split("-") if part.isdigit()]
+    if len(digits) < 2:
+        return False
+    return len(normalized_address) >= 10
+
+
+def _is_probably_room_or_unit_name(name: str) -> bool:
+    lowered = name.strip().lower()
+    if not lowered:
+        return True
+    if lowered.startswith(("room", "号室", "室")):
+        return True
+    if len(lowered) <= 2:
+        return True
+    return False
+
+
+def _has_close_conflict(conn, normalized_name: str, normalized_address: str) -> bool:
+    rows = conn.execute("SELECT norm_name, norm_address FROM buildings").fetchall()
+    scores: list[float] = []
+    incoming_addr = normalize_address_for_matching(normalized_address)
+    for row in rows:
+        existing_name = row[0] or ""
+        existing_addr = normalize_address_for_matching(row[1] or "")
+        name_score = _score_similarity(normalized_name, existing_name)
+        addr_score = _score_similarity(incoming_addr, existing_addr)
+        total = name_score * 0.65 + addr_score * 0.35
+        if total >= 0.82:
+            scores.append(total)
+    if not scores:
+        return False
+    scores.sort(reverse=True)
+    if scores[0] >= 0.9:
+        return True
+    if len(scores) > 1 and scores[0] - scores[1] < 0.03:
+        return True
+    return False
+
+
+def _can_auto_seed(conn, normalized_name: str, normalized_address: str, match_reason: str) -> tuple[bool, str]:
+    if not normalized_name:
+        return False, "missing_normalized_name"
+    if not normalized_address:
+        return False, "missing_normalized_address"
+    if _is_probably_room_or_unit_name(normalized_name):
+        return False, "name_looks_like_unit"
+    if not _has_minimum_address_granularity(normalized_address):
+        return False, "address_not_granular"
+    if match_reason in AUTO_SEED_BLOCKED_REASONS:
+        return False, f"blocked_by_match_reason:{match_reason}"
+    if _has_close_conflict(conn, normalized_name, normalized_address):
+        return False, "close_conflicting_candidate"
+    return True, "high_confidence_unmatched"
 
 
 def _start_ingest_run(conn, source: str, snapshot_key: str) -> int:
@@ -239,10 +326,17 @@ def _parse_built_year(value: str | None) -> int | None:
     return None
 
 
-def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_import") -> Report:
+def ingest_master_import_csv(
+    db_path: str,
+    csv_path: str,
+    source: str = "master_import",
+    *,
+    auto_seed_high_confidence: bool = True,
+) -> Report:
     conn = connect(db_path)
     renormalize_buildings(conn)
     report = Report()
+    report.auto_seed_enabled = auto_seed_high_confidence
     source_url = f"file:{Path(csv_path).name}"
     snapshot_key = f"{source}:{Path(csv_path).resolve()}"
     ingest_run_id = _start_ingest_run(conn, source, snapshot_key)
@@ -250,7 +344,7 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     review_dir = Path("tmp/review")
     review_dir.mkdir(parents=True, exist_ok=True)
-    new_rows: list[dict[str, str]] = []
+    auto_seed_rows: list[dict[str, str]] = []
     suspect_rows: list[dict[str, str]] = []
     unmatched_rows: list[dict[str, str]] = []
     alias_rows = conn.execute("SELECT alias_key, canonical_key FROM building_key_aliases").fetchall()
@@ -328,7 +422,59 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                     building_id = match.building_id
 
                 if not building_id and match.reason == "unmatched":
-                    if not building_id:
+                    can_seed, seed_reason = _can_auto_seed(
+                        conn,
+                        normalized.normalized_name,
+                        normalized.normalized_address,
+                        match.reason,
+                    )
+                    if auto_seed_high_confidence and can_seed:
+                        new_building_id = make_alias_key(normalized.normalized_name, normalized.normalized_address)
+                        exists = conn.execute("SELECT 1 FROM buildings WHERE building_id=?", (new_building_id,)).fetchone()
+                        if exists is None:
+                            conn.execute(
+                                """
+                                INSERT INTO buildings(
+                                    building_id, canonical_name, canonical_address,
+                                    norm_name, norm_address, created_at, updated_at
+                                ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                """,
+                                (
+                                    new_building_id,
+                                    normalized.raw_name,
+                                    normalized.canonical_address,
+                                    normalized.normalized_name,
+                                    normalized.normalized_address,
+                                ),
+                            )
+                            report.newly_added += 1
+                            report.auto_seeded_count += 1
+                            auto_seed_rows.append(
+                                {
+                                    "ingest_run_id": str(ingest_run_id),
+                                    "source": source,
+                                    "source_evidence_id": evidence_id,
+                                    "building_id": new_building_id,
+                                    "name": normalized.raw_name,
+                                    "address": normalized.canonical_address,
+                                    "normalized_name": normalized.normalized_name,
+                                    "normalized_address": normalized.normalized_address,
+                                }
+                            )
+                        conn.execute(
+                            """
+                            INSERT INTO building_key_aliases(alias_key, canonical_key, updated_at)
+                            VALUES (?, ?, CURRENT_TIMESTAMP)
+                            ON CONFLICT(alias_key) DO UPDATE SET
+                                canonical_key=excluded.canonical_key,
+                                updated_at=CURRENT_TIMESTAMP
+                            """,
+                            (new_building_id, new_building_id),
+                        )
+                        alias_map[new_building_id] = new_building_id
+                        building_id = new_building_id
+                    else:
+                        report.auto_seed_blocked_count += 1
                         report.unresolved += 1
                         unmatched_rows.append(
                             _to_review_row(
@@ -338,9 +484,9 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                                 normalized_address=normalized.normalized_address,
                                 raw_name=normalized.raw_name,
                                 raw_address=normalized.raw_address,
-                                reason="unmatched_canonical_building",
-                                candidate_ids=[],
-                                candidate_scores=[],
+                                reason=f"unmatched_canonical_building:{seed_reason}",
+                                candidate_ids=match.candidate_ids,
+                                candidate_scores=match.candidate_scores,
                             )
                         )
                         continue
@@ -373,8 +519,22 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
                             candidate_scores=match.candidate_scores,
                         )
                     )
+                    continue
 
                 if building_id:
+                    alias_key_current = make_alias_key(normalized.normalized_name, normalized.normalized_address)
+                    if alias_key_current and alias_map.get(alias_key_current) != building_id:
+                        conn.execute(
+                            """
+                            INSERT INTO building_key_aliases(alias_key, canonical_key, updated_at)
+                            VALUES (?, ?, CURRENT_TIMESTAMP)
+                            ON CONFLICT(alias_key) DO UPDATE SET
+                                canonical_key=excluded.canonical_key,
+                                updated_at=CURRENT_TIMESTAMP
+                            """,
+                            (alias_key_current, building_id),
+                        )
+                        alias_map[alias_key_current] = building_id
                     conn.execute(
                         """
                         INSERT INTO building_sources(source, evidence_id, building_id, raw_name, raw_address, extracted_at)
@@ -511,12 +671,12 @@ def ingest_master_import_csv(db_path: str, csv_path: str, source: str = "master_
         conn.close()
         raise
 
-    if new_rows:
+    if auto_seed_rows:
         out_new = review_dir / f"new_buildings_{now}.csv"
         with out_new.open("w", encoding="utf-8-sig", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=REVIEW_COLUMNS)
+            writer = csv.DictWriter(fh, fieldnames=AUTO_SEED_COLUMNS)
             writer.writeheader()
-            writer.writerows(new_rows)
+            writer.writerows(auto_seed_rows)
 
     report.suspect_count = len(suspect_rows)
     report.unmatched_count = len(unmatched_rows)
@@ -543,6 +703,7 @@ def main() -> None:
     parser.add_argument("--db", default="data/tatemono_map.sqlite3")
     parser.add_argument("--csv", default="")
     parser.add_argument("--source", default="master_import")
+    parser.add_argument("--disable-auto-seed", action="store_true")
     parser.add_argument("--set-current-run-id", type=int, default=0)
     args = parser.parse_args()
 
@@ -559,7 +720,12 @@ def main() -> None:
     if not args.csv:
         raise SystemExit("--csv is required unless --set-current-run-id is specified")
 
-    report = ingest_master_import_csv(args.db, args.csv, source=args.source)
+    report = ingest_master_import_csv(
+        args.db,
+        args.csv,
+        source=args.source,
+        auto_seed_high_confidence=not args.disable_auto_seed,
+    )
     print(
         " ".join(
             [
@@ -569,6 +735,9 @@ def main() -> None:
                 f"unresolved={report.unresolved}",
                 f"suspects={report.suspect_count}",
                 f"unmatched={report.unmatched_count}",
+                f"auto_seed_enabled={1 if report.auto_seed_enabled else 0}",
+                f"auto_seeded={report.auto_seeded_count}",
+                f"auto_seed_blocked={report.auto_seed_blocked_count}",
                 f"ingest_run_id={report.ingest_run_id}",
             ]
         )

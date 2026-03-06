@@ -148,22 +148,25 @@ from building_sources
 where source = 'master_import' and (building_id is null or building_id='');
 ```
 
-## 運用ポリシー（現状仕様）
+## 運用ポリシー（PR3以降）
 
-- 現状の ingest は **`buildings` にマッチできた空室のみ `listings` に取り込み**、未マッチは `tmp/review/unmatched_listings_*.csv` に出力して取り込みません（今は捨てる運用）。
-- 判断理由は **MVPローンチと収益化を優先**するためです。マッチ精度の追い込みは、運用しながら PDCA で段階改善します。
+- 建物は残る：canonical `buildings` は自動削除しません。
+- 空室は source ごとの current snapshot を合成して更新します。
+- 高信頼 unmatched のみ自動で新規建物を追加し、低信頼は review CSV に残します。
+- canonical `canonical_name` / `canonical_address` は既存行を自動上書きしません。
 
 ### 監視ポイント（毎週）
 
 - ingest 実行ログの `attached_listings` / `unresolved` を記録し、`unresolved` の急増をアラート扱いにします。
-- `tmp/review/unmatched_listings_*.csv` の `reason` を集計し、上位パターン（住所欠落・名称揺れ・ソース偏り）から改善対象を決めます。
-- 既存建物へのマッチ改善（正規化・alias）と、将来の建物自動追加は別トラックで管理します。
+- `tmp/review/unmatched_listings_*.csv` の `reason` を集計し、上位パターン（住所欠落・名称揺れ・近接候補）から改善対象を決めます。
+- `new_buildings_*.csv` で run ごとの auto-seed 結果（`ingest_run_id`/`source_evidence_id`/`building_id`）を監査します。
+- `ingest_master_import` の出力 `auto_seeded` / `auto_seed_blocked` / `unmatched` / `suspects` を週次で記録します。
 
 ### UI 指標の見方
 
 - 公開 UI の「空部屋」は `data/public/public.sqlite3` の `building_summaries.vacancy_count` 合計を正とします。
 - 確認クエリ: `select coalesce(sum(vacancy_count), 0) from building_summaries;`
-- 将来改善（PR3）: [docs/roadmap_pr3_auto_add_buildings.md](docs/roadmap_pr3_auto_add_buildings.md)
+- 自動追加の保守ルール: [docs/roadmap_pr3_auto_add_buildings.md](docs/roadmap_pr3_auto_add_buildings.md)
 
 ### 4) 公開反映（GitHub Pages）
 

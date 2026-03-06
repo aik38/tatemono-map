@@ -15,6 +15,7 @@
 ### PR1/PR2 運用整理（要点）
 - 建物は残る（canonical `buildings` は削除しない）。
 - 空室は sourceごとの current snapshot を合成して更新する。
+- 高信頼 unmatched は auto-seed で建物追加し、低信頼は review CSV に残す。
 - review CSV は主経路ではなく、異常時の例外ハンドリング出力として扱う。
 
 
@@ -54,6 +55,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_all_latest.ps1"
 - `weekly_update.ps1` は QC 成功時のみ対象 source の current snapshot を切り替えます（他sourceの current は保持）。
 - `publish_public.ps1` 失敗時は対象 source の current snapshot を前回値へ戻し、公開状態を壊さない運用にしています。
 - review CSV（`new_buildings` / `suspects` / `unmatched_listings`）は例外処理のために維持し、通常週次では件数の異常監視を優先します。
+- `new_buildings_*.csv` は auto-seed 監査ログです（`ingest_run_id` / `source_evidence_id` / `building_id` を保持）。
+- 緊急停止したい場合は `python -m tatemono_map.building_registry.ingest_master_import --disable-auto-seed ...` を使用します。
 
 ### ingest + publish + commit/push（ワンショット）
 
@@ -247,3 +250,10 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 3. `dist/` を commit していないことを確認。
 4. `https://aik38.github.io/tatemono-map/data/public/public.sqlite3` が 404 でも正常（Pages は `dist/` のみ配信）。
 5. プレビューで Not Found が出る場合は、環境ルーティング由来のことがあるため上記「2段確認」を優先する。
+
+
+## PR3 auto-seed のロールバック手順
+1. 対象 run の `tmp/review/new_buildings_*.csv` から `building_id` を抽出する。
+2. `building_sources` で同じ `source_evidence_id` を確認し、影響 listing を確認する。
+3. 問題建物のみ `buildings` / `building_key_aliases` / `building_sources` を個別に戻す（既存 canonical は触らない）。
+4. 次回 run は `--disable-auto-seed` で実行し、review-only 運用で再評価する。
