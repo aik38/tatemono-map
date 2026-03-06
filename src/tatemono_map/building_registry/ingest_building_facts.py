@@ -8,6 +8,7 @@ from pathlib import Path
 
 from tatemono_map.cli.master_import import _clean_text
 from tatemono_map.db.repo import connect
+from tatemono_map.util.building_age import age_years_from_built_year_month
 
 from .ingest_master_import import REVIEW_COLUMNS, _to_review_row
 from .keys import make_alias_key, make_legacy_alias_key
@@ -234,6 +235,9 @@ def ingest_building_facts_csv(
             age_years = _parse_age_years(row.get("age_years"))
             availability_label = _clean_text(row.get("availability_label"))
             built_year_month = _clean_text(row.get("built_year_month"))
+            built_age_years = age_years_from_built_year_month(built_year_month)
+            if built_age_years is not None:
+                age_years = built_age_years
             property_kind = _clean_text(row.get("property_kind"))
             sale_price_yen_min = _parse_int(row.get("sale_price_yen_min"))
             sale_price_yen_max = _parse_int(row.get("sale_price_yen_max"))
@@ -287,13 +291,27 @@ def ingest_building_facts_csv(
                         SET canonical_name=COALESCE(NULLIF(canonical_name, ''), ?),
                             canonical_address=COALESCE(NULLIF(canonical_address, ''), ?),
                             structure={_fill_only_sql('structure')},
-                            age_years=CASE WHEN age_years IS NULL THEN ? ELSE age_years END,
+                            age_years=CASE
+                                WHEN ? IS NOT NULL THEN ?
+                                WHEN age_years IS NULL THEN ?
+                                ELSE age_years
+                            END,
                             built_year_month={_fill_only_sql('built_year_month')},
                             property_kind={_fill_only_sql('property_kind')},
                             updated_at=CURRENT_TIMESTAMP
                         WHERE building_id=?
                         """,
-                        (normalized.raw_name, normalized.canonical_address, structure, age_years, built_year_month, property_kind, building_id),
+                        (
+                            normalized.raw_name,
+                            normalized.canonical_address,
+                            structure,
+                            built_age_years,
+                            built_age_years,
+                            age_years,
+                            built_year_month,
+                            property_kind,
+                            building_id,
+                        ),
                     )
                 else:
                     conn.execute(
@@ -302,7 +320,11 @@ def ingest_building_facts_csv(
                         SET canonical_name=COALESCE(NULLIF(canonical_name, ''), ?),
                             canonical_address=COALESCE(NULLIF(canonical_address, ''), ?),
                             structure={_fill_only_sql('structure')},
-                            age_years=CASE WHEN age_years IS NULL THEN ? ELSE age_years END,
+                            age_years=CASE
+                                WHEN ? IS NOT NULL THEN ?
+                                WHEN age_years IS NULL THEN ?
+                                ELSE age_years
+                            END,
                             availability_label={_fill_only_sql('availability_label')},
                             built_year_month={_fill_only_sql('built_year_month')},
                             property_kind={_fill_only_sql('property_kind')},
@@ -320,7 +342,7 @@ def ingest_building_facts_csv(
                         """,
                         (
                             normalized.raw_name, normalized.canonical_address,
-                            structure, age_years, availability_label, built_year_month, property_kind,
+                            structure, built_age_years, built_age_years, age_years, availability_label, built_year_month, property_kind,
                             sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
                             sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json,
                             sale_listing_count, avg_rent_yen, rental_listing_count, building_id,

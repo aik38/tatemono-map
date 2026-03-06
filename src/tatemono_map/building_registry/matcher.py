@@ -96,15 +96,19 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str) -> 
 
     alias_rows = conn.execute(
         """
-        SELECT s.building_id, s.raw_name
+        SELECT s.building_id, s.raw_name, b.norm_address
         FROM building_sources s
+        INNER JOIN buildings b ON b.building_id = s.building_id
         WHERE s.raw_name IS NOT NULL AND s.raw_name <> ''
         """
     ).fetchall()
     alias_hits: list[str] = []
+    input_address_variants = set(_address_variants(normalized_address))
     for row in alias_rows:
         alias_norm = normalize_building_input(row[1], "").normalized_name
-        if alias_norm and alias_norm == normalized_name and row[0] not in alias_hits:
+        source_addr = normalize_address_for_matching(row[2] or "")
+        address_matches = bool(source_addr and source_addr in input_address_variants)
+        if alias_norm and alias_norm == normalized_name and address_matches and row[0] not in alias_hits:
             alias_hits.append(row[0])
     if len(alias_hits) == 1:
         return MatchResult(alias_hits[0], "alias_exact", [alias_hits[0]], [1.0])

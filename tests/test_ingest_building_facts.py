@@ -6,6 +6,7 @@ from pathlib import Path
 from tatemono_map.db.repo import connect
 from tatemono_map.normalize.building_summaries import rebuild
 from tatemono_map.building_registry.ingest_building_facts import ingest_building_facts_csv
+from tatemono_map.util.building_age import age_years_from_built_year_month
 
 
 def _write_facts_csv(path: Path, rows: list[dict[str, str]]) -> None:
@@ -65,7 +66,7 @@ def test_ingest_building_facts_fill_only_does_not_overwrite_existing_values(tmp_
         ],
     )
 
-    report = ingest_building_facts_csv(str(db), str(csv_path), merge="fill_only")
+    report = ingest_building_facts_csv(str(db), str(csv_path), source="manual_facts", merge="fill_only")
     assert report.matched == 1
 
     conn = connect(db)
@@ -177,3 +178,47 @@ def test_ingest_building_facts_updates_bunjo_fields(tmp_path: Path) -> None:
     assert row["sale_listing_count"] == 2
     assert row["building_built_year_month"] == "2011-02"
     assert row["building_availability_label"] is None
+
+
+def test_ingest_building_facts_recalculates_age_from_built_year_month_for_existing_record(tmp_path: Path) -> None:
+    db = tmp_path / "facts4.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address, age_years)
+        VALUES ('b4','サンパーク門司港','北九州市門司区港町1-1','さんぱーくもじこう','北九州市門司区港町1-1',1)
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    csv_path = tmp_path / "facts4.csv"
+    _write_facts_csv(
+        csv_path,
+        [
+            {
+                "building_name": "サンパーク門司港",
+                "address": "北九州市門司区港町1-1",
+                "built_year_month": "2001-05",
+                "property_kind": "bunjo",
+                "evidence_id": "mr:4",
+            }
+        ],
+    )
+
+    ingest_building_facts_csv(str(db), str(csv_path), source="mansion_review_list_facts", merge="fill_only")
+    rebuild(str(db))
+
+    conn = connect(db)
+    building_row = conn.execute("SELECT age_years, built_year_month FROM buildings WHERE building_id='b4'").fetchone()
+    summary_row = conn.execute(
+        "SELECT age_years, building_built_age_years FROM building_summaries WHERE building_key='b4'"
+    ).fetchone()
+    conn.close()
+
+    expected_age = age_years_from_built_year_month("2001-05")
+    assert expected_age is not None
+    assert building_row["built_year_month"] == "2001-05"
+    assert building_row["age_years"] == expected_age
+    assert summary_row["age_years"] == expected_age
+    assert summary_row["building_built_age_years"] == expected_age

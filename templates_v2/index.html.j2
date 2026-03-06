@@ -155,6 +155,18 @@
     const n = Number(value);
     return Number.isFinite(n) ? n : null;
   };
+  const calcAgeYearsFromBuiltYearMonth = (value) => {
+    const text = String(value || '').trim();
+    const m = text.match(/^(\d{4})[-/](\d{1,2})$/);
+    if (!m) return null;
+    const y = Number(m[1]);
+    const mon = Number(m[2]);
+    if (!Number.isFinite(y) || !Number.isFinite(mon) || mon < 1 || mon > 12) return null;
+    const now = new Date();
+    let age = now.getFullYear() - y;
+    if ((now.getMonth() + 1) < mon) age -= 1;
+    return Math.max(0, age);
+  };
   const compareWithUnknownLast = (a, b, key, direction = 'asc') => {
     const av = a[key];
     const bv = b[key];
@@ -399,9 +411,10 @@
       buildings = raw.map((item, index) => {
         const vacancyKnown = knownNumberOrNull(item.vacancy_count);
         const vacancyPositive = positiveNumberOrNull(item.vacancy_count);
-        const rentMinPositive = positiveNumberOrNull(item.rent_min);
+        const rentMinPositive = item.property_kind === 'bunjo' ? null : positiveNumberOrNull(item.rent_min);
         const areaMinPositive = positiveNumberOrNull(item.area_min);
-        const builtAgePositive = positiveNumberOrNull(item.building_built_age_years);
+        const builtAgeComputed = calcAgeYearsFromBuiltYearMonth(item.building_built_year_month);
+        const builtAgePositive = builtAgeComputed !== null ? builtAgeComputed : positiveNumberOrNull(item.building_built_age_years);
         const updatedEpoch = safeNumber(item.updated_epoch, -1);
         const updatedEpochSort = updatedEpoch > 0 ? updatedEpoch : null;
         const nameNormalized = normalizeText(item.name || '');
