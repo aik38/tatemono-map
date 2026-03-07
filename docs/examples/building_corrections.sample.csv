@@ -1,0 +1,5 @@
+status,action,target_building_name,target_address,field,old_value,new_value,note,source,error_type
+pending,fix,Cotto九工大前,福岡県北九州市小倉北区中原西3-4-3,address,福岡県北九州市小倉北区中原西3-4-3,北九州市戸畑区中原西3-4-3,区名誤り（フロント確認）,frontend,ward_mismatch
+pending,fix,コンフォートプレイス小 倉,,building_name,コンフォートプレイス小 倉,コンフォートプレイス小倉,建物名の不要空白,frontend,building_name_spacing
+pending,fix,CITRUS TREE,北九州市小倉南区足立,address,北九州市小倉南区足立,北九州市小倉北区足立,区名は要補正・枝番未確認,frontend,address_incomplete
+pending,review_duplicate,ザ・サンパーク小倉駅タワーレジデンス,北九州市小倉北区浅野2-18-3,,,,修正後に既存建物と同一の可能性あり,frontend,alias_or_duplicate_candidate

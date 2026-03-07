@@ -25,3 +25,9 @@
 ## 追跡ポリシー
 - `tmp/manual/README.md` と `.gitkeep` は追跡可。`tmp/manual` / `tmp/pdf_pipeline` の生成物は原則 `.gitignore` 対象。
 - 詳細な実行手順は `docs/runbook.md` を正本とする。
+
+## レビュー教師データ（building_corrections.csv）
+- `tmp/manual/building_corrections.csv`
+  - フロント確認・手動レビューで見つけた建物名/住所の誤記を記録するCSV。
+  - 公開生成物を直接直す台帳ではなく、正本DB修正・正規化改善の入力として扱う。
+  - 仕様と列定義は `docs/building_corrections_csv.md` を参照。

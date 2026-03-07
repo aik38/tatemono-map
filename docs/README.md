@@ -23,6 +23,7 @@
 - [manual_pdf_ingest.md](manual_pdf_ingest.md): PDF取り込みの補助手順。
 - [ulucks_phase_a.md](ulucks_phase_a.md): Ulucks 作業メモ。
 - [roadmap_pr3_auto_add_buildings.md](roadmap_pr3_auto_add_buildings.md): unmatched を今は捨てる方針と、PR3自動追加の再開計画。
+- [building_corrections_csv.md](building_corrections_csv.md): 手動レビューで見つけた建物名・住所誤記を教師データとして蓄積するCSV仕様。
 
 ## Legacy（deprecated）
 - [legacy/README.md](legacy/README.md): 現行 canonical 運用では使わない旧フロー資料。
