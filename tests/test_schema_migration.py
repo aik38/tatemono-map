@@ -249,7 +249,7 @@ def test_ensure_schema_adds_building_master_columns_for_existing_db(tmp_path):
     with sqlite3.connect(db) as conn:
         building_cols = {r[1] for r in conn.execute("PRAGMA table_info(buildings)")}
 
-    assert {"structure", "age_years", "built_year", "availability_raw", "availability_label"}.issubset(building_cols)
+    assert {"structure", "age_years", "built_year", "availability_raw", "availability_label", "hidden_from_public"}.issubset(building_cols)
 
 
 def test_ensure_schema_adds_building_sources_columns_for_existing_db(tmp_path):

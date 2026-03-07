@@ -103,10 +103,14 @@ def _find_candidates(conn: sqlite3.Connection, row: CorrectionRow) -> list[sqlit
 
 
 def _should_hold(row: CorrectionRow, allow_incomplete_address: bool) -> str | None:
-    if row.action != "fix":
+    if row.action not in {"fix", "drop_duplicate_loser"}:
         return f"unsupported_action:{row.action or 'empty'}"
     if row.status not in {"pending", "approved", "applied"}:
         return f"unsupported_status:{row.status or 'empty'}"
+
+    if row.action == "drop_duplicate_loser":
+        return None
+
     if row.field not in {"building_name", "address"}:
         return f"unsupported_field:{row.field or 'empty'}"
     if not row.new_value:
@@ -185,6 +189,31 @@ def process_rows(
             continue
 
         building = candidates[0]
+
+        if row.action == "drop_duplicate_loser":
+            if apply:
+                conn.execute(
+                    """
+                    UPDATE buildings
+                       SET hidden_from_public = 1,
+                           updated_at = CURRENT_TIMESTAMP
+                     WHERE building_id = ?
+                    """,
+                    (building["building_id"],),
+                )
+            results.append(
+                ProcessResult(
+                    row_no=row.row_no,
+                    status=row.status,
+                    matched_building_id=building["building_id"],
+                    before_value="0",
+                    after_value="1",
+                    outcome="applied" if apply else "dry_run",
+                    reason="hidden_from_public",
+                )
+            )
+            continue
+
         before_value = _value_for_field(building, row.field)
         if row.old_value and before_value != row.old_value:
             results.append(

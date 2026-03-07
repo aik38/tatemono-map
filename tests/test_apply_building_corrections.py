@@ -16,6 +16,7 @@ def _conn() -> sqlite3.Connection:
           canonical_address TEXT,
           norm_name TEXT,
           norm_address TEXT,
+          hidden_from_public INTEGER NOT NULL DEFAULT 0,
           updated_at TEXT
         )
         """
@@ -82,3 +83,40 @@ def test_process_rows_holds_citrus_tree_incomplete_address() -> None:
     assert results[0].reason == "hold_citrus_tree_incomplete_address"
     old_address = conn.execute("SELECT canonical_address FROM buildings WHERE building_id='b2'").fetchone()[0]
     assert old_address == "北九州市小倉南区足立"
+
+
+def test_process_rows_marks_drop_duplicate_loser_hidden() -> None:
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address) VALUES (?,?,?,?,?)",
+        (
+            "b3",
+            "ニューシティアパートメンツ南小倉II",
+            "福岡県北九州市小倉北区東篠崎3",
+            "ニューシティアパートメンツ南小倉II",
+            "福岡県北九州市小倉北区東篠崎3",
+        ),
+    )
+    rows = [
+        CorrectionRow(
+            row_no=4,
+            status="approved",
+            action="drop_duplicate_loser",
+            target_building_name="ニューシティアパートメンツ南小倉II",
+            target_address="福岡県北九州市小倉北区東篠崎3",
+            field="",
+            old_value="",
+            new_value="",
+            note="勝ちレコードあり。公開から除外",
+            source="frontend",
+            error_type="alias_or_duplicate_candidate",
+        )
+    ]
+
+    results, duplicates = process_rows(conn, rows, apply=True, allow_incomplete_address=False)
+
+    assert duplicates == []
+    assert results[0].outcome == "applied"
+    assert results[0].reason == "hidden_from_public"
+    hidden = conn.execute("SELECT hidden_from_public FROM buildings WHERE building_id='b3'").fetchone()[0]
+    assert hidden == 1
