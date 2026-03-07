@@ -53,6 +53,8 @@ git -C $REPO push
 
 ## Data Architecture（唯一の定義）
 
+- 建物DB運用の SoT / canonical CSV / alias / review CSV / public DB の関係は、運用メモ `docs/data_flow_and_sources_of_truth.md` を参照してください。
+
 - **Source of Truth（SoT）**
   - 建物 SoT: `data/tatemono_map.sqlite3` の `buildings`。
   - Canonical入力 SoT: `data/canonical/` 配下（例: `data/canonical/buildings_master.csv`）。
