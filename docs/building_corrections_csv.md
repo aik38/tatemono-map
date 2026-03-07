@@ -171,3 +171,18 @@ pending,review_duplicate,ザ・サンパーク小倉駅タワーレジデンス,
 - `review_duplicate` の件数推移と優先レビュー候補抽出
 
 これらは、収集処理や正規化処理へのルール追加優先度の判断材料になります。
+
+
+## 9. 安全反映CLI（`apply_building_corrections`）
+
+手動修正CSVを正本DBに安全適用するため、`tatemono_map.cli.apply_building_corrections` を使えます。
+
+```bash
+python -m tatemono_map.cli.apply_building_corrections   --db data/tatemono_map.sqlite3   --corrections tmp/manual/building_corrections.csv
+```
+
+- 既定は **dry-run**（更新しない）で、結果CSVと重複候補CSVだけを `tmp/manual/outputs/` に出力します。
+- 実更新は `--apply` 指定時のみ行います。
+- `old_value` と実DB値が一致しない行は保留します。
+- `CITRUS TREE` の `address_incomplete`（note に「枝番未確認」等を含む）は既定で保留します。
+  - 明示的に進める場合のみ `--allow-incomplete-address` を指定します。
