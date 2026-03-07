@@ -10,6 +10,8 @@
 - MVP は賃貸空室に集中し、将来は売買査定/解体比較導線へ拡張する。
 
 ## 3. Canonical source of truth（正本）
+運用上の実体マッピング（DB/CSV/review/publicの関係）は [`docs/data_flow_and_sources_of_truth.md`](./data_flow_and_sources_of_truth.md) を参照。
+
 - 正本は SQLite DB の `buildings` テーブル（唯一の正本）。
 - `listings` / `building_summaries` / `data/public/public.sqlite3` はすべて派生物。
 - canonical 項目（`canonical_name`, `canonical_address`）は seed/weekly のどちらでも自動上書きしない。

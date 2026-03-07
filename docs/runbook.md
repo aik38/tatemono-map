@@ -1,5 +1,7 @@
 # runbook（Pages 運用）
 
+> データの正本/入力/派生/reviewの全体像は [`docs/data_flow_and_sources_of_truth.md`](./data_flow_and_sources_of_truth.md) を先に確認してください。
+
 ## 最短運用（これだけ）
 
 1. 空室（Ulucks/RealPro）優先の更新は `scripts/run_all_latest.ps1` で実行する。
