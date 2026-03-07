@@ -39,6 +39,7 @@
   - `data/canonical/buildings_master.csv`。canonical建物入力の正本CSV。
 - **alias**
   - `building_key_aliases`。表記ゆれ等の alias_key を canonical_key に解決する対応表。
+  - canonical building 本体の代替ではなく、正本への入口を増やすための補助。
 - **building_sources**
   - `source + evidence_id -> building_id` の由来追跡テーブル。
 - **master_import.csv**
@@ -111,13 +112,14 @@
 ## 6) 重複・曖昧ケースの扱い
 
 - **aliasで吸収するもの**
-  - 表記ゆれ・別名として確信できるものは `building_key_aliases` で canonical に寄せる。
+  - 同じ建物を指す表記ゆれ・別名として確信できるものは `building_key_aliases` で canonical に寄せる。
+  - canonical名/住所/同定自体の誤りが疑われる場合は、aliasだけで吸収せず canonical入力側の修正可否を先に判断する。
 - **source evidence で追うもの**
   - どの入力根拠で建物に紐づいたかは `building_sources` で追跡する。
 - **suspects / unmatched に落とすもの**
   - 曖昧一致・低信頼候補・解決不能行は review CSV に出力し、自動確定しない。
 - **人が確認すべき場所**
-  - `tmp/review/suspects_*.csv` と `tmp/review/unmatched_listings_*.csv` を優先確認し、必要に応じて canonical入力と alias を更新する。
+  - `tmp/review/suspects_*.csv` と `tmp/review/unmatched_listings_*.csv` を優先確認し、必要に応じて「canonical入力を直すケース」と「aliasで吸収するケース」を分けて更新する。
 
 ---
 
@@ -126,7 +128,8 @@
 - **建物マスターの修正**
   - `data/canonical/buildings_master.csv`（または canonical入力ルート）を修正する。
 - **表記ゆれ吸収の修正**
-  - alias方針に従って `building_key_aliases` 側で吸収する。
+  - 同一建物の表記ゆれ吸収は alias方針に従って `building_key_aliases` 側で吸収する。
+  - ただし誤った canonical building を alias だけで無理に吸収し続けない（必要なら canonical入力側を先に修正する）。
 - **由来確認**
   - `building_sources` と review CSV を見て証拠ID単位で追う。
 - **直接触るべきでない結果物**
