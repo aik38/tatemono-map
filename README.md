@@ -17,7 +17,13 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 
 
 ## フロント配色テーマ切替（静的・クエリ指定）
+- **クエリなしURL（`/tatemono-map/` または `/tatemono-map/index.html`）は常に mercari（赤/青/白/黒）を既定表示**します。
+- `?theme=...` がある場合は、クエリ指定を最優先で適用します（`default` / `ph` / `mercari`）。
+
 ### 本番（GitHub Pages）
+- クエリなし（既定: mercari）
+  - https://aik38.github.io/tatemono-map/
+  - https://aik38.github.io/tatemono-map/index.html
 - default（現行互換）
   - https://aik38.github.io/tatemono-map/?theme=default
 - ph（黒 + 白 + オレンジ）
@@ -26,6 +32,9 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
   - https://aik38.github.io/tatemono-map/?theme=mercari
 
 ### ローカル（dev_dist.ps1 起動後）
+- クエリなし（既定: mercari）
+  - http://127.0.0.1:8788/tatemono-map/
+  - http://127.0.0.1:8788/tatemono-map/index.html
 - default
   - http://127.0.0.1:8788/tatemono-map/?theme=default
 - ph

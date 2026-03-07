@@ -506,8 +506,7 @@ def test_build_dist_versions_theme_init_and_theme_variables_present(tmp_path):
 
     for html in (index_v2, detail_v2):
         assert 'new Set(["default", "ph", "mercari"])' in html
-        assert 'localStorage.getItem("tm_theme")' in html
-        assert 'const theme = allowed.has(q) ? q : (allowed.has(stored) ? stored : "ph");' in html
+        assert 'const theme = allowed.has(q) ? q : "mercari";' in html
         assert 'localStorage.setItem("tm_theme", theme)' in html
         assert 'root.classList.remove("theme-ph", "theme-mercari")' in html
         assert 'if (theme === "ph") root.classList.add("theme-ph")' in html
