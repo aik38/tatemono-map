@@ -262,30 +262,142 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 
 ---
 
-## manual building corrections（建物名崩れ・住所修正・重複除外）
+## manual building corrections 標準運用（建物名崩れ・住所修正・重複除外）
 
-`dist/data/*.json` を直接編集せず、`tmp/manual/building_corrections.csv` → `apply_building_corrections` で正本DBへ反映します。
+### 1) この運用で何をするか
 
-1. `tmp/manual/building_corrections.csv` に `fix` / `review_duplicate` / `drop_duplicate_loser` を記録
-2. dry-run で照合結果を確認
-3. 問題なければ `--apply` で反映
-4. `publish_public` / `dev_dist` で公開物を再生成
+フロントで見つけた建物情報の誤りを、正本DB（`data/tatemono_map.sqlite3`）に安全反映し、公開DB・公開JSON・GitHub Pages まで一貫して更新する運用です。
+
+対象:
+- 建物名の崩れ修正（`fix`）
+- 住所誤り修正（`fix`）
+- 重複候補の記録（`review_duplicate`）
+- 重複 loser の公開除外（`drop_duplicate_loser`）
+
+重要原則:
+- `dist/data/*.json` は直接手修正しない
+- 手動修正の台帳・教師データは `tmp/manual/building_corrections.csv` に集約する
+- 先に dry-run、問題なければ `--apply`
+- 重複は物理削除より `hidden_from_public`（`drop_duplicate_loser`）を優先
+
+> CSVの列定義・値定義は仕様書を参照: [`docs/building_corrections_csv.md`](./building_corrections_csv.md)
+
+### 2) action の意味（実務用）
+
+- `fix`: `field=building_name|address` の修正。
+- `review_duplicate`: 重複候補の記録。**候補記録のみ**で、即時削除・即時統合はしない。
+- `drop_duplicate_loser`: 重複の弱い側（loser）を `buildings.hidden_from_public=1` にして公開出力から除外。DBの物理削除はしない。
+
+### 3) 標準手順（一本道）
+
+#### Step 1. フロントで誤りを見つける
+
+例:
+- 建物名の不要空白
+- 区名誤り（小倉北区 / 戸畑区など）
+- 枝番不足
+- 同一建物の重複（winner/loser）
+
+#### Step 2. correction CSV に追記する
+
+- ファイル: `tmp/manual/building_corrections.csv`
+- 原則: 1行=1修正
+- `review_duplicate` は候補記録
+- loser を公開から除外したい場合は `drop_duplicate_loser` を使う
+
+#### Step 3. dry-run（必須）
 
 ```powershell
-$REPO = "C:\path\to\tatemono-map"
+$REPO = Join-Path $env:USERPROFILE "tatemono-map"
 Set-Location $REPO
+$env:PYTHONPATH = "src"
 
 python -m tatemono_map.cli.apply_building_corrections --db data/tatemono_map.sqlite3 --corrections tmp/manual/building_corrections.csv
-python -m tatemono_map.cli.apply_building_corrections --db data/tatemono_map.sqlite3 --corrections tmp/manual/building_corrections.csv --apply
-
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\publish_public.ps1" -RepoPath $REPO
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO
 ```
 
-### action の使い分け
+#### Step 4. report / duplicates を確認する
 
-- `fix`: `field=building_name|address` の値を修正
-- `review_duplicate`: まだ自動反映しない重複候補の記録
-- `drop_duplicate_loser`: 重複の「負けレコード」を `buildings.hidden_from_public=1` にして公開JSONから除外（DB物理削除なし）
+`tmp/manual/outputs/` に次のCSVが出るので、毎回確認します。
 
-`drop_duplicate_loser` は `target_building_name + target_address` で1件特定できる行だけ `approved` で適用してください。
+- `building_corrections_report_<timestamp>.csv`
+  - `outcome` / `reason` を確認（`held` があれば理由を潰す）
+- `building_corrections_duplicates_<timestamp>.csv`
+  - 修正後に重複候補が出ていないか確認
+
+PowerShell 例:
+
+```powershell
+Get-ChildItem tmp/manual/outputs/building_corrections_report_*.csv | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+Get-ChildItem tmp/manual/outputs/building_corrections_duplicates_*.csv | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+```
+
+#### Step 5. apply（問題なければ本反映）
+
+```powershell
+python -m tatemono_map.cli.apply_building_corrections --db data/tatemono_map.sqlite3 --corrections tmp/manual/building_corrections.csv --apply
+```
+
+#### Step 6. public DB を再生成する
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\publish_public.ps1" -RepoPath $REPO
+```
+
+#### Step 7. 公開JSONを再生成する
+
+```powershell
+$py = if (Test-Path ".venv\Scripts\python.exe") { ".venv\Scripts\python.exe" } else { "python" }
+& $py -m tatemono_map.cli.export_buildings_json --db data/public/public.sqlite3 --out dist/data/buildings.v2.min.json --format v2min
+& $py -m tatemono_map.cli.export_buildings_json --db data/public/public.sqlite3 --out dist/data/buildings.json --format legacy
+```
+
+#### Step 8. ローカル確認（Pages-like）
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO -Port 8788
+```
+
+- `http://127.0.0.1:8788/tatemono-map/` で確認する（`file://` 直開き禁止）。
+
+#### Step 9. GitHub Pages 本番へ反映
+
+```powershell
+git add tmp/manual/building_corrections.csv data/public/public.sqlite3
+git commit -m "docs+ops: standardize manual building corrections flow"
+git push
+```
+
+- `main` への push をトリガーに Actions が Pages を更新する。
+
+#### Step 10. 本番WEBで確認
+
+```powershell
+Invoke-WebRequest https://aik38.github.io/tatemono-map/index.html | Select-Object StatusCode,Headers
+curl.exe -s https://aik38.github.io/tatemono-map/build_info.json
+```
+
+- シークレットウィンドウで実画面確認する。
+- 必要に応じて `Ctrl+F5`。
+
+### 4) ローカル確認と本番確認の違い（明示）
+
+- ローカル確認（Step 8）:
+  - 目的: 修正内容・表示崩れ・導線の即時確認
+  - 対象: ローカルの `dist/` と `data/public/public.sqlite3`
+- 本番確認（Step 10）:
+  - 目的: Actions経由のデプロイ結果確認
+  - 対象: GitHub Pages 実配信物（CDN / キャッシュ条件を含む）
+
+両方が通って初めて「反映完了」です。
+
+### 5) 実例（今回の運用で実施済み）
+
+- winner/loser 例: `ニューシティアパートメンツ南小倉II`
+  - loser 行を `action=drop_duplicate_loser` で適用し、`hidden_from_public=1` に設定
+  - 正本DBには残しつつ、public出力から除外
+- 住所修正例:
+  - `ザ・サンパーク小倉駅タワーレジデンス`
+  - `CITRUS TREE`
+  - いずれも `action=fix` / `field=address` で正規フロー反映
+
+> 詳細なCSV列仕様・記入ルールは runbook ではなく仕様書（`docs/building_corrections_csv.md`）を正とします。
