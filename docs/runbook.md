@@ -259,3 +259,33 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 2. `building_sources` で同じ `source_evidence_id` を確認し、影響 listing を確認する。
 3. 問題建物のみ `buildings` / `building_key_aliases` / `building_sources` を個別に戻す（既存 canonical は触らない）。
 4. 次回 run は `--disable-auto-seed` で実行し、review-only 運用で再評価する。
+
+---
+
+## manual building corrections（建物名崩れ・住所修正・重複除外）
+
+`dist/data/*.json` を直接編集せず、`tmp/manual/building_corrections.csv` → `apply_building_corrections` で正本DBへ反映します。
+
+1. `tmp/manual/building_corrections.csv` に `fix` / `review_duplicate` / `drop_duplicate_loser` を記録
+2. dry-run で照合結果を確認
+3. 問題なければ `--apply` で反映
+4. `publish_public` / `dev_dist` で公開物を再生成
+
+```powershell
+$REPO = "C:\path\to\tatemono-map"
+Set-Location $REPO
+
+python -m tatemono_map.cli.apply_building_corrections --db data/tatemono_map.sqlite3 --corrections tmp/manual/building_corrections.csv
+python -m tatemono_map.cli.apply_building_corrections --db data/tatemono_map.sqlite3 --corrections tmp/manual/building_corrections.csv --apply
+
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\publish_public.ps1" -RepoPath $REPO
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO
+```
+
+### action の使い分け
+
+- `fix`: `field=building_name|address` の値を修正
+- `review_duplicate`: まだ自動反映しない重複候補の記録
+- `drop_duplicate_loser`: 重複の「負けレコード」を `buildings.hidden_from_public=1` にして公開JSONから除外（DB物理削除なし）
+
+`drop_duplicate_loser` は `target_building_name + target_address` で1件特定できる行だけ `approved` で適用してください。

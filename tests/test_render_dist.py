@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from tatemono_map.db.keys import make_building_key
 from tatemono_map.db.repo import ListingRecord, connect, upsert_listing
 from tatemono_map.normalize.building_summaries import rebuild
 from tatemono_map.render.build import build_dist, build_dist_versions
@@ -648,3 +649,38 @@ def test_built_age_asc_priority_rules_and_relevance_override_guard():
     # 6. relevance が built_age_asc を上書きしない（scoreは比較に影響しない）
     high_score_unknown = dict(unknown, score=10_000)
     assert cmp(high_score_unknown, zero_year) > 0
+
+
+def test_export_buildings_json_excludes_hidden_from_public(tmp_path):
+    from tatemono_map.render.build import export_buildings_json
+
+    db = tmp_path / "test.sqlite3"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("公開建物", "東京都港区芝1-1-1", 100000, 30.0, "1DK", "2026-11-01", "ulucks", "json-visible"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("除外建物", "東京都港区芝1-1-2", 120000, 33.0, "1LDK", "2026-11-01", "ulucks", "json-hidden"),
+    )
+    hidden_key = make_building_key("除外建物", "東京都港区芝1-1-2")
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address, hidden_from_public)
+        VALUES (?, ?, ?, ?, ?, 1)
+        ON CONFLICT(building_id) DO UPDATE SET hidden_from_public=1
+        """,
+        (hidden_key, "除外建物", "東京都港区芝1-1-2", "除外建物", "東京都港区芝1-1-2"),
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+    out = tmp_path / "dist" / "data" / "buildings.v2.min.json"
+    export_buildings_json(str(db), str(out), "v2min")
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    names = {row["name"] for row in payload}
+    assert "公開建物" in names
+    assert "除外建物" not in names

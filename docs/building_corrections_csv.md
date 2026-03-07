@@ -42,7 +42,7 @@
 | 列名 | 説明 | 例 |
 |---|---|---|
 | `status` | 修正状態 | `pending`, `approved`, `applied`, `rejected` |
-| `action` | 行の目的 | `fix`, `review_duplicate`, `merge_candidate` |
+| `action` | 行の目的 | `fix`, `review_duplicate`, `merge_candidate`, `drop_duplicate_loser` |
 | `target_building_name` | 対象建物を特定するための名称 | `Cotto九工大前` |
 | `target_address` | 対象建物を特定するための住所（補助キー） | `福岡県北九州市小倉北区中原西3-4-3` |
 | `field` | 何を直すか | `building_name`, `address` |
@@ -106,8 +106,9 @@
 - `fix`: 値の修正指示
 - `review_duplicate`: 同一建物の可能性がありレビュー待ち
 - `merge_candidate`: 同一建物として統合候補（未確定）
+- `drop_duplicate_loser`: 重複の負けレコードを正本DBに残したまま公開対象から除外
 
-> 当面の主運用は `fix` と `review_duplicate`。
+> 当面の主運用は `fix`・`review_duplicate`・`drop_duplicate_loser`。
 
 ### 5.3 `error_type` 候補
 
@@ -136,7 +137,7 @@
 ### 6.3 空欄ルール
 
 - 必須列は空欄禁止（ただし `target_address` は住所情報が元データに無い場合のみ空欄可）
-- `review_duplicate` / `merge_candidate` で値差分がない場合、`field` / `old_value` / `new_value` は空欄可
+- `review_duplicate` / `merge_candidate` / `drop_duplicate_loser` で値差分がない場合、`field` / `old_value` / `new_value` は空欄可
 - 任意列は未使用なら空欄でよい
 
 ### 6.4 レビュー時の注意
@@ -155,6 +156,7 @@ pending,fix,Cotto九工大前,福岡県北九州市小倉北区中原西3-4-3,ad
 pending,fix,コンフォートプレイス小 倉,,building_name,コンフォートプレイス小 倉,コンフォートプレイス小倉,建物名の不要空白,frontend,building_name_spacing
 pending,fix,CITRUS TREE,北九州市小倉南区足立,address,北九州市小倉南区足立,北九州市小倉北区足立,区名は要補正・枝番未確認,frontend,address_incomplete
 pending,review_duplicate,ザ・サンパーク小倉駅タワーレジデンス,北九州市小倉北区浅野2-18-3,,,,修正後に既存建物と同一の可能性あり,frontend,alias_or_duplicate_candidate
+approved,drop_duplicate_loser,ニューシティアパートメンツ南小倉II,福岡県北九州市小倉北区東篠崎3,,,,空室0件・家賃0円レンジの重複負けレコードを公開から除外,frontend,alias_or_duplicate_candidate
 ```
 
 同内容のサンプルは `docs/examples/building_corrections.sample.csv` も参照してください。
@@ -186,3 +188,11 @@ python -m tatemono_map.cli.apply_building_corrections   --db data/tatemono_map.s
 - `old_value` と実DB値が一致しない行は保留します。
 - `CITRUS TREE` の `address_incomplete`（note に「枝番未確認」等を含む）は既定で保留します。
   - 明示的に進める場合のみ `--allow-incomplete-address` を指定します。
+
+
+### 9.1 `drop_duplicate_loser` の最小運用
+
+- `target_building_name` + `target_address` で**負けレコードを1件特定**します。
+- `action=drop_duplicate_loser` 行は、`buildings.hidden_from_public=1` を設定します（物理削除しません）。
+- 以後の `build_dist_versions` / `export_buildings_json` では `hidden_from_public=1` が公開JSONに出なくなります。
+- 取り消す場合はDBで `hidden_from_public=0` に戻すか、同じ建物を別CSVで復帰ルール化してください。

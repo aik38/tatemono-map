@@ -41,6 +41,7 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             google_place_id TEXT,
             google_lat REAL,
             google_lng REAL,
+            hidden_from_public INTEGER NOT NULL DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
@@ -70,6 +71,7 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             "google_place_id",
             "google_lat",
             "google_lng",
+            "hidden_from_public",
             "created_at",
             "updated_at",
         ),
@@ -349,6 +351,7 @@ ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "google_place_id": "TEXT",
         "google_lat": "REAL",
         "google_lng": "REAL",
+        "hidden_from_public": "INTEGER NOT NULL DEFAULT 0",
         "created_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
         "updated_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
     },

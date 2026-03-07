@@ -131,12 +131,13 @@ def _build_google_maps_url(address: object) -> str | None:
 
 def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     conn = connect(db_path)
-    canonical_buildings_count = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
+    canonical_buildings_count = conn.execute("SELECT COUNT(*) FROM buildings WHERE COALESCE(hidden_from_public, 0) = 0").fetchone()[0]
     summary_buildings_count = conn.execute(
         """
         SELECT COUNT(DISTINCT s.building_key)
         FROM building_summaries s
-        INNER JOIN buildings b ON b.building_id = s.building_key
+        LEFT JOIN buildings b ON b.building_id = s.building_key
+        WHERE COALESCE(b.hidden_from_public, 0) = 0
         """
     ).fetchone()[0]
     buildings_count = canonical_buildings_count
@@ -144,7 +145,8 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         """
         SELECT COALESCE(SUM(s.vacancy_count), 0)
         FROM building_summaries s
-        INNER JOIN buildings b ON b.building_id = s.building_key
+        LEFT JOIN buildings b ON b.building_id = s.building_key
+        WHERE COALESCE(b.hidden_from_public, 0) = 0
         """
     ).fetchone()[0]
     buildings = conn.execute(
@@ -179,6 +181,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             COALESCE(s.updated_at, b.updated_at) AS updated_at
         FROM building_summaries s
         LEFT JOIN buildings b ON b.building_id = s.building_key
+        WHERE COALESCE(b.hidden_from_public, 0) = 0
         UNION ALL
         SELECT
             b.building_id AS building_key,
@@ -209,7 +212,8 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             NULL AS last_updated,
             b.updated_at AS updated_at
         FROM buildings b
-        WHERE NOT EXISTS (SELECT 1 FROM building_summaries s WHERE s.building_key = b.building_id)
+        WHERE COALESCE(b.hidden_from_public, 0) = 0
+          AND NOT EXISTS (SELECT 1 FROM building_summaries s WHERE s.building_key = b.building_id)
         ORDER BY updated_at DESC
         """
     ).fetchall()
