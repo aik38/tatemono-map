@@ -40,6 +40,9 @@ if (-not (Test-Path $dbPath)) {
 & $venvPython -m tatemono_map.building_registry.ingest_master_import --db $dbPath --csv $CsvPath --source master_import
 if ($LASTEXITCODE -ne 0) { throw "ingest_master_import failed" }
 
+& $venvPython -m tatemono_map.building_registry.ingest_master_import --db $dbPath --source master_import --set-current-latest-completed
+if ($LASTEXITCODE -ne 0) { throw "failed to switch current snapshot to latest completed run" }
+
 & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\publish_public.ps1") -RepoPath $repo
 if ($LASTEXITCODE -ne 0) { throw "publish_public.ps1 failed" }
 
@@ -74,4 +77,3 @@ Write-Host "CSV: $CsvPath"
 Write-Host "Commit message: $Message"
 Write-Host "PagesはGitHub Actionsで更新されます（反映は数十秒〜数分が目安）。"
 Write-Host "確認コマンド: Invoke-WebRequest https://aik38.github.io/tatemono-map/index.html | Select-Object StatusCode,Headers"
-

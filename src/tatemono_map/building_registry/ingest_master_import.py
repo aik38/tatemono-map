@@ -250,6 +250,24 @@ def set_current_snapshot(conn, source: str, ingest_run_id: int) -> None:
     )
 
 
+def set_current_snapshot_to_latest_completed(conn, source: str) -> int:
+    row = conn.execute(
+        """
+        SELECT id
+        FROM ingest_runs
+        WHERE source=? AND status='completed'
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (source,),
+    ).fetchone()
+    if row is None:
+        raise RuntimeError(f"no completed run for source: {source}")
+    ingest_run_id = int(row[0])
+    set_current_snapshot(conn, source, ingest_run_id)
+    return ingest_run_id
+
+
 def _row_evidence_id(row: dict[str, str], source_url: str) -> str:
     explicit = _clean_text(row.get("evidence_id"))
     if explicit:
@@ -705,7 +723,11 @@ def main() -> None:
     parser.add_argument("--source", default="master_import")
     parser.add_argument("--disable-auto-seed", action="store_true")
     parser.add_argument("--set-current-run-id", type=int, default=0)
+    parser.add_argument("--set-current-latest-completed", action="store_true")
     args = parser.parse_args()
+
+    if args.set_current_run_id and args.set_current_latest_completed:
+        raise SystemExit("--set-current-run-id and --set-current-latest-completed are mutually exclusive")
 
     if args.set_current_run_id:
         conn = connect(args.db)
@@ -715,6 +737,16 @@ def main() -> None:
         finally:
             conn.close()
         print(f"current_ingest_snapshot={args.source}:{int(args.set_current_run_id)}")
+        return
+
+    if args.set_current_latest_completed:
+        conn = connect(args.db)
+        try:
+            ingest_run_id = set_current_snapshot_to_latest_completed(conn, args.source)
+            conn.commit()
+        finally:
+            conn.close()
+        print(f"current_ingest_snapshot={args.source}:{ingest_run_id}")
         return
 
     if not args.csv:

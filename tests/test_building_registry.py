@@ -2,6 +2,7 @@ from pathlib import Path
 
 from tatemono_map.building_registry.ingest_master_import import ingest_master_import_csv
 from tatemono_map.building_registry.ingest_master_import import set_current_snapshot
+from tatemono_map.building_registry.ingest_master_import import set_current_snapshot_to_latest_completed
 from tatemono_map.building_registry.keys import make_alias_key
 from tatemono_map.building_registry.seed_from_ui import seed_from_ui_csv
 from tatemono_map.db.repo import connect
@@ -306,6 +307,24 @@ def test_failed_run_cannot_become_current_snapshot(tmp_path: Path) -> None:
     current = conn.execute("SELECT ingest_run_id FROM current_ingest_snapshots WHERE source='master_import'").fetchone()[0]
     conn.close()
     assert current == 10
+
+
+def test_set_current_snapshot_to_latest_completed_selects_latest_id_for_same_source(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry.sqlite3"
+    conn = connect(db_path)
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (1, 'master_import', 'r1', 'completed')")
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (2, 'master_import', 'r2', 'failed')")
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (3, 'master_import', 'r3', 'completed')")
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (4, 'realpro', 'x1', 'completed')")
+
+    latest = set_current_snapshot_to_latest_completed(conn, "master_import")
+    conn.commit()
+
+    current = conn.execute("SELECT ingest_run_id FROM current_ingest_snapshots WHERE source='master_import'").fetchone()[0]
+    conn.close()
+
+    assert latest == 3
+    assert current == 3
 
 
 def test_ingest_auto_seeds_high_confidence_unmatched_and_preserves_traceability(tmp_path: Path) -> None:
