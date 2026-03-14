@@ -1,9 +1,14 @@
-# `building_corrections.csv` 仕様（手動レビュー教師データ）
+# `building_corrections.csv` 仕様（correction サブフロー実行台帳）
 
 ## 1. 役割（このCSVを何に使うか）
 
 `tmp/manual/building_corrections.csv` は、フロントエンド確認・目視レビュー・手動検証で見つけた建物情報の誤りを記録するCSVです。  
-このCSVは「公開用JSON / dist を直接直すための台帳」ではなく、**正本DB修正や正規化改善の入力データ**として扱います。
+このCSVは「公開用JSON / dist を直接直すための台帳」ではなく、**正本DB修正を safe CLI で反映するための実行台帳**として扱います。
+
+
+このCSVは ingest 主経路の review CSV（`tmp/review/new_buildings_*.csv` / `suspects_*.csv` / `unmatched_listings_*.csv`）とは別物です。
+- review CSV: ingest 時の例外検知・triage 用
+- correction CSV: フロント発見起点の例外を反映するための実行用
 
 このCSVの目的は次の3つです。
 
@@ -25,13 +30,13 @@
 
 - **1行 = 1修正**
 - 1つの建物に「建物名修正」と「住所修正」がある場合は、**2行に分けて記録**する
-- すぐ自動反映する前提ではなく、レビュー・分析・後続反映のために残す
+- すぐ自動反映する前提ではなく、dry-run で安全確認してから apply する
 - `old_value` は可能な限り記載する
 - `new_value` には「修正後にしたい値」を記載する
 - 不確実な修正は `status=pending` とし、`note` に根拠・保留理由を残す
 - 対象が曖昧な修正は、曖昧なまま適用しない
 - 住所の番地まで不明な場合は、分かる範囲のみ `new_value` に書き、`note` に「枝番未確認」等を明記する
-- このCSVは履歴・教師データであり、公開生成物を直接上書きする用途には使わない
+- このCSVは実行台帳・履歴であり、公開生成物（`public.sqlite3` / `dist`）を直接上書きする用途には使わない
 
 ---
 
@@ -108,7 +113,7 @@
 - `merge_candidate`: 同一建物として統合候補（未確定）
 - `drop_duplicate_loser`: 重複の負けレコードを正本DBに残したまま公開対象から除外
 
-> 当面の主運用は `fix`・`review_duplicate`・`drop_duplicate_loser`。
+> 実更新の主運用は `fix`・`drop_duplicate_loser`。`review_duplicate` は候補記録（台帳）として使います。
 
 ### 5.3 `error_type` 候補
 
@@ -185,6 +190,7 @@ python -m tatemono_map.cli.apply_building_corrections   --db data/tatemono_map.s
 
 - 既定は **dry-run**（更新しない）で、結果CSVと重複候補CSVだけを `tmp/manual/outputs/` に出力します。
 - 実更新は `--apply` 指定時のみ行います。
+- `review_duplicate` / `merge_candidate` など実更新対象外 action は `held` として report に残ります。
 - `old_value` と実DB値が一致しない行は保留します。
 - `CITRUS TREE` の `address_incomplete`（note に「枝番未確認」等を含む）は既定で保留します。
   - 明示的に進める場合のみ `--allow-incomplete-address` を指定します。
@@ -194,5 +200,5 @@ python -m tatemono_map.cli.apply_building_corrections   --db data/tatemono_map.s
 
 - `target_building_name` + `target_address` で**負けレコードを1件特定**します。
 - `action=drop_duplicate_loser` 行は、`buildings.hidden_from_public=1` を設定します（物理削除しません）。
-- 以後の `build_dist_versions` / `export_buildings_json` では `hidden_from_public=1` が公開JSONに出なくなります。
+- 以後の `build_dist_versions` / `export_buildings_json` では `hidden_from_public=1` が公開JSONに出なくなります（公開除外であり、正本からの物理削除ではありません）。
 - 取り消す場合はDBで `hidden_from_public=0` に戻すか、同じ建物を別CSVで復帰ルール化してください。

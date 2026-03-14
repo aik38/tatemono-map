@@ -264,33 +264,49 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 
 ---
 
-## manual building corrections 標準運用（建物名崩れ・住所修正・重複除外）
+## correction サブフロー標準運用（建物名崩れ・住所修正・重複 loser 公開除外）
 
-### 1) この運用で何をするか
+### 1) correction とは何か（主経路との関係）
 
-フロントで見つけた建物情報の誤りを、正本DB（`data/tatemono_map.sqlite3`）に安全反映し、公開DB・公開JSON・GitHub Pages まで一貫して更新する運用です。
+correction は、**フロント確認で見つかった例外**を安全に正本へ反映するためのサブフローです。
 
-対象:
-- 建物名の崩れ修正（`fix`）
-- 住所誤り修正（`fix`）
-- 重複候補の記録（`review_duplicate`）
-- 重複 loser の公開除外（`drop_duplicate_loser`）
+- 主経路: ZIP/PDF取得 → `master_import.csv` → `weekly_update` ingest → `publish_public` → Pages
+- correction: 主経路で取り切れない例外（建物名崩れ・住所誤り・重複 loser 公開除外）を、`building_corrections.csv` + safe CLI で反映
 
-重要原則:
-- `dist/data/*.json` は直接手修正しない
-- 手動修正の台帳・教師データは `tmp/manual/building_corrections.csv` に集約する
-- 先に dry-run、問題なければ `--apply`
-- 重複は物理削除より `hidden_from_public`（`drop_duplicate_loser`）を優先
+主経路を壊さないため、correction は「常用の本線」ではなく**例外処理の補助線**として扱います。
 
-> CSVの列定義・値定義は仕様書を参照: [`docs/building_corrections_csv.md`](./building_corrections_csv.md)
+### 2) correction を使う / 使わないの判断
 
-### 2) action の意味（実務用）
+#### 使うべきケース
 
-- `fix`: `field=building_name|address` の修正。
-- `review_duplicate`: 重複候補の記録。**候補記録のみ**で、即時削除・即時統合はしない。
-- `drop_duplicate_loser`: 重複の弱い側（loser）を `buildings.hidden_from_public=1` にして公開出力から除外。DBの物理削除はしない。
+- フロント表示で建物名崩れ・住所誤りを確認した
+- 重複候補のうち loser を公開対象から外したい（物理削除はしない）
+- 反映履歴を CSV 台帳として残したい
 
-### 3) 標準手順（一本道）
+#### 使わない方がよいケース
+
+- 週次の通常更新（主経路で完結する更新）
+- ingest 時に出る review CSV の通常確認（`new_buildings_*` / `suspects_*` / `unmatched_listings_*`）
+- `public.sqlite3` / `dist` を直接編集して一時的に見た目だけ直す運用
+
+### 3) review CSV と correction CSV の違い
+
+- review CSV（`tmp/review/*.csv`）:
+  - ingest 実行時に生成される**主経路の例外検知出力**
+  - 週次では件数監視と triage が中心
+- correction CSV（`tmp/manual/building_corrections.csv`）:
+  - フロント発見起点の**反映実行台帳**
+  - `apply_building_corrections` で dry-run → apply の安全反映に使う
+
+### 4) action の位置づけ（実務）
+
+- `fix`: `field=building_name|address` を修正
+- `review_duplicate`: 重複候補の記録（記録用途、即時統合しない）
+- `drop_duplicate_loser`: loser を `buildings.hidden_from_public=1` にして公開対象から除外（DB物理削除しない）
+
+> `apply_building_corrections` が実更新する action は `fix` / `drop_duplicate_loser` です。`review_duplicate` は台帳記録用途として扱います。
+
+### 5) 標準手順（dry-run → apply）
 
 #### Step 1. フロントで誤りを見つける
 
@@ -304,7 +320,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 
 - ファイル: `tmp/manual/building_corrections.csv`
 - 原則: 1行=1修正
-- `review_duplicate` は候補記録
+- `review_duplicate` は候補記録（triage/台帳用途）
 - loser を公開から除外したい場合は `drop_duplicate_loser` を使う
 
 #### Step 3. dry-run（必須）
@@ -361,15 +377,17 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 
 - `http://127.0.0.1:8788/tatemono-map/` で確認する（`file://` 直開き禁止）。
 
-#### Step 9. GitHub Pages 本番へ反映
+#### Step 9. 差分確認と commit/push
 
 ```powershell
-git add tmp/manual/building_corrections.csv data/public/public.sqlite3
-git commit -m "docs+ops: standardize manual building corrections flow"
+git status -sb
+git add tmp/manual/building_corrections.csv
+git commit -m "ops: apply building corrections safely"
 git push
 ```
 
 - `main` への push をトリガーに Actions が Pages を更新する。
+- `public.sqlite3` や `dist` は生成物であり、**手編集しない**。必要がなければコミットにも含めない。
 
 #### Step 10. 本番WEBで確認
 
@@ -392,7 +410,13 @@ curl.exe -s https://aik38.github.io/tatemono-map/build_info.json
 
 両方が通って初めて「反映完了」です。
 
-### 5) 実例（今回の運用で実施済み）
+### 5) duplicate loser 公開除外の位置づけ
+
+- duplicate loser の処理は「削除」ではなく「公開除外」です。
+- `drop_duplicate_loser` は `hidden_from_public=1` を設定し、正本DBの建物履歴は維持します。
+- 既存の運用思想（建物は消さない / 空室のみ更新）を崩さない範囲で公開品質を調整します。
+
+### 6) 実例（今回の運用で実施済み）
 
 - winner/loser 例: `ニューシティアパートメンツ南小倉II`
   - loser 行を `action=drop_duplicate_loser` で適用し、`hidden_from_public=1` に設定

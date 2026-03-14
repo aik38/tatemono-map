@@ -85,6 +85,15 @@ data/canonical/*
 - 原則: **建物は残る / 空室は sourceごとの current snapshot を合成して更新 / review CSV は例外処理**。
 - review CSV（`new_buildings_*.csv` / `suspects_*.csv` / `unmatched_listings_*.csv`）は異常時の例外ハンドリング用途であり、週次の主経路ではない。
 
+### 主経路と correction サブフロー（最小整理）
+
+- 主経路（通常運用）: ZIP/PDF取得 → `master_import.csv` → `weekly_update` ingest → `publish_public` → Pages。
+- correction（例外処理）: フロント確認で見つけた建物名崩れ・住所誤り・duplicate loser 公開除外を、`tmp/manual/building_corrections.csv` + `apply_building_corrections`（dry-run → apply）で正本に反映。
+- review CSV（`tmp/review/*.csv`）は ingest 時の例外検知 / triage 用、correction CSV はフロント発見起点の実行台帳。
+- `public.sqlite3` や `dist` を手で直接直す運用は行わない。
+
+詳細は `docs/runbook.md`（運用手順）と `docs/building_corrections_csv.md`（CSV仕様）を参照してください。
+
 ## Deployment Model (Current)
 
 - main branch tracks source code only.
