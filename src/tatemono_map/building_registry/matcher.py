@@ -12,6 +12,7 @@ MATCH_SCORE_THRESHOLD = 0.91
 UNIQUE_MARGIN = 0.02
 
 RE_FUSED_BAN = re.compile(r"^(.*?)(\d{2,4})(?:番)?$")
+RE_SERIES_SUFFIX = re.compile(r"(?:\s|-)?(?:(\d{1,2})|(I{1,4}))$")
 MULTI_LOT_TOKENS = ("、", "〜")
 
 
@@ -71,6 +72,24 @@ def _has_multi_lot_or_range(address: str) -> bool:
     return any(token in address for token in MULTI_LOT_TOKENS)
 
 
+def _extract_series_suffix(name: str) -> int | None:
+    match = RE_SERIES_SUFFIX.search((name or "").upper())
+    if not match:
+        return None
+    numeric, roman = match.groups()
+    if numeric:
+        return int(numeric)
+    if roman:
+        return {"I": 1, "II": 2, "III": 3, "IV": 4}.get(roman)
+    return None
+
+
+def _has_series_suffix_conflict(left_name: str, right_name: str) -> bool:
+    left_suffix = _extract_series_suffix(left_name)
+    right_suffix = _extract_series_suffix(right_name)
+    return left_suffix is not None and right_suffix is not None and left_suffix != right_suffix
+
+
 def _pick_strong_unique(candidates: list[tuple[str, float, float, float]], variant: str) -> MatchResult:
     if not candidates:
         return MatchResult(None, "unmatched", [], [], variant)
@@ -125,6 +144,8 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str) -> 
             continue
         if len(matched) == 1:
             name_score = _score_name(normalized_name, matched[0][1] or "")
+            if _has_series_suffix_conflict(normalized_name, matched[0][1] or ""):
+                return MatchResult(None, "name_suffix_conflict", [matched[0][0]], [round(name_score, 4)], variant)
             if idx == 0:
                 return MatchResult(matched[0][0], "address_exact", [matched[0][0]], [round(name_score, 4)], variant)
             if name_score >= NAME_SIMILARITY_THRESHOLD:
@@ -136,6 +157,8 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str) -> 
             name_score = _score_name(normalized_name, row[1] or "")
             addr_score = _score_address(variant, normalize_address_for_matching(row[2] or ""))
             total = name_score * 0.7 + addr_score * 0.3
+            if _has_series_suffix_conflict(normalized_name, row[1] or ""):
+                continue
             scored.append((row[0], total, name_score, addr_score))
         result = _pick_strong_unique(scored, variant if idx > 0 else "")
         if result.reason != "unmatched":

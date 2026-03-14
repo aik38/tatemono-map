@@ -1,4 +1,4 @@
-from tatemono_map.normalize.jp import normalize_address_jp
+from tatemono_map.normalize.jp import normalize_address_jp, normalize_building_name
 
 
 def test_normalize_address_jp_absorbs_chome_notation_noise() -> None:
@@ -34,3 +34,8 @@ def test_normalize_address_jp_fullwidth_and_hyphen_variants() -> None:
     ]
     normalized = {normalize_address_jp(v) for v in values}
     assert normalized == {"福岡県北九州市小倉北区魚町1-1-1"}
+
+
+def test_normalize_building_name_removes_inner_cjk_spaces_only() -> None:
+    assert normalize_building_name("コンフォートプレイス小 倉") == "コンフォ-トプレイス小倉"
+    assert normalize_building_name("CITRUS TREE") == "CITRUS TREE"
