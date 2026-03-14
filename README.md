@@ -234,6 +234,16 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 - 公開入力は `data/public/public.sqlite3` です（main DB からの生成物）。
 - `dist/` は git 管理対象ではなく、CI（`.github/workflows/deploy_pages.yml`）が毎回 `data/public/public.sqlite3` から再生成して deploy します。
 
+### 運用メモ: favicon / Android ホーム画面アイコン
+- 目的は **PC タブ favicon** と **Android ホーム画面アイコン** の両対応です。
+- `assets/favicon/` のファイルは、Pages 配信用の `dist/` に含まれるようにします。
+- 公開 HTML は v2（`templates_v2/base.html.j2`）を使うため、`<head>` から次を参照させます。
+  - `rel="icon"`
+  - `rel="apple-touch-icon"`
+  - `rel="manifest"`
+- Android 向けに `favicon-192.png` / `favicon-512.png` / `site.webmanifest` を用意します。
+- 画像を repo に置くだけでは反映されません。**`dist` に含める**ことと、**公開 HTML の `<head>` から参照する**ことの両方が必要です。
+
 ### トラブルシュート（反映されない時）
 1. GitHub の **Actions** で `Deploy static site to GitHub Pages` が `Success` になっているか確認する。
 2. `scripts/publish_public.ps1` の再実行ログを確認し、必要なら `data/public/public.sqlite3` をローカル再生成してから `scripts/dev_dist.ps1` で挙動確認する。
