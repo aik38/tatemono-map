@@ -64,6 +64,14 @@ jobs:
           python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2
           touch dist/.nojekyll
 
+      - name: Copy favicon assets into dist
+        run: |
+          mkdir -p dist/assets/favicon
+          cp -f assets/favicon/favicon.png dist/assets/favicon/favicon.png
+          cp -f assets/favicon/favicon-192.png dist/assets/favicon/favicon-192.png
+          cp -f assets/favicon/favicon-512.png dist/assets/favicon/favicon-512.png
+          cp -f assets/favicon/site.webmanifest dist/assets/favicon/site.webmanifest
+
       - name: Basic sanity check
         run: |
           test -f dist/index.html
