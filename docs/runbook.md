@@ -19,6 +19,8 @@
 - 空室は sourceごとの current snapshot を合成して更新する。
 - 高信頼 unmatched は auto-seed で建物追加し、低信頼は review CSV に残す。
 - review CSV は主経路ではなく、異常時の例外ハンドリング出力として扱う。
+- 建物名正規化は「不要空白の除去」と「末尾 I/II/III と 1/2/3 の整合確認」までの最小改善に限定し、区名矛盾・地理矛盾の救済は行わない。
+- 「名前が強一致で候補1件のみ」の自動救済は、誤結合リスクが高い間は見送り、review CSV での確認を優先する。
 
 
 - main DB（SoT）: `data/tatemono_map.sqlite3`

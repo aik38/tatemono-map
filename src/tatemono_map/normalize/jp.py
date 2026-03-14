@@ -4,6 +4,7 @@ import re
 import unicodedata
 
 RE_MULTI_SPACE = re.compile(r"\s+")
+RE_INNER_CJK_SPACE = re.compile(r"(?<=[一-龥ぁ-んァ-ヶー])\s+(?=[一-龥ぁ-んァ-ヶー])")
 RE_ROOM_SUFFIX = re.compile(r"(?:\s|#|-|－)?\d{1,4}[A-Za-z]?(?:号?室?)$")
 RE_HYPHENS = re.compile(r"[‐‑‒–—―ーｰ－−]+")
 RE_CHOME_NOISY = re.compile(r"(\d+)\s*-?\s*(?:丁目)+")
@@ -50,6 +51,7 @@ def _nfkc(text: str) -> str:
 def normalize_building_name(value: str) -> str:
     text = _nfkc(value).strip()
     text = RE_MULTI_SPACE.sub(" ", text)
+    text = RE_INNER_CJK_SPACE.sub("", text)
     text = RE_HYPHENS.sub("-", text)
     text = text.replace("･", "・")
     text = RE_ROOM_SUFFIX.sub("", text).strip(" -")

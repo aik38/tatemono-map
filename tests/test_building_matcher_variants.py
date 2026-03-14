@@ -119,3 +119,15 @@ def test_matcher_alias_requires_address_match_to_avoid_sibling_mix(tmp_path: Pat
 
     assert result.building_id is not None
     assert result.reason != "alias_exact"
+
+
+def test_matcher_blocks_suffix_conflict_even_when_address_exact(tmp_path: Path) -> None:
+    db_path = tmp_path / "suffix_guard.sqlite3"
+    _seed(db_path, "ニューシティ南小倉II,福岡県北九州市小倉北区中井1-2,ui:a,\n")
+
+    conn = connect(str(db_path))
+    result = match_building(conn, "ニューシティ南小倉III", "北九州市小倉北区中井1-2")
+    conn.close()
+
+    assert result.building_id is None
+    assert result.reason == "name_suffix_conflict"
