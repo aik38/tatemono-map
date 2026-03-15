@@ -3,8 +3,8 @@
   "short_name": "建物マップ",
   "start_url": "/tatemono-map/",
   "display": "standalone",
-  "background_color": "#ef4444",
-  "theme_color": "#ef4444",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "/tatemono-map/assets/favicon/favicon-192.png",
