@@ -56,7 +56,8 @@ jobs:
 
       - name: Build dist (v2)
         env:
-          TATEMONO_MAP_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+          TATEMONO_MAP_SITE_URL: https://www.tatemono-map.com
+          TATEMONO_MAP_BASE_PATH: ""
           TATEMONO_MAP_GOOGLE_VERIFICATION_FILE: google9e29480048aec8bf.html
           TATEMONO_MAP_LINE_CTA_URL: ${{ vars.TATEMONO_MAP_LINE_CTA_URL }}
           TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY: ${{ secrets.TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY }}

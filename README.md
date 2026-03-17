@@ -206,6 +206,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 - 上記 1 行で、`master_import.csv` の自動検出 → main DB ingest → `publish_public.ps1` → `dist/data/buildings.v2.min.json` / `dist/data/buildings.json` 再生成 → 0件ガード → `git add/commit/push` まで完了します。
 - CSV を明示したい場合は `-CsvPath <path-to-master_import.csv>`、コミット文言を固定したい場合は `-Message "..."` を追加します。
 - `scripts/run_to_pages.ps1` は ingest と公開データ更新の運用コマンドです。Pages への公開物は Actions が `data/public/public.sqlite3` を入力に再生成します。
+- 本番 Pages deploy（`.github/workflows/deploy_pages.yml`）は custom domain 前提で `TATEMONO_MAP_BASE_PATH=""` を使って root 配信向けに build します。
+- ローカル確認や project pages 相当の確認では、従来どおり `/tatemono-map` ベースの build / 配信も利用できます。
 
 ### フォルダ役割（固定）
 
