@@ -162,6 +162,17 @@ def _write_favicon_assets(output_dir: Path, *, base_path: str) -> None:
     (favicon_dir / "site.webmanifest").write_text(rendered_manifest, encoding="utf-8")
 
 
+
+
+def _resolve_site_origin() -> str:
+    primary = os.getenv("TATEMONO_MAP_SITE_ORIGIN", "").strip()
+    if primary:
+        return primary
+    legacy = os.getenv("TATEMONO_MAP_SITE_URL", "").strip()
+    if legacy:
+        return legacy
+    return DEFAULT_SITE_ORIGIN
+
 def _build_canonical_url(site_origin: str, base_path: str, page_path: str) -> str:
     origin = site_origin.strip().rstrip("/")
     prefix = _normalize_base_path(base_path)
@@ -575,7 +586,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
     google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
     google_site_verification = os.getenv("TATEMONO_MAP_GOOGLE_SITE_VERIFICATION", DEFAULT_GOOGLE_SITE_VERIFICATION).strip()
-    site_origin = os.getenv("TATEMONO_MAP_SITE_ORIGIN", DEFAULT_SITE_ORIGIN).strip() or DEFAULT_SITE_ORIGIN
+    site_origin = _resolve_site_origin()
     normalized_base_path = _normalize_base_path(base_path)
 
     buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
@@ -603,7 +614,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
     google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
     google_site_verification = os.getenv("TATEMONO_MAP_GOOGLE_SITE_VERIFICATION", DEFAULT_GOOGLE_SITE_VERIFICATION).strip()
-    site_origin = os.getenv("TATEMONO_MAP_SITE_ORIGIN", DEFAULT_SITE_ORIGIN).strip() or DEFAULT_SITE_ORIGIN
+    site_origin = _resolve_site_origin()
     normalized_base_path = _normalize_base_path(base_path)
 
     out = Path(output_dir)
