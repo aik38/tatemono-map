@@ -738,3 +738,26 @@ def test_render_dist_empty_base_path_applies_to_favicon_and_manifest(tmp_path):
     assert manifest["start_url"] == "/"
     assert manifest["icons"][0]["src"] == "/assets/favicon/favicon-192.png"
     assert manifest["icons"][1]["src"] == "/assets/favicon/favicon-512.png"
+
+
+def test_build_dist_versions_includes_google_site_verification_meta(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("検証メタ確認マンション", "東京都台東区1-2-3", 87000, 23.0, "1K", "2026-11-01", "ulucks", "meta-check"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    expected = '<meta name="google-site-verification" content="JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo">'
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+    detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
+
+    assert expected in index_v2
+    assert expected in detail_v2
+    assert index_v2.index(expected) < index_v2.index("</head>")
+    assert detail_v2.index(expected) < detail_v2.index("</head>")

@@ -28,6 +28,7 @@ ROOM_SUFFIX_RE = re.compile(r"(?:\s|　)*(?:\d+|[0-9０-９]+)\s*号室")
 DEFAULT_LINE_UNIVERSAL_URL = "https://lin.ee/Y0NvwKe"
 DEFAULT_LINE_DEEP_LINK = "line://ti/p/@055wdvuq"
 DEFAULT_BASE_PATH = "/tatemono-map"
+DEFAULT_GOOGLE_SITE_VERIFICATION = "JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo"
 
 
 def _format_yen(value: object) -> str:
@@ -412,6 +413,7 @@ def _build_dist_version(
     line_deep_link_url: str,
     google_maps_embed_api_key: str,
     base_path: str,
+    google_site_verification: str,
 ) -> None:
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -445,6 +447,7 @@ def _build_dist_version(
             vacancy_total_formatted=f"{vacancy_total:,}",
             latest_data_date=latest_data_date_label,
             base_path=base_path,
+            google_site_verification=google_site_verification,
         ),
         encoding="utf-8",
     )
@@ -459,6 +462,7 @@ def _build_dist_version(
             line_cta_url=line_cta_url,
             line_deep_link_url=line_deep_link_url,
             base_path=base_path,
+            google_site_verification=google_site_verification,
         )
         (output_dir / "b" / f"{b['building_key']}.html").write_text(html, encoding="utf-8")
 
@@ -475,6 +479,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
     line_cta_url = os.getenv("TATEMONO_MAP_LINE_CTA_URL", DEFAULT_LINE_UNIVERSAL_URL).strip() or DEFAULT_LINE_UNIVERSAL_URL
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
     google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
+    google_site_verification = os.getenv("TATEMONO_MAP_GOOGLE_SITE_VERIFICATION", DEFAULT_GOOGLE_SITE_VERIFICATION).strip()
     normalized_base_path = _normalize_base_path(base_path)
 
     buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
@@ -491,6 +496,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
         line_deep_link_url=line_deep_link_url,
         google_maps_embed_api_key=google_maps_embed_api_key,
         base_path=normalized_base_path,
+        google_site_verification=google_site_verification,
     )
 
 
@@ -499,6 +505,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
     line_cta_url = os.getenv("TATEMONO_MAP_LINE_CTA_URL", DEFAULT_LINE_UNIVERSAL_URL).strip() or DEFAULT_LINE_UNIVERSAL_URL
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
     google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
+    google_site_verification = os.getenv("TATEMONO_MAP_GOOGLE_SITE_VERIFICATION", DEFAULT_GOOGLE_SITE_VERIFICATION).strip()
     normalized_base_path = _normalize_base_path(base_path)
 
     out = Path(output_dir)
@@ -520,6 +527,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
         line_deep_link_url=line_deep_link_url,
         google_maps_embed_api_key=google_maps_embed_api_key,
         base_path=normalized_base_path,
+        google_site_verification=google_site_verification,
     )
     _build_dist_version(
         out / "v1",
@@ -534,6 +542,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
         line_deep_link_url=line_deep_link_url,
         google_maps_embed_api_key=google_maps_embed_api_key,
         base_path=normalized_base_path,
+        google_site_verification=google_site_verification,
     )
 
 
