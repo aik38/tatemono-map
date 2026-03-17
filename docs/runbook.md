@@ -90,14 +90,14 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 ### ローカルで v2 を確認する（重要）
 
 `file://` で dist の index.html を直接開くのは禁止です。`fetch()` の失敗や相対パス解決差異で Pages とズレます。
-必ずローカルHTTPサーバ経由で確認してください。GitHub Pages の base path は `/tatemono-map/` なので、
-`http://127.0.0.1:8788/tatemono-map/`（ポートは例）で確認できる pages-like プレビューを推奨します。
+必ずローカルHTTPサーバ経由で確認してください。本番は custom domain の root 配信ですが、
+ローカルでは `http://127.0.0.1:8788/tatemono-map/`（ポートは例）の pages-like プレビューを推奨します。
 
 2) push 後の Pages 応答確認
 
 ```powershell
-Invoke-WebRequest https://aik38.github.io/tatemono-map/index.html | Select-Object StatusCode,Headers
-curl.exe -s https://aik38.github.io/tatemono-map/build_info.json
+Invoke-WebRequest https://www.tatemono-map.com/index.html | Select-Object StatusCode,Headers
+curl.exe -s https://www.tatemono-map.com/build_info.json
 ```
 
 - `Headers.Last-Modified` / `Headers.ETag` が更新されていることを確認する。
@@ -120,8 +120,8 @@ curl.exe -s https://aik38.github.io/tatemono-map/build_info.json
 - PowerShell（Windows）例:
 
 ```powershell
-curl.exe -I https://aik38.github.io/tatemono-map/data/buildings.v2.min.json
-Invoke-WebRequest -Method Head https://aik38.github.io/tatemono-map/data/buildings.v2.min.json | Select-Object -ExpandProperty Headers
+curl.exe -I https://www.tatemono-map.com/data/buildings.v2.min.json
+Invoke-WebRequest -Method Head https://www.tatemono-map.com/data/buildings.v2.min.json | Select-Object -ExpandProperty Headers
 ```
 
 - `Content-Encoding` が見えない場合は、CDNキャッシュやプロキシ条件で変わるため、ブラウザの実レスポンスヘッダーも合わせて確認する。
@@ -252,7 +252,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 1. Actions の `Deploy GitHub Pages` が Success か確認。
 2. `git status` で `data/public/public.sqlite3` が更新されていても生成物差分として扱う（不要なら restore）。
 3. `dist/` を commit していないことを確認。
-4. `https://aik38.github.io/tatemono-map/data/public/public.sqlite3` が 404 でも正常（Pages は `dist/` のみ配信）。
+4. `https://www.tatemono-map.com/data/public/public.sqlite3` が 404 でも正常（Pages は `dist/` のみ配信）。
 5. プレビューで Not Found が出る場合は、環境ルーティング由来のことがあるため上記「2段確認」を優先する。
 
 
@@ -392,8 +392,8 @@ git push
 #### Step 10. 本番WEBで確認
 
 ```powershell
-Invoke-WebRequest https://aik38.github.io/tatemono-map/index.html | Select-Object StatusCode,Headers
-curl.exe -s https://aik38.github.io/tatemono-map/build_info.json
+Invoke-WebRequest https://www.tatemono-map.com/index.html | Select-Object StatusCode,Headers
+curl.exe -s https://www.tatemono-map.com/build_info.json
 ```
 
 - シークレットウィンドウで実画面確認する。
