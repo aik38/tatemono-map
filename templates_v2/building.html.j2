@@ -14,7 +14,6 @@
   .kpis { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
   .kpi { border-radius: 999px; background: var(--surface-2); padding: 5px 10px; font-size: .84rem; }
   .kpi span { color: var(--muted); margin-right: 6px; }
-  .cta-row { margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap; }
   .facts { margin: 0; display: grid; gap: 10px; }
   .fact { margin: 0; display: grid; grid-template-columns: 128px minmax(0,1fr); border-top: 1px solid var(--border-soft); padding-top: 9px; }
   .fact:first-child { border-top: 0; padding-top: 0; }
@@ -28,9 +27,6 @@
     justify-items: start;
   }
   .line-cta p { margin: 0; color: var(--line-cta-text); }
-  .map-embed-head { display: flex; justify-content: flex-end; margin-bottom: 10px; }
-  .map-embed-link { font-size: .84rem; color: var(--muted); text-decoration: none; }
-  .map-embed-link:hover { text-decoration: underline; }
   .map-embed-frame {
     width: 100%;
     height: 260px;
@@ -43,8 +39,6 @@
   }
   @media (max-width: 740px) {
     .fact { grid-template-columns: 1fr; gap: 2px; }
-    .cta-row { flex-direction: column; align-items: stretch; }
-    .cta-row .button { width: 100%; }
     .line-cta .button { max-width: none; width: 100%; }
   }
 </style>
@@ -61,14 +55,10 @@
       {% if building.property_kind == "bunjo" %}<li class="kpi"><span>価格</span>{{ ((building.sale_price_yen_avg / 10000)|int ~ "万円") if building.sale_price_yen_avg is not none else "—" }}</li>{% else %}<li class="kpi"><span>家賃</span>{{ building.rent_yen_min|yen }}円〜{{ building.rent_yen_max|yen }}円</li>{% endif %}
       <li class="kpi"><span>面積</span>{{ (building.area_sqm_min ~ '㎡') if building.area_sqm_min is not none else '—' }}〜{{ (building.area_sqm_max ~ '㎡') if building.area_sqm_max is not none else '—' }}</li>
     </ul>
-    <div class="cta-row">
-      <a class="button" href="../index.html" style="background:var(--surface-3);color:var(--text);">一覧へ戻る</a>
-    </div>
   </section>
 
   {% if maps_embed_url %}
   <section class="map-embed card" aria-label="Googleマップ埋め込み">
-    {% if maps_url %}<div class="map-embed-head"><a class="map-embed-link" href="{{ maps_url }}" target="_blank" rel="noopener">Google Mapsで開く ↗</a></div>{% endif %}
     <div class="map-embed-frame">
       <iframe
         src="{{ maps_embed_url }}"
