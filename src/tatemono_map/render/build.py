@@ -8,6 +8,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote_plus
+from xml.sax.saxutils import escape
 
 from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, select_autoescape
@@ -178,6 +179,25 @@ def _build_canonical_url(site_origin: str, base_path: str, page_path: str) -> st
     prefix = _normalize_base_path(base_path)
     suffix = page_path if page_path.startswith("/") else f"/{page_path}"
     return f"{origin}{prefix}{suffix}"
+
+
+def _build_sitemap_xml(*, site_origin: str, base_path: str, buildings: list[dict]) -> str:
+    urls = [_build_canonical_url(site_origin, base_path, "/")]
+    building_urls = [_build_canonical_url(site_origin, base_path, f"/b/{b['building_key']}.html") for b in buildings]
+    urls.extend(sorted(building_urls))
+
+    lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
+    for url in urls:
+        lines.append("  <url>")
+        lines.append(f"    <loc>{escape(url)}</loc>")
+        lines.append("  </url>")
+    lines.append("</urlset>")
+    return "\n".join(lines) + "\n"
+
+
+def _write_sitemap(output_dir: Path, *, site_origin: str, base_path: str, buildings: list[dict]) -> None:
+    sitemap_xml = _build_sitemap_xml(site_origin=site_origin, base_path=base_path, buildings=buildings)
+    (output_dir / "sitemap.xml").write_text(sitemap_xml, encoding="utf-8")
 
 
 def _extract_area_label(address: object) -> str:
@@ -574,6 +594,7 @@ def _build_dist_version(
 
     _write_favicon_assets(output_dir, base_path=base_path)
     _write_buildings_json(output_dir, buildings)
+    _write_sitemap(output_dir, site_origin=site_origin, base_path=base_path, buildings=buildings)
     _write_build_info(output_dir, db_path=db_path, buildings_count_json=len(_build_buildings_v2_min_payload(buildings)))
 
     (output_dir / ".nojekyll").touch()
