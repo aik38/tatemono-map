@@ -684,3 +684,57 @@ def test_export_buildings_json_excludes_hidden_from_public(tmp_path):
     names = {row["name"] for row in payload}
     assert "公開建物" in names
     assert "除外建物" not in names
+
+
+def test_render_dist_base_path_applies_to_favicon_and_manifest(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("BASE_PATH確認マンション", "東京都港区1-2-3", 110000, 33.0, "1LDK", "2026-10-01", "ulucks", "base-path"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="/tatemono-map")
+
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    detail = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
+    manifest = json.loads((dist / "assets" / "favicon" / "site.webmanifest").read_text(encoding="utf-8"))
+
+    assert 'href="/tatemono-map/assets/favicon/favicon.png"' in index
+    assert 'href="/tatemono-map/assets/favicon/site.webmanifest"' in index
+    assert 'href="/tatemono-map/assets/favicon/favicon.png"' in detail
+    assert 'href="/tatemono-map/assets/favicon/site.webmanifest"' in detail
+    assert manifest["start_url"] == "/tatemono-map/"
+    assert manifest["icons"][0]["src"] == "/tatemono-map/assets/favicon/favicon-192.png"
+    assert manifest["icons"][1]["src"] == "/tatemono-map/assets/favicon/favicon-512.png"
+
+
+def test_render_dist_empty_base_path_applies_to_favicon_and_manifest(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("BASE_PATH空確認マンション", "東京都港区3-2-1", 111000, 34.0, "1LDK", "2026-11-01", "ulucks", "base-path-root"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    detail = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
+    manifest = json.loads((dist / "assets" / "favicon" / "site.webmanifest").read_text(encoding="utf-8"))
+
+    assert 'href="/assets/favicon/favicon.png"' in index
+    assert 'href="/assets/favicon/site.webmanifest"' in index
+    assert 'href="/assets/favicon/favicon.png"' in detail
+    assert 'href="/assets/favicon/site.webmanifest"' in detail
+    assert "/tatemono-map/assets/favicon" not in index
+    assert "/tatemono-map/assets/favicon" not in detail
+    assert manifest["start_url"] == "/"
+    assert manifest["icons"][0]["src"] == "/assets/favicon/favicon-192.png"
+    assert manifest["icons"][1]["src"] == "/assets/favicon/favicon-512.png"
