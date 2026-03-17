@@ -761,3 +761,80 @@ def test_build_dist_versions_includes_google_site_verification_meta(tmp_path):
     assert expected in detail_v2
     assert index_v2.index(expected) < index_v2.index("</head>")
     assert detail_v2.index(expected) < detail_v2.index("</head>")
+
+
+def test_render_dist_includes_seo_meta_on_index_and_building_pages(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("プレジデンスざ三萩野", "福岡県北九州市小倉北区黄金1-2-10", 67000, 34.07, "1LDK", "2026-11-01", "ulucks", "seo-1"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="/tatemono-map")
+
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    detail = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
+
+    assert "<title>北九州の賃貸・建物データベース | 建物マップ</title>" in index
+    assert 'name="description" content="北九州のマンション・アパートを建物単位で検索できる建物データベース。建物名、住所、空室数、家賃帯、面積帯などをまとめて確認できます。"' in index
+    assert 'rel="canonical" href="https://www.tatemono-map.com/tatemono-map/"' in index
+
+    assert "プレジデンスざ三萩野 | 北九州市小倉北区の建物情報 | 建物マップ" in detail
+    assert 'name="description" content="プレジデンスざ三萩野は福岡県北九州市小倉北区黄金1-2-10にある建物です。' in detail
+    assert 'rel="canonical" href="https://www.tatemono-map.com/tatemono-map/b/' in detail
+
+
+def test_render_dist_building_description_handles_missing_values(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("欠損確認マンション", "福岡県北九州市門司区", None, None, None, "2026-11-01", "ulucks", "seo-missing"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2")
+
+    detail = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
+
+    assert 'name="description" content="欠損確認マンションは福岡県北九州市門司区にある建物です。' in detail
+    assert "、、" not in detail
+    assert "〜、" not in detail
+
+
+def test_render_dist_root_mode_canonical_for_custom_domain(tmp_path, monkeypatch):
+    monkeypatch.delenv("TATEMONO_MAP_SITE_ORIGIN", raising=False)
+    monkeypatch.setenv("TATEMONO_MAP_SITE_URL", "https://www.tatemono-map.com")
+
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("ルート配信確認マンション", "福岡県北九州市小倉北区京町1-1-1", 83000, 31.0, "1LDK", "2026-11-01", "ulucks", "root-canonical"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    detail_path = next((dist / "b").glob("*.html"))
+    detail = detail_path.read_text(encoding="utf-8")
+
+    assert 'rel="canonical" href="https://www.tatemono-map.com/"' in index
+    assert 'rel="canonical" href="https://www.tatemono-map.com/b/' in detail
+    assert "/tatemono-map/" not in "\n".join(line for line in index.splitlines() if "canonical" in line)
+    assert "/tatemono-map/" not in "\n".join(line for line in detail.splitlines() if "canonical" in line)
+    assert "?" not in "\n".join(line for line in index.splitlines() if "canonical" in line)
+    assert "?" not in "\n".join(line for line in detail.splitlines() if "canonical" in line)
+    assert index.index('rel="canonical"') < index.index("</head>")
+    assert detail.index('rel="canonical"') < detail.index("</head>")
+    assert '<meta name="google-site-verification" content="JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo">' in index
+    assert '<meta name="google-site-verification" content="JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo">' in detail

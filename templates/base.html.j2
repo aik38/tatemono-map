@@ -4,6 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}tatemono-map{% endblock %}</title>
+  {% if page_description %}<meta name="description" content="{{ page_description }}">{% endif %}
+  {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
   <link rel="icon" type="image/png" href="{{ base_path }}/assets/favicon/favicon.png">
   <link rel="apple-touch-icon" href="{{ base_path }}/assets/favicon/favicon.png">
   <link rel="manifest" href="{{ base_path }}/assets/favicon/site.webmanifest">

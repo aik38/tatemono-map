@@ -1,6 +1,6 @@
 {% extends "base.html.j2" %}
 
-{% block title %}{{ building.name or "建物詳細" }} | tatemono-map{% endblock %}
+{% block title %}{{ page_title or ((building.name or "建物詳細") ~ " | tatemono-map") }}{% endblock %}
 
 {% block header_meta %}
   <a class="muted" href="../index.html" aria-label="建物マップに戻る">← 建物マップに戻る</a>
