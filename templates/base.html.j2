@@ -7,6 +7,7 @@
   <link rel="icon" type="image/png" href="{{ base_path }}/assets/favicon/favicon.png">
   <link rel="apple-touch-icon" href="{{ base_path }}/assets/favicon/favicon.png">
   <link rel="manifest" href="{{ base_path }}/assets/favicon/site.webmanifest">
+  {% if google_site_verification %}<meta name="google-site-verification" content="{{ google_site_verification }}">{% endif %}
   <script>
     (() => {
       const allowed = new Set(["default", "ph", "mercari"]);
