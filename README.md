@@ -102,6 +102,11 @@ data/canonical/*
 - GitHub Pages is deployed via GitHub Actions.
 - Local preview must be served over HTTP (file:// is not supported).
 
+## Google Maps Embed API キー（建物詳細ページ）
+
+- 建物詳細ページの地図埋め込みは `TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY` を使用します（未設定時は埋め込みカードを表示しません）。
+- GitHub Pages ではキーを秘匿できないため、Google Cloud 側で Website restrictions と API restrictions を必ず設定してください。
+
 ## 運用の唯一の正解（Windows / PowerShell 7）
 
 > 週次運用の 1 コマンドは `scripts/run_all_latest.ps1` です（sync -> run_pdf_zip_latest -> 最新 master_import.csv 自動選択 -> run_to_pages -> 入居ラベル検証）。
