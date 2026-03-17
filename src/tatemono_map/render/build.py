@@ -27,6 +27,7 @@ FORBIDDEN_PATTERNS = (
 ROOM_SUFFIX_RE = re.compile(r"(?:\s|　)*(?:\d+|[0-9０-９]+)\s*号室")
 DEFAULT_LINE_UNIVERSAL_URL = "https://lin.ee/Y0NvwKe"
 DEFAULT_LINE_DEEP_LINK = "line://ti/p/@055wdvuq"
+DEFAULT_BASE_PATH = "/tatemono-map"
 
 
 def _format_yen(value: object) -> str:
@@ -135,6 +136,28 @@ def _build_google_maps_embed_url(address: object, api_key: str) -> str | None:
     if not text or not key:
         return None
     return f"https://www.google.com/maps/embed/v1/place?key={quote_plus(key)}&q={quote_plus(text)}"
+
+
+def _normalize_base_path(base_path: str) -> str:
+    normalized = base_path.strip()
+    if normalized in ("", "/"):
+        return ""
+    normalized = normalized.rstrip("/")
+    if not normalized.startswith("/"):
+        normalized = f"/{normalized}"
+    return normalized
+
+
+def _write_favicon_assets(output_dir: Path, *, base_path: str) -> None:
+    favicon_dir = output_dir / "assets" / "favicon"
+    favicon_dir.mkdir(parents=True, exist_ok=True)
+
+    for icon_name in ("favicon.png", "favicon-192.png", "favicon-512.png"):
+        shutil.copy2(Path("assets") / "favicon" / icon_name, favicon_dir / icon_name)
+
+    manifest_template = Path("assets/favicon/site.webmanifest").read_text(encoding="utf-8")
+    rendered_manifest = manifest_template.replace("__BASE_PATH__", base_path)
+    (favicon_dir / "site.webmanifest").write_text(rendered_manifest, encoding="utf-8")
 
 
 def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
@@ -388,6 +411,7 @@ def _build_dist_version(
     line_cta_url: str,
     line_deep_link_url: str,
     google_maps_embed_api_key: str,
+    base_path: str,
 ) -> None:
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -420,6 +444,7 @@ def _build_dist_version(
             vacancy_total=vacancy_total,
             vacancy_total_formatted=f"{vacancy_total:,}",
             latest_data_date=latest_data_date_label,
+            base_path=base_path,
         ),
         encoding="utf-8",
     )
@@ -433,9 +458,11 @@ def _build_dist_version(
             maps_embed_url=maps_embed_url,
             line_cta_url=line_cta_url,
             line_deep_link_url=line_deep_link_url,
+            base_path=base_path,
         )
         (output_dir / "b" / f"{b['building_key']}.html").write_text(html, encoding="utf-8")
 
+    _write_favicon_assets(output_dir, base_path=base_path)
     _write_buildings_json(output_dir, buildings)
     _write_build_info(output_dir, db_path=db_path, buildings_count_json=len(_build_buildings_v2_min_payload(buildings)))
 
@@ -443,11 +470,12 @@ def _build_dist_version(
     _validate_public_dist(output_dir)
 
 
-def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates") -> None:
+def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates", base_path: str = DEFAULT_BASE_PATH) -> None:
     load_dotenv()
     line_cta_url = os.getenv("TATEMONO_MAP_LINE_CTA_URL", DEFAULT_LINE_UNIVERSAL_URL).strip() or DEFAULT_LINE_UNIVERSAL_URL
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
     google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
+    normalized_base_path = _normalize_base_path(base_path)
 
     buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
     _build_dist_version(
@@ -462,14 +490,16 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
         google_maps_embed_api_key=google_maps_embed_api_key,
+        base_path=normalized_base_path,
     )
 
 
-def build_dist_versions(db_path: str, output_dir: str) -> None:
+def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAULT_BASE_PATH) -> None:
     load_dotenv()
     line_cta_url = os.getenv("TATEMONO_MAP_LINE_CTA_URL", DEFAULT_LINE_UNIVERSAL_URL).strip() or DEFAULT_LINE_UNIVERSAL_URL
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
     google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
+    normalized_base_path = _normalize_base_path(base_path)
 
     out = Path(output_dir)
     if out.exists():
@@ -489,6 +519,7 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
         google_maps_embed_api_key=google_maps_embed_api_key,
+        base_path=normalized_base_path,
     )
     _build_dist_version(
         out / "v1",
@@ -502,6 +533,7 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
         google_maps_embed_api_key=google_maps_embed_api_key,
+        base_path=normalized_base_path,
     )
 
 
@@ -510,14 +542,15 @@ def main() -> None:
     parser.add_argument("--db-path", default="data/tatemono_map.sqlite3")
     parser.add_argument("--output-dir", default="dist")
     parser.add_argument("--version", choices=("v1", "v2", "all"), default="all")
+    parser.add_argument("--base-path", default=os.getenv("TATEMONO_MAP_BASE_PATH", DEFAULT_BASE_PATH))
     args = parser.parse_args()
 
     if args.version == "all":
-        build_dist_versions(args.db_path, args.output_dir)
+        build_dist_versions(args.db_path, args.output_dir, base_path=args.base_path)
     elif args.version == "v2":
-        build_dist(args.db_path, args.output_dir, template_root="templates_v2")
+        build_dist(args.db_path, args.output_dir, template_root="templates_v2", base_path=args.base_path)
     else:
-        build_dist(args.db_path, args.output_dir, template_root="templates")
+        build_dist(args.db_path, args.output_dir, template_root="templates", base_path=args.base_path)
     print("dist generated")
 
 
