@@ -105,6 +105,7 @@ data/canonical/*
 ## Google Maps Embed API キー（建物詳細ページ）
 
 - 建物詳細ページの地図埋め込みは `TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY` を使用します（未設定時は埋め込みカードを表示しません）。
+- GitHub Pages への deploy では `.github/workflows/deploy_pages.yml` 経由で同名の GitHub Actions secret を参照します。
 - GitHub Pages ではキーを秘匿できないため、Google Cloud 側で Website restrictions と API restrictions を必ず設定してください。
 
 ## 運用の唯一の正解（Windows / PowerShell 7）
@@ -390,7 +391,8 @@ MVP は賃貸空室データの整備を中心に進めますが、将来的に�
 
 ### 4) 建物詳細に表示される情報（v2 UI）
 - 建物詳細ページは `building_summaries` から以下を表示します。
-  - 空室数 / 家賃レンジ / 面積レンジ / 間取りタイプ / 入居可能日
+  - 上部カード: 建物名 / 住所
+  - 募集情報: 空室 / 家賃 / 面積 / 間取りタイプ / 入居可能日
   - **築年数（age_years） / 構造（structure）**
 - `age_years` / `structure` が `master_import.csv` に無い、または欠損している場合は `—` 表示になります。
 
