@@ -129,6 +129,14 @@ def _build_google_maps_url(address: object) -> str | None:
     return f"https://maps.google.com/?q={quote_plus(text)}"
 
 
+def _build_google_maps_embed_url(address: object, api_key: str) -> str | None:
+    text = str(address or "").strip()
+    key = api_key.strip()
+    if not text or not key:
+        return None
+    return f"https://www.google.com/maps/embed/v1/place?key={quote_plus(key)}&q={quote_plus(text)}"
+
+
 def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     conn = connect(db_path)
     canonical_buildings_count = conn.execute("SELECT COUNT(*) FROM buildings WHERE COALESCE(hidden_from_public, 0) = 0").fetchone()[0]
@@ -379,6 +387,7 @@ def _build_dist_version(
     template_root: str,
     line_cta_url: str,
     line_deep_link_url: str,
+    google_maps_embed_api_key: str,
 ) -> None:
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -417,9 +426,11 @@ def _build_dist_version(
 
     for b in buildings:
         maps_url = _build_google_maps_url(b.get("address"))
+        maps_embed_url = _build_google_maps_embed_url(b.get("address"), google_maps_embed_api_key)
         html = building_tpl.render(
             building=b,
             maps_url=maps_url,
+            maps_embed_url=maps_embed_url,
             line_cta_url=line_cta_url,
             line_deep_link_url=line_deep_link_url,
         )
@@ -436,6 +447,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
     load_dotenv()
     line_cta_url = os.getenv("TATEMONO_MAP_LINE_CTA_URL", DEFAULT_LINE_UNIVERSAL_URL).strip() or DEFAULT_LINE_UNIVERSAL_URL
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
+    google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
 
     buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
     _build_dist_version(
@@ -449,6 +461,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
         template_root=template_root,
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
+        google_maps_embed_api_key=google_maps_embed_api_key,
     )
 
 
@@ -456,6 +469,7 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
     load_dotenv()
     line_cta_url = os.getenv("TATEMONO_MAP_LINE_CTA_URL", DEFAULT_LINE_UNIVERSAL_URL).strip() or DEFAULT_LINE_UNIVERSAL_URL
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
+    google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
 
     out = Path(output_dir)
     if out.exists():
@@ -474,6 +488,7 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
         template_root="templates_v2",
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
+        google_maps_embed_api_key=google_maps_embed_api_key,
     )
     _build_dist_version(
         out / "v1",
@@ -486,6 +501,7 @@ def build_dist_versions(db_path: str, output_dir: str) -> None:
         template_root="templates",
         line_cta_url=line_cta_url,
         line_deep_link_url=line_deep_link_url,
+        google_maps_embed_api_key=google_maps_embed_api_key,
     )
 
 
