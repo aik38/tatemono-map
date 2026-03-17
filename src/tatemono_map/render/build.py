@@ -29,6 +29,7 @@ DEFAULT_LINE_UNIVERSAL_URL = "https://lin.ee/Y0NvwKe"
 DEFAULT_LINE_DEEP_LINK = "line://ti/p/@055wdvuq"
 DEFAULT_BASE_PATH = "/tatemono-map"
 DEFAULT_GOOGLE_SITE_VERIFICATION = "JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo"
+DEFAULT_SITE_ORIGIN = "https://www.tatemono-map.com"
 
 
 def _format_yen(value: object) -> str:
@@ -159,6 +160,92 @@ def _write_favicon_assets(output_dir: Path, *, base_path: str) -> None:
     manifest_template = Path("assets/favicon/site.webmanifest").read_text(encoding="utf-8")
     rendered_manifest = manifest_template.replace("__BASE_PATH__", base_path)
     (favicon_dir / "site.webmanifest").write_text(rendered_manifest, encoding="utf-8")
+
+
+def _build_canonical_url(site_origin: str, base_path: str, page_path: str) -> str:
+    origin = site_origin.strip().rstrip("/")
+    prefix = _normalize_base_path(base_path)
+    suffix = page_path if page_path.startswith("/") else f"/{page_path}"
+    return f"{origin}{prefix}{suffix}"
+
+
+def _extract_area_label(address: object) -> str:
+    text = str(address or "").strip()
+    if not text:
+        return "北九州市"
+    city_ward_match = re.search(r"(北九州市[^\d\-ー丁目番地\s]*区)", text)
+    if city_ward_match:
+        return city_ward_match.group(1)
+    if "北九州市" in text:
+        return "北九州市"
+    ward_match = re.search(r"([^\d\-ー丁目番地\s]*区)", text)
+    if ward_match:
+        return ward_match.group(1)
+    return "北九州市"
+
+
+def _format_range(min_value: object, max_value: object, suffix: str) -> str | None:
+    if min_value is None and max_value is None:
+        return None
+    if min_value is not None and max_value is not None:
+        if min_value == max_value:
+            return f"{min_value}{suffix}"
+        return f"{min_value}{suffix}〜{max_value}{suffix}"
+    if min_value is not None:
+        return f"{min_value}{suffix}〜"
+    return f"〜{max_value}{suffix}"
+
+
+def _build_building_seo(building: dict, *, site_origin: str, base_path: str) -> dict[str, str]:
+    name = str(building.get("name") or "建物詳細")
+    area_label = _extract_area_label(building.get("address"))
+    title = f"{name} | {area_label}の建物情報 | 建物マップ"
+
+    address = str(building.get("address") or "").strip()
+    kind = "分譲マンション" if building.get("property_kind") == "bunjo" else "建物"
+    if address:
+        intro = f"{name}は{address}にある{kind}です。"
+    else:
+        intro = f"{name}は{area_label}にある{kind}です。"
+
+    facts: list[str] = []
+    vacancy_count = building.get("sale_listing_count") if building.get("property_kind") == "bunjo" else building.get("vacancy_count")
+    if vacancy_count is not None:
+        facts.append(f"現在の{'販売情報' if building.get('property_kind') == 'bunjo' else '空室数'}は{vacancy_count}件")
+
+    rent_range = _format_range(_format_yen(building.get("rent_yen_min")) if building.get("rent_yen_min") is not None else None,
+                              _format_yen(building.get("rent_yen_max")) if building.get("rent_yen_max") is not None else None,
+                              "円")
+    if rent_range and building.get("property_kind") != "bunjo":
+        facts.append(f"家賃帯は{rent_range}")
+
+    area_range = _format_range(building.get("area_sqm_min"), building.get("area_sqm_max"), "㎡")
+    if area_range:
+        facts.append(f"面積帯は{area_range}")
+
+    structure = building.get("building_structure") or building.get("structure")
+    if structure:
+        facts.append(f"構造は{structure}")
+
+    built = building.get("building_built_year_month")
+    if built:
+        facts.append(f"築年月は{built}")
+    elif building.get("building_built_age_years") is not None:
+        facts.append(f"築{building.get('building_built_age_years')}年")
+
+    layout_types = building.get("layout_types") or []
+    if layout_types:
+        facts.append(f"間取りタイプは{', '.join(layout_types[:3])}")
+
+    detail_sentence = f"{'、'.join(facts)}。" if facts else "募集状況は随時更新されています。"
+    description = f"{intro}{detail_sentence}建物ごとの募集状況をまとめて確認できます。"
+
+    canonical_url = _build_canonical_url(site_origin, base_path, f"/b/{building['building_key']}.html")
+    return {
+        "page_title": title,
+        "page_description": description,
+        "canonical_url": canonical_url,
+    }
 
 
 def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
@@ -414,6 +501,7 @@ def _build_dist_version(
     google_maps_embed_api_key: str,
     base_path: str,
     google_site_verification: str,
+    site_origin: str,
 ) -> None:
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -446,6 +534,9 @@ def _build_dist_version(
             vacancy_total=vacancy_total,
             vacancy_total_formatted=f"{vacancy_total:,}",
             latest_data_date=latest_data_date_label,
+            page_title="北九州の賃貸・建物データベース | 建物マップ",
+            page_description="北九州のマンション・アパートを建物単位で検索できる建物データベース。建物名、住所、空室数、家賃帯、面積帯などをまとめて確認できます。",
+            canonical_url=_build_canonical_url(site_origin, base_path, "/"),
             base_path=base_path,
             google_site_verification=google_site_verification,
         ),
@@ -455,12 +546,16 @@ def _build_dist_version(
     for b in buildings:
         maps_url = _build_google_maps_url(b.get("address"))
         maps_embed_url = _build_google_maps_embed_url(b.get("address"), google_maps_embed_api_key)
+        seo = _build_building_seo(b, site_origin=site_origin, base_path=base_path)
         html = building_tpl.render(
             building=b,
             maps_url=maps_url,
             maps_embed_url=maps_embed_url,
             line_cta_url=line_cta_url,
             line_deep_link_url=line_deep_link_url,
+            page_title=seo["page_title"],
+            page_description=seo["page_description"],
+            canonical_url=seo["canonical_url"],
             base_path=base_path,
             google_site_verification=google_site_verification,
         )
@@ -480,6 +575,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
     google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
     google_site_verification = os.getenv("TATEMONO_MAP_GOOGLE_SITE_VERIFICATION", DEFAULT_GOOGLE_SITE_VERIFICATION).strip()
+    site_origin = os.getenv("TATEMONO_MAP_SITE_ORIGIN", DEFAULT_SITE_ORIGIN).strip() or DEFAULT_SITE_ORIGIN
     normalized_base_path = _normalize_base_path(base_path)
 
     buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
@@ -497,6 +593,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
         google_maps_embed_api_key=google_maps_embed_api_key,
         base_path=normalized_base_path,
         google_site_verification=google_site_verification,
+        site_origin=site_origin,
     )
 
 
@@ -506,6 +603,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
     line_deep_link_url = os.getenv("TATEMONO_MAP_LINE_DEEP_LINK_URL", DEFAULT_LINE_DEEP_LINK).strip() or DEFAULT_LINE_DEEP_LINK
     google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
     google_site_verification = os.getenv("TATEMONO_MAP_GOOGLE_SITE_VERIFICATION", DEFAULT_GOOGLE_SITE_VERIFICATION).strip()
+    site_origin = os.getenv("TATEMONO_MAP_SITE_ORIGIN", DEFAULT_SITE_ORIGIN).strip() or DEFAULT_SITE_ORIGIN
     normalized_base_path = _normalize_base_path(base_path)
 
     out = Path(output_dir)
@@ -528,6 +626,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
         google_maps_embed_api_key=google_maps_embed_api_key,
         base_path=normalized_base_path,
         google_site_verification=google_site_verification,
+        site_origin=site_origin,
     )
     _build_dist_version(
         out / "v1",
@@ -543,6 +642,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
         google_maps_embed_api_key=google_maps_embed_api_key,
         base_path=normalized_base_path,
         google_site_verification=google_site_verification,
+        site_origin=site_origin,
     )
 
 
