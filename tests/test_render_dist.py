@@ -740,6 +740,58 @@ def test_render_dist_empty_base_path_applies_to_favicon_and_manifest(tmp_path):
     assert manifest["icons"][1]["src"] == "/assets/favicon/favicon-512.png"
 
 
+def test_render_dist_generates_root_mode_sitemap_with_canonical_urls(tmp_path, monkeypatch):
+    monkeypatch.delenv("TATEMONO_MAP_SITE_ORIGIN", raising=False)
+    monkeypatch.setenv("TATEMONO_MAP_SITE_URL", "https://www.tatemono-map.com")
+
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("サイトマップ確認マンション", "福岡県北九州市小倉北区京町1-1-1", 83000, 31.0, "1LDK", "2026-11-01", "ulucks", "sitemap-root"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    detail_path = next((dist / "b").glob("*.html"))
+    expected_detail_url = f"https://www.tatemono-map.com/b/{detail_path.stem}.html"
+
+    sitemap = (dist / "sitemap.xml").read_text(encoding="utf-8")
+    assert sitemap.startswith("<?xml version=\"1.0\" encoding=\"UTF-8\"?>")
+    assert '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' in sitemap
+    assert "<loc>https://www.tatemono-map.com/</loc>" in sitemap
+    assert f"<loc>{expected_detail_url}</loc>" in sitemap
+    assert "?theme=" not in sitemap
+    assert "/tatemono-map/" not in sitemap
+
+
+def test_render_dist_generates_project_pages_mode_sitemap_with_base_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("TATEMONO_MAP_SITE_ORIGIN", "https://aik38.github.io")
+
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("サイトマップ確認マンションPP", "福岡県北九州市小倉北区京町2-2-2", 84000, 32.0, "1LDK", "2026-11-01", "ulucks", "sitemap-pages"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="/tatemono-map")
+
+    detail_path = next((dist / "b").glob("*.html"))
+    expected_detail_url = f"https://aik38.github.io/tatemono-map/b/{detail_path.stem}.html"
+
+    sitemap = (dist / "sitemap.xml").read_text(encoding="utf-8")
+    assert "<loc>https://aik38.github.io/tatemono-map/</loc>" in sitemap
+    assert f"<loc>{expected_detail_url}</loc>" in sitemap
+    assert "?theme=" not in sitemap
+
+
 def test_build_dist_versions_includes_google_site_verification_meta(tmp_path):
     db = tmp_path / "test.sqlite3"
     out = tmp_path / "dist"
