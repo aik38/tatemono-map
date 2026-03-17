@@ -2,6 +2,9 @@
 
 ## 現状の正解（先にここだけ確認）
 
+- 本番公開 URL（custom domain / root 配信）: **https://www.tatemono-map.com/**
+- ローカル確認は従来どおり `scripts/dev_dist.ps1` で `/tatemono-map/` 配信（Pages-like）を使います。
+
 - ローカル検証は **HTTP のみ** です。`file://` で `dist/index.html` を直開きしないでください。
 - ローカルプレビューは **`scripts/dev_dist.ps1` を唯一の入口** とします。
 - `scripts/dev_dist.ps1` は `/tatemono-map/` プレフィックスで配信するため、GitHub Pages と同じパス条件で確認できます。
@@ -20,16 +23,16 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 - **クエリなしURL（`/tatemono-map/` または `/tatemono-map/index.html`）は常に ph（黒 + 白 + オレンジ）を既定表示**します。
 - `?theme=...` がある場合は、クエリ指定を最優先で適用します（`default` / `ph` / `mercari`）。
 
-### 本番（GitHub Pages）
+### 本番（GitHub Pages + custom domain）
 - クエリなし（既定: ph）
-  - https://aik38.github.io/tatemono-map/
-  - https://aik38.github.io/tatemono-map/index.html
+  - https://www.tatemono-map.com/
+  - https://www.tatemono-map.com/index.html
 - default（現行互換）
-  - https://aik38.github.io/tatemono-map/?theme=default
+  - https://www.tatemono-map.com/?theme=default
 - ph（黒 + 白 + オレンジ）
-  - https://aik38.github.io/tatemono-map/?theme=ph
+  - https://www.tatemono-map.com/?theme=ph
 - mercari（赤/青/白/黒）
-  - https://aik38.github.io/tatemono-map/?theme=mercari
+  - https://www.tatemono-map.com/?theme=mercari
 
 ### ローカル（dev_dist.ps1 起動後）
 - クエリなし（既定: ph）
@@ -237,6 +240,20 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 
 ## GitHub Pages 公開フロー
 
+### SEO / Search Console / sitemap の現状（2026-03 時点）
+- SEO 基礎（実装済み）:
+  - トップページおよび建物個別ページ（`/b/<id>.html`）に `title` / `description` / `canonical` を実装済み。
+  - canonical は absolute URL を使用し、`?theme=` は canonical に含めません。
+  - custom domain 本番 canonical は `/tatemono-map/` を含まない root URL を使います。
+- Search Console（実装・設定済み）:
+  - 共通 head に verification meta tag を挿入できる実装になっており、本番 `https://www.tatemono-map.com/` で所有権確認済み。
+- sitemap（実装・送信済み）:
+  - `dist/sitemap.xml` は build 時に自動生成されます（トップ + `/b/<id>.html`）。
+  - `?theme=` は sitemap に含めません。
+  - Search Console へ `/sitemap.xml` 送信済み（成功）。
+- Next step（未着手メモ）:
+  - SEO 強化の次工程として **エリア・駅ハブページ設計**へ進む予定。
+
 ### 公開の仕組み
 - GitHub Pages の Source は **GitHub Actions**（`main` push 起動）を使用します。
 - 公開入力は `data/public/public.sqlite3` です（main DB からの生成物）。
@@ -255,7 +272,7 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 ### トラブルシュート（反映されない時）
 1. GitHub の **Actions** で `Deploy static site to GitHub Pages` が `Success` になっているか確認する。
 2. `scripts/publish_public.ps1` の再実行ログを確認し、必要なら `data/public/public.sqlite3` をローカル再生成してから `scripts/dev_dist.ps1` で挙動確認する。
-3. `curl.exe -s https://aik38.github.io/tatemono-map/build_info.json` で Pages 配信中の build 情報を確認する。
+3. `curl.exe -s https://www.tatemono-map.com/build_info.json` で Pages 配信中の build 情報を確認する。
 4. スマホ/ブラウザで古く見える場合は、シークレットウィンドウで開くか、対象サイトのキャッシュ/サイトデータを削除して再読み込みする。
 
 ### よくあるミス
@@ -296,7 +313,7 @@ join buildings b on b.building_id = s.building_key;
 $ErrorActionPreference = "Stop"
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 $DB = Join-Path $REPO "data/public/public.sqlite3"
-$BASE = "https://aik38.github.io/tatemono-map"
+$BASE = "https://www.tatemono-map.com"
 
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO/sync.ps1" -RepoPath $REPO
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO/scripts/run_all_latest.ps1" -RepoPath $REPO
@@ -364,7 +381,7 @@ git -C $REPO status -sb
 Get-Content -Raw .\dist\build_info.json | ConvertFrom-Json
 
 # pages
-curl.exe -fsSL https://aik38.github.io/tatemono-map/build_info.json
+curl.exe -fsSL https://www.tatemono-map.com/build_info.json
 
 # compare (git_sha 優先。無ければ buildings_count / vacancy_total)
 pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\check_pages_parity.ps1
@@ -412,8 +429,8 @@ python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --outpu
 - Pages 上で `buildings.v2.min.json` / `buildings.json` の圧縮配信を確認する手順です（実装変更は不要）。
 
 ```powershell
-curl.exe -I https://aik38.github.io/tatemono-map/data/buildings.v2.min.json
-Invoke-WebRequest -Method Head https://aik38.github.io/tatemono-map/data/buildings.v2.min.json | Select-Object -ExpandProperty Headers
+curl.exe -I https://www.tatemono-map.com/data/buildings.v2.min.json
+Invoke-WebRequest -Method Head https://www.tatemono-map.com/data/buildings.v2.min.json | Select-Object -ExpandProperty Headers
 ```
 
 - `Content-Encoding: gzip` または `Content-Encoding: br` を確認します。
