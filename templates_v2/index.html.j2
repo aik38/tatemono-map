@@ -70,6 +70,7 @@
   .area-links-toggle::after { content: "＋"; color: var(--muted); font-size: 1rem; line-height: 1; }
   .area-links-toggle[aria-expanded="true"]::after { content: "−"; }
   .area-links-list { margin: 10px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+  .area-links-list[hidden] { display: none; }
   .area-links a {
     display: inline-flex;
     border: 1px solid var(--control-border);
