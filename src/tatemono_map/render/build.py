@@ -32,6 +32,7 @@ DEFAULT_BASE_PATH = "/tatemono-map"
 DEFAULT_GOOGLE_SITE_VERIFICATION = "JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo"
 DEFAULT_SITE_ORIGIN = "https://www.tatemono-map.com"
 KOKURAKITA_AREA_PATH = "/area/fukuoka/kitakyushu/kokurakita/"
+DEFAULT_STATIC_BUILDING_LINK_LIMIT = 80
 
 
 def _format_yen(value: object) -> str:
@@ -202,6 +203,23 @@ def _build_sitemap_xml(*, site_origin: str, base_path: str, buildings: list[dict
 def _write_sitemap(output_dir: Path, *, site_origin: str, base_path: str, buildings: list[dict]) -> None:
     sitemap_xml = _build_sitemap_xml(site_origin=site_origin, base_path=base_path, buildings=buildings)
     (output_dir / "sitemap.xml").write_text(sitemap_xml, encoding="utf-8")
+
+
+def _build_robots_txt(*, site_origin: str, base_path: str) -> str:
+    sitemap_url = _build_canonical_url(site_origin, base_path, "/sitemap.xml")
+    return "\n".join(
+        (
+            "User-agent: *",
+            "Allow: /",
+            f"Sitemap: {sitemap_url}",
+            "",
+        )
+    )
+
+
+def _write_robots_txt(output_dir: Path, *, site_origin: str, base_path: str) -> None:
+    robots_txt = _build_robots_txt(site_origin=site_origin, base_path=base_path)
+    (output_dir / "robots.txt").write_text(robots_txt, encoding="utf-8")
 
 
 def _extract_area_label(address: object) -> str:
@@ -583,6 +601,7 @@ def _build_dist_version(
     (output_dir / "index.html").write_text(
         index_tpl.render(
             buildings=buildings,
+            static_building_links=buildings[:DEFAULT_STATIC_BUILDING_LINK_LIMIT],
             total_buildings=total_buildings,
             total_vacant=total_vacant,
             total_buildings_formatted=f"{total_buildings:,}",
@@ -653,6 +672,7 @@ def _build_dist_version(
     _write_favicon_assets(output_dir, base_path=base_path)
     _write_buildings_json(output_dir, buildings)
     _write_sitemap(output_dir, site_origin=site_origin, base_path=base_path, buildings=buildings)
+    _write_robots_txt(output_dir, site_origin=site_origin, base_path=base_path)
     _write_build_info(output_dir, db_path=db_path, buildings_count_json=len(_build_buildings_v2_min_payload(buildings)))
 
     (output_dir / ".nojekyll").touch()

@@ -792,6 +792,52 @@ def test_render_dist_generates_project_pages_mode_sitemap_with_base_path(tmp_pat
     assert "?theme=" not in sitemap
 
 
+def test_render_dist_generates_robots_txt_with_site_sitemap_url(tmp_path, monkeypatch):
+    monkeypatch.setenv("TATEMONO_MAP_SITE_ORIGIN", "https://www.tatemono-map.com")
+
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("robots確認マンション", "福岡県北九州市小倉北区京町3-3-3", 85000, 30.0, "1LDK", "2026-11-01", "ulucks", "robots-root"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    robots = (dist / "robots.txt").read_text(encoding="utf-8")
+    assert "User-agent: *" in robots
+    assert "Allow: /" in robots
+    assert "Sitemap: https://www.tatemono-map.com/sitemap.xml" in robots
+
+
+def test_render_dist_v2_index_contains_static_building_links_in_initial_html(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    first_key = make_building_key("静的リンク確認マンションA", "福岡県北九州市小倉北区浅野1-1-1")
+    second_key = make_building_key("静的リンク確認マンションB", "福岡県北九州市小倉北区浅野1-1-2")
+    upsert_listing(
+        conn,
+        ListingRecord("静的リンク確認マンションA", "福岡県北九州市小倉北区浅野1-1-1", 86000, 31.0, "1LDK", "2026-11-01", "ulucks", "static-link-a"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("静的リンク確認マンションB", "福岡県北九州市小倉北区浅野1-1-2", 87000, 32.0, "1LDK", "2026-11-01", "ulucks", "static-link-b"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    assert "建物一覧（初期表示）" in index
+    assert f'href="/b/{first_key}.html"' in index
+    assert f'href="/b/{second_key}.html"' in index
+
+
 def test_build_dist_versions_includes_google_site_verification_meta(tmp_path):
     db = tmp_path / "test.sqlite3"
     out = tmp_path / "dist"
