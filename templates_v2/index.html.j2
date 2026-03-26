@@ -68,6 +68,14 @@
     font-size: .9rem;
   }
   .area-links a:hover { background: var(--surface-2); }
+  .static-building-links { margin: 0 0 16px; padding: 16px; }
+  .static-building-links h2 { margin: 0 0 10px; font-size: 1.02rem; }
+  .static-building-links p { margin: 0 0 10px; color: var(--muted); font-size: .9rem; }
+  .static-building-links ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .static-building-links li { min-width: 0; }
+  .static-building-links a { color: var(--text); text-decoration: none; }
+  .static-building-links a:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .static-building-links .building-link-meta { display: block; color: var(--muted); font-size: .82rem; margin-top: 2px; }
   #load-more[hidden] { display: none; }
   .button-secondary {
     border: 1px solid var(--control-border); background: var(--control-bg); color: var(--control-text); border-radius: 10px;
@@ -122,6 +130,20 @@
       <li><a href="{{ base_path }}/?q=中間市">中間市</a></li><li><a href="{{ base_path }}/?q=遠賀郡">遠賀郡</a></li><li><a href="{{ base_path }}/?q=京都郡">京都郡</a></li><li><a href="{{ base_path }}/?q=行橋市">行橋市</a></li><li><a href="{{ base_path }}/?q=築上郡">築上郡</a></li><li><a href="{{ base_path }}/?q=豊前市">豊前市</a></li><li><a href="{{ base_path }}/?q=直方市">直方市</a></li><li><a href="{{ base_path }}/?q=鞍手郡">鞍手郡</a></li><li><a href="{{ base_path }}/?q=田川郡">田川郡</a></li><li><a href="{{ base_path }}/?q=田川市">田川市</a></li><li><a href="{{ base_path }}/?q=宗像市">宗像市</a></li><li><a href="{{ base_path }}/?q=宮若市">宮若市</a></li><li><a href="{{ base_path }}/?q=飯塚市">飯塚市</a></li><li><a href="{{ base_path }}/?q=嘉穂郡">嘉穂郡</a></li><li><a href="{{ base_path }}/?q=嘉麻市">嘉麻市</a></li>
     </ul>
   </section>
+  <section class="static-building-links card" aria-label="建物リンク一覧">
+    <h2>建物一覧（初期表示）</h2>
+    <p>以下は初期HTMLで表示される建物リンクです。検索・並び替え機能はこの下でそのまま使えます。</p>
+    <ul>
+      {% for b in static_building_links %}
+      <li>
+        <a href="{{ base_path }}/b/{{ b.building_key }}.html">
+          {{ b.name or "名称未設定" }}
+          <span class="building-link-meta">{{ b.address or "住所情報なし" }}{% if b.rent_yen_min is not none or b.rent_yen_max is not none %} / {{ b.rent_yen_min|yen }}円〜{{ b.rent_yen_max|yen }}円{% endif %}</span>
+        </a>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
 
   <p id="result-counts" class="counts" aria-live="polite" hidden>検索結果: <strong id="result-count-visible">0件</strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant">0件</strong></p>
 
@@ -130,11 +152,6 @@
   <div id="empty-state" class="card empty" hidden>条件に合う建物が見つかりませんでした。</div>
   <div class="actions">
     <button id="load-more" class="button-secondary" type="button" hidden>もっと表示</button>
-  </div>
-  <div aria-hidden="true" style="display:none;">
-    {% for b in buildings %}
-      {{ b.rent_yen_min|yen }}円〜{{ b.rent_yen_max|yen }}円
-    {% endfor %}
   </div>
 {% endblock %}
 
