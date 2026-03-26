@@ -157,6 +157,20 @@
     text-align: center;
     padding: 24px;
   }
+  .area-links { margin: 0 0 14px; padding: 14px; }
+  .area-links h2 { margin: 0 0 10px; font-size: 1.02rem; }
+  .area-links ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+  .area-links a {
+    display: inline-flex;
+    border: 1px solid var(--control-border);
+    border-radius: 999px;
+    padding: 6px 12px;
+    text-decoration: none;
+    color: var(--text);
+    background: var(--surface);
+    font-size: .9rem;
+  }
+  .area-links a:hover { background: var(--surface-2); }
 
   .empty[hidden] { display: none; }
 
@@ -193,6 +207,13 @@
         <option value="rent_min_desc">家賃下限（高い順）</option>
       </select>
     </div>
+  </section>
+  <section class="area-links card" aria-label="主要エリアから探す">
+    <h2>主要エリアから探す</h2>
+    <ul>
+      {% for area in major_area_links %}<li><a href="{{ area.href }}">{{ area.label }}</a></li>{% endfor %}
+      <li><a href="{{ base_path }}/?q=中間市">中間市</a></li><li><a href="{{ base_path }}/?q=遠賀郡">遠賀郡</a></li><li><a href="{{ base_path }}/?q=京都郡">京都郡</a></li><li><a href="{{ base_path }}/?q=行橋市">行橋市</a></li><li><a href="{{ base_path }}/?q=築上郡">築上郡</a></li><li><a href="{{ base_path }}/?q=豊前市">豊前市</a></li><li><a href="{{ base_path }}/?q=直方市">直方市</a></li><li><a href="{{ base_path }}/?q=鞍手郡">鞍手郡</a></li><li><a href="{{ base_path }}/?q=田川郡">田川郡</a></li><li><a href="{{ base_path }}/?q=田川市">田川市</a></li><li><a href="{{ base_path }}/?q=宗像市">宗像市</a></li><li><a href="{{ base_path }}/?q=宮若市">宮若市</a></li><li><a href="{{ base_path }}/?q=飯塚市">飯塚市</a></li><li><a href="{{ base_path }}/?q=嘉穂郡">嘉穂郡</a></li><li><a href="{{ base_path }}/?q=嘉麻市">嘉麻市</a></li>
+    </ul>
   </section>
 
   <ul id="building-list" aria-live="polite">
@@ -236,6 +257,7 @@
   const cards = Array.from(list.querySelectorAll('.building-card'));
   const empty = document.getElementById('empty-state');
   const matchCount = document.getElementById('match-count');
+  const initialQuery = new URLSearchParams(window.location.search).get('q') || '';
 
   const normalize = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, ' ').trim();
 
@@ -295,6 +317,9 @@
 
   input.addEventListener('input', update);
   sortSelect.addEventListener('change', update);
+  if (initialQuery) {
+    input.value = initialQuery;
+  }
   update();
 })();
 </script>

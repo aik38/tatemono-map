@@ -9,6 +9,9 @@
 {% block extra_head %}
 <style>
   .stack { display: grid; gap: 14px; }
+  .breadcrumb { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; font-size: .9rem; color: var(--muted); }
+  .breadcrumb a { color: var(--muted); text-decoration: none; }
+  .breadcrumb a:hover { text-decoration: underline; }
   .hero, .map-embed, .info, .line-cta { padding: clamp(16px, 2.5vw, 24px); }
   .hero p { margin: 8px 0 0; color: var(--muted); }
   .facts { margin: 0; display: grid; gap: 10px; }
@@ -31,6 +34,8 @@
     overflow: hidden;
   }
   .map-embed-frame iframe { width: 100%; height: 100%; display: block; }
+  .related { padding: clamp(16px, 2.5vw, 24px); }
+  .related ul { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 4px; }
   @media (min-width: 741px) {
     .map-embed-frame { height: 340px; }
   }
@@ -43,6 +48,15 @@
 
 {% block content %}
 <div class="stack">
+  {% if area_hub %}
+  <nav aria-label="パンくず">
+    <ol class="breadcrumb">
+      <li><a href="{{ base_path }}/">ホーム</a> ›</li>
+      <li><a href="{{ area_hub.url }}">{{ area_hub.name }}</a> ›</li>
+      <li>{{ building.name or "建物詳細" }}</li>
+    </ol>
+  </nav>
+  {% endif %}
   <section class="hero card" aria-label="建物概要">
     <h1>{{ building.name or "名称未設定" }}</h1>
     <p>{{ building.address or "住所情報なし" }}</p>
@@ -88,5 +102,16 @@
       onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)"
     >LINEで条件を送る</a>
   </section>
+
+  {% if related_buildings %}
+  <section class="related card" aria-label="同じエリアの建物">
+    <h2>同じエリアの建物</h2>
+    <ul>
+      {% for related in related_buildings %}
+      <li><a href="{{ base_path }}/b/{{ related.building_key }}.html">{{ related.name or "名称未設定" }}</a></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
 </div>
 {% endblock %}

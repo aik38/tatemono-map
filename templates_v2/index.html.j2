@@ -54,6 +54,20 @@
   .empty { margin-top: 20px; padding: 20px; text-align: center; }
   .empty[hidden] { display: none; }
   .actions { margin-top: 16px; display: flex; justify-content: center; }
+  .area-links { margin: 0 0 16px; padding: 16px; }
+  .area-links h2 { margin: 0 0 10px; font-size: 1.02rem; }
+  .area-links ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+  .area-links a {
+    display: inline-flex;
+    border: 1px solid var(--control-border);
+    border-radius: 999px;
+    padding: 6px 12px;
+    text-decoration: none;
+    color: var(--text);
+    background: var(--surface);
+    font-size: .9rem;
+  }
+  .area-links a:hover { background: var(--surface-2); }
   #load-more[hidden] { display: none; }
   .button-secondary {
     border: 1px solid var(--control-border); background: var(--control-bg); color: var(--control-text); border-radius: 10px;
@@ -100,6 +114,13 @@
         <option value="vacancy_desc">空室が多い順</option>
       </select>
     </div>
+  </section>
+  <section class="area-links card" aria-label="主要エリアから探す">
+    <h2>主要エリアから探す</h2>
+    <ul>
+      {% for area in major_area_links %}<li><a href="{{ area.href }}">{{ area.label }}</a></li>{% endfor %}
+      <li><a href="{{ base_path }}/?q=中間市">中間市</a></li><li><a href="{{ base_path }}/?q=遠賀郡">遠賀郡</a></li><li><a href="{{ base_path }}/?q=京都郡">京都郡</a></li><li><a href="{{ base_path }}/?q=行橋市">行橋市</a></li><li><a href="{{ base_path }}/?q=築上郡">築上郡</a></li><li><a href="{{ base_path }}/?q=豊前市">豊前市</a></li><li><a href="{{ base_path }}/?q=直方市">直方市</a></li><li><a href="{{ base_path }}/?q=鞍手郡">鞍手郡</a></li><li><a href="{{ base_path }}/?q=田川郡">田川郡</a></li><li><a href="{{ base_path }}/?q=田川市">田川市</a></li><li><a href="{{ base_path }}/?q=宗像市">宗像市</a></li><li><a href="{{ base_path }}/?q=宮若市">宮若市</a></li><li><a href="{{ base_path }}/?q=飯塚市">飯塚市</a></li><li><a href="{{ base_path }}/?q=嘉穂郡">嘉穂郡</a></li><li><a href="{{ base_path }}/?q=嘉麻市">嘉麻市</a></li>
+    </ul>
   </section>
 
   <p id="result-counts" class="counts" aria-live="polite" hidden>検索結果: <strong id="result-count-visible">0件</strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant">0件</strong></p>
@@ -214,7 +235,8 @@
   let buildings = [];
   let filtered = [];
   let displayLimit = PAGE_SIZE;
-  let currentQuery = '';
+  const initialQuery = new URLSearchParams(window.location.search).get('q') || '';
+  let currentQuery = normalizeText(initialQuery);
   let debounceTimer = null;
   const REQUIRED_KEYS = ['id', 'name', 'address', 'vacancy_count', 'rent_min', 'rent_max', 'area_min', 'area_max', 'updated_epoch', 'property_kind'];
 
@@ -356,6 +378,10 @@
   function update() {
     applyFiltersAndSort(true);
     // legacy marker for regression tests: list.appendChild(card.el)
+  }
+
+  if (initialQuery) {
+    input.value = initialQuery;
   }
 
   function showError(message) {

@@ -12,6 +12,9 @@
     display: grid;
     gap: 14px;
   }
+  .breadcrumb { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; font-size: .9rem; color: var(--muted); }
+  .breadcrumb a { color: var(--muted); text-decoration: none; }
+  .breadcrumb a:hover { text-decoration: underline; }
 
   .hero {
     padding: clamp(16px, 2.6vw, 24px);
@@ -105,6 +108,8 @@
     padding-left: 18px;
     color: var(--line-list-text);
   }
+  .related { padding: clamp(16px, 2.6vw, 24px); }
+  .related ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
 
   @media (max-width: 740px) {
     .fact {
@@ -126,6 +131,15 @@
 
 {% block content %}
   <div class="stack">
+    {% if area_hub %}
+    <nav aria-label="パンくず">
+      <ol class="breadcrumb">
+        <li><a href="{{ base_path }}/">ホーム</a> ›</li>
+        <li><a href="{{ area_hub.url }}">{{ area_hub.name }}</a> ›</li>
+        <li>{{ building.name or "建物詳細" }}</li>
+      </ol>
+    </nav>
+    {% endif %}
     <section class="hero card" aria-label="建物概要">
       <h1>{{ building.name or "名称未設定" }}</h1>
     {% if building.property_kind == "bunjo" %}<span class="kpi">分譲マンション</span>{% endif %}
@@ -194,5 +208,15 @@
         {% endif %}
       </div>
     </section>
+    {% if related_buildings %}
+    <section class="related card" aria-label="同じエリアの建物">
+      <h2>同じエリアの建物</h2>
+      <ul>
+        {% for related in related_buildings %}
+        <li><a href="{{ base_path }}/b/{{ related.building_key }}.html">{{ related.name or "名称未設定" }}</a></li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
   </div>
 {% endblock %}

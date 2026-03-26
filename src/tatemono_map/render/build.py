@@ -31,6 +31,7 @@ DEFAULT_LINE_DEEP_LINK = "line://ti/p/@055wdvuq"
 DEFAULT_BASE_PATH = "/tatemono-map"
 DEFAULT_GOOGLE_SITE_VERIFICATION = "JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo"
 DEFAULT_SITE_ORIGIN = "https://www.tatemono-map.com"
+KOKURAKITA_AREA_PATH = "/area/fukuoka/kitakyushu/kokurakita/"
 
 
 def _format_yen(value: object) -> str:
@@ -182,7 +183,10 @@ def _build_canonical_url(site_origin: str, base_path: str, page_path: str) -> st
 
 
 def _build_sitemap_xml(*, site_origin: str, base_path: str, buildings: list[dict]) -> str:
-    urls = [_build_canonical_url(site_origin, base_path, "/")]
+    urls = [
+        _build_canonical_url(site_origin, base_path, "/"),
+        _build_canonical_url(site_origin, base_path, KOKURAKITA_AREA_PATH),
+    ]
     building_urls = [_build_canonical_url(site_origin, base_path, f"/b/{b['building_key']}.html") for b in buildings]
     urls.extend(sorted(building_urls))
 
@@ -213,6 +217,22 @@ def _extract_area_label(address: object) -> str:
     if ward_match:
         return ward_match.group(1)
     return "北九州市"
+
+
+def _is_kokurakita_building(building: dict) -> bool:
+    address = str(building.get("address") or "")
+    return "北九州市小倉北区" in address
+
+
+def _build_related_buildings(buildings: list[dict], current: dict, *, max_items: int = 8) -> list[dict]:
+    current_key = current.get("building_key")
+    area_label = _extract_area_label(current.get("address"))
+    related = [
+        b for b in buildings
+        if b.get("building_key") != current_key and _extract_area_label(b.get("address")) == area_label
+    ]
+    related.sort(key=lambda row: row.get("updated_epoch") or -1, reverse=True)
+    return related[:max_items]
 
 
 def _format_range(min_value: object, max_value: object, suffix: str) -> str | None:
@@ -542,12 +562,23 @@ def _build_dist_version(
     env.filters["yen"] = _format_yen
     index_tpl = env.get_template("index.html.j2")
     building_tpl = env.get_template("building.html.j2")
+    area_tpl = env.get_template("area.html.j2")
 
     total_buildings = len(buildings)
     total_vacant = sum((b.get("vacancy_count") or 0) for b in buildings)
     parsed_dates = [parsed for parsed in (_build_summary_date(b) for b in buildings) if parsed is not None]
     latest_data_date = max(parsed_dates, default=None)
     latest_data_date_label = latest_data_date.strftime("%Y/%m/%d") if latest_data_date else "—"
+    kokurakita_buildings = [b for b in buildings if _is_kokurakita_building(b)]
+    major_area_links = [
+        {"label": "小倉北区", "href": f"{base_path}{KOKURAKITA_AREA_PATH}", "is_hub": True},
+        {"label": "小倉南区", "href": f"{base_path}/?q=小倉南区", "is_hub": False},
+        {"label": "八幡東区", "href": f"{base_path}/?q=八幡東区", "is_hub": False},
+        {"label": "八幡西区", "href": f"{base_path}/?q=八幡西区", "is_hub": False},
+        {"label": "若松区", "href": f"{base_path}/?q=若松区", "is_hub": False},
+        {"label": "戸畑区", "href": f"{base_path}/?q=戸畑区", "is_hub": False},
+        {"label": "門司区", "href": f"{base_path}/?q=門司区", "is_hub": False},
+    ]
 
     (output_dir / "index.html").write_text(
         index_tpl.render(
@@ -568,6 +599,25 @@ def _build_dist_version(
             page_title="北九州の賃貸・建物データベース | 建物マップ",
             page_description="北九州のマンション・アパートを建物単位で検索できる建物データベース。建物名、住所、空室数、家賃帯、面積帯などをまとめて確認できます。",
             canonical_url=_build_canonical_url(site_origin, base_path, "/"),
+            major_area_links=major_area_links,
+            base_path=base_path,
+            google_site_verification=google_site_verification,
+        ),
+        encoding="utf-8",
+    )
+
+    kokurakita_dir = output_dir / "area" / "fukuoka" / "kitakyushu" / "kokurakita"
+    kokurakita_dir.mkdir(parents=True, exist_ok=True)
+    kokurakita_dir.joinpath("index.html").write_text(
+        area_tpl.render(
+            area_name="小倉北区",
+            intro_text="小倉北区にある建物をまとめて確認できます。気になる建物があればLINEで最新情報をご相談ください。",
+            buildings=kokurakita_buildings,
+            page_title="小倉北区の建物一覧 | 建物マップ",
+            page_description="小倉北区のマンション・アパートを建物単位で確認できる一覧ページです。住所、空室数、家賃帯、面積帯をまとめてチェックできます。",
+            canonical_url=_build_canonical_url(site_origin, base_path, KOKURAKITA_AREA_PATH),
+            line_cta_url=line_cta_url,
+            line_deep_link_url=line_deep_link_url,
             base_path=base_path,
             google_site_verification=google_site_verification,
         ),
@@ -578,12 +628,20 @@ def _build_dist_version(
         maps_url = _build_google_maps_url(b.get("address"))
         maps_embed_url = _build_google_maps_embed_url(b.get("address"), google_maps_embed_api_key)
         seo = _build_building_seo(b, site_origin=site_origin, base_path=base_path)
+        area_hub = None
+        if _is_kokurakita_building(b):
+            area_hub = {
+                "name": "小倉北区",
+                "url": f"{base_path}{KOKURAKITA_AREA_PATH}",
+            }
         html = building_tpl.render(
             building=b,
             maps_url=maps_url,
             maps_embed_url=maps_embed_url,
             line_cta_url=line_cta_url,
             line_deep_link_url=line_deep_link_url,
+            area_hub=area_hub,
+            related_buildings=_build_related_buildings(buildings, b, max_items=8),
             page_title=seo["page_title"],
             page_description=seo["page_description"],
             canonical_url=seo["canonical_url"],

@@ -1,0 +1,56 @@
+{% extends "base.html.j2" %}
+
+{% block title %}{{ page_title or ((area_name or "エリア") ~ "の建物一覧 | tatemono-map") }}{% endblock %}
+
+{% block header_meta %}
+  <a class="muted" href="{{ base_path }}/" aria-label="トップへ戻る">← 建物マップに戻る</a>
+{% endblock %}
+
+{% block extra_head %}
+<style>
+  .stack { display: grid; gap: 14px; }
+  .hero { padding: 20px; }
+  .hero p { margin: 8px 0 0; color: var(--muted); }
+  .building-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .building-card { padding: 16px; display: grid; gap: 9px; }
+  .building-link { text-decoration: none; }
+  .building-link:hover h2 { text-decoration: underline; text-underline-offset: 3px; }
+  .building-card h2 { margin: 0; font-size: 1.08rem; }
+  .address { margin: 0; color: var(--muted); }
+  .kpis { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  .kpi { border-radius: 999px; background: var(--surface-2); padding: 5px 10px; font-size: .84rem; }
+  .kpi span { color: var(--muted); margin-right: 6px; }
+  .line-cta { padding: 20px; border: 1px solid var(--line-border); background: linear-gradient(180deg, var(--line-bg-start) 0%, var(--line-bg-end) 100%); }
+  .line-cta p { margin: 0 0 12px; color: var(--line-cta-text); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="stack">
+  <section class="hero card" aria-label="エリア概要">
+    <h1>{{ area_name }}の建物一覧</h1>
+    <p>{{ intro_text }}</p>
+  </section>
+
+  <section aria-label="{{ area_name }}の建物">
+    <ul class="building-list">
+      {% for b in buildings %}
+      <li class="card building-card">
+        <a class="building-link" href="{{ base_path }}/b/{{ b.building_key }}.html"><h2>{{ b.name or "名称未設定" }}</h2></a>
+        <p class="address">{{ b.address or "住所情報なし" }}</p>
+        <ul class="kpis" aria-label="建物の主要情報">
+          {% if b.property_kind == "bunjo" %}<li class="kpi"><span>販売情報</span>{{ b.sale_listing_count if b.sale_listing_count is not none else "—" }}件</li>{% else %}<li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>{% endif %}
+          <li class="kpi"><span>家賃</span>{% if b.property_kind == "bunjo" %}{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}{% else %}{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円{% endif %}</li>
+        </ul>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section class="line-cta card" aria-label="LINEで問い合わせる">
+    <h2>LINEで最新の募集情報を確認</h2>
+    <p>希望条件を送ると、条件に近い募集情報をまとめて確認できます。</p>
+    <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener" data-line-universal-url="{{ line_cta_url }}" data-line-deep-link="{{ line_deep_link_url }}" onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)">LINEで条件を送る</a>
+  </section>
+</div>
+{% endblock %}
