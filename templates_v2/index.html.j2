@@ -82,7 +82,7 @@
   }
   .area-links a:hover { background: var(--surface-2); }
   .seo-area-hub-link {
-    margin-top: 8px;
+    margin: -6px 0 14px;
     font-size: .85rem;
     color: var(--muted);
   }
@@ -142,10 +142,10 @@
       {% for area in major_area_links %}<li><a class="area-filter-link" href="{{ area.href }}" data-area="{{ area.label }}">{{ area.label }}</a></li>{% endfor %}
       <li><a href="{{ base_path }}/?q=中間市">中間市</a></li><li><a href="{{ base_path }}/?q=遠賀郡">遠賀郡</a></li><li><a href="{{ base_path }}/?q=京都郡">京都郡</a></li><li><a href="{{ base_path }}/?q=行橋市">行橋市</a></li><li><a href="{{ base_path }}/?q=築上郡">築上郡</a></li><li><a href="{{ base_path }}/?q=豊前市">豊前市</a></li><li><a href="{{ base_path }}/?q=直方市">直方市</a></li><li><a href="{{ base_path }}/?q=鞍手郡">鞍手郡</a></li><li><a href="{{ base_path }}/?q=田川郡">田川郡</a></li><li><a href="{{ base_path }}/?q=田川市">田川市</a></li><li><a href="{{ base_path }}/?q=宗像市">宗像市</a></li><li><a href="{{ base_path }}/?q=宮若市">宮若市</a></li><li><a href="{{ base_path }}/?q=飯塚市">飯塚市</a></li><li><a href="{{ base_path }}/?q=嘉穂郡">嘉穂郡</a></li><li><a href="{{ base_path }}/?q=嘉麻市">嘉麻市</a></li>
     </ul>
-    <p class="seo-area-hub-link"><a href="{{ base_path }}/area/fukuoka/kitakyushu/kokurakita/">小倉北区の一覧ページを見る</a></p>
   </section>
 
   <p id="result-counts" class="counts" aria-live="polite" hidden>検索結果: <strong id="result-count-visible">0件</strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant">0件</strong></p>
+  <p id="seo-area-hub-link" class="seo-area-hub-link" hidden><a id="seo-area-hub-link-anchor" href="#"></a></p>
 
   <ul id="building-list" aria-live="polite">
     {% for b in static_building_links %}
@@ -194,12 +194,20 @@
   const areaToggle = document.getElementById('area-links-toggle');
   const areaList = document.getElementById('area-links-list');
   const areaFilterLinks = Array.from(document.querySelectorAll('#area-links-list a'));
+  const seoAreaHubLink = document.getElementById('seo-area-hub-link');
+  const seoAreaHubLinkAnchor = document.getElementById('seo-area-hub-link-anchor');
 
   const PAGE_SIZE = 16;
   const SEARCH_RENDER_LIMIT = 200;
   const SEARCH_DEBOUNCE_MS = 250;
   const formatCount = (n) => new Intl.NumberFormat('ja-JP').format(n);
   const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, ' ').trim();
+  const AREA_HUB_LINKS = {
+    [normalizeText('小倉北区')]: {
+      label: '小倉北区',
+      href: '{{ base_path }}/area/fukuoka/kitakyushu/kokurakita/'
+    }
+  };
   const safeNumber = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
   const positiveNumberOrNull = (value) => {
     const n = Number(value);
@@ -360,6 +368,17 @@
     if (vacantCount.textContent !== nextVacant) vacantCount.textContent = nextVacant;
   }
 
+  function updateAreaHubLink() {
+    const areaHub = AREA_HUB_LINKS[currentQuery] || null;
+    if (!areaHub) {
+      seoAreaHubLink.hidden = true;
+      return;
+    }
+    seoAreaHubLinkAnchor.href = areaHub.href;
+    seoAreaHubLinkAnchor.textContent = `${areaHub.label}の一覧ページを見る`;
+    seoAreaHubLink.hidden = false;
+  }
+
   function render() {
     const renderTargetCount = currentQuery ? Math.min(filtered.length, SEARCH_RENDER_LIMIT) : filtered.length;
     const renderedCount = Math.min(renderTargetCount, displayLimit);
@@ -372,6 +391,7 @@
     list.replaceChildren(fragment);
     empty.hidden = filtered.length !== 0;
     updateCounters(renderedCount, filtered.length);
+    updateAreaHubLink();
 
     const canMore = renderedCount < renderTargetCount;
     loadMore.hidden = !canMore;
