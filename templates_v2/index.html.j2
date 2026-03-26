@@ -55,8 +55,21 @@
   .empty[hidden] { display: none; }
   .actions { margin-top: 16px; display: flex; justify-content: center; }
   .area-links { margin: 0 0 16px; padding: 16px; }
-  .area-links h2 { margin: 0 0 10px; font-size: 1.02rem; }
-  .area-links ul { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
+  .area-links h2 { margin: 0; font-size: 1.02rem; }
+  .area-links-toggle {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: inherit;
+    cursor: pointer;
+  }
+  .area-links-toggle::after { content: "＋"; color: var(--muted); font-size: 1rem; line-height: 1; }
+  .area-links-toggle[aria-expanded="true"]::after { content: "−"; }
+  .area-links-list { margin: 10px 0 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 8px; }
   .area-links a {
     display: inline-flex;
     border: 1px solid var(--control-border);
@@ -68,14 +81,12 @@
     font-size: .9rem;
   }
   .area-links a:hover { background: var(--surface-2); }
-  .static-building-links { margin: 0 0 16px; padding: 16px; }
-  .static-building-links h2 { margin: 0 0 10px; font-size: 1.02rem; }
-  .static-building-links p { margin: 0 0 10px; color: var(--muted); font-size: .9rem; }
-  .static-building-links ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-  .static-building-links li { min-width: 0; }
-  .static-building-links a { color: var(--text); text-decoration: none; }
-  .static-building-links a:hover { text-decoration: underline; text-underline-offset: 3px; }
-  .static-building-links .building-link-meta { display: block; color: var(--muted); font-size: .82rem; margin-top: 2px; }
+  .seo-area-hub-link {
+    margin-top: 8px;
+    font-size: .85rem;
+    color: var(--muted);
+  }
+  .seo-area-hub-link a { color: inherit; }
   #load-more[hidden] { display: none; }
   .button-secondary {
     border: 1px solid var(--control-border); background: var(--control-bg); color: var(--control-text); border-radius: 10px;
@@ -124,30 +135,32 @@
     </div>
   </section>
   <section class="area-links card" aria-label="主要エリアから探す">
-    <h2>主要エリアから探す</h2>
-    <ul>
-      {% for area in major_area_links %}<li><a href="{{ area.href }}">{{ area.label }}</a></li>{% endfor %}
+    <button id="area-links-toggle" class="area-links-toggle" type="button" aria-expanded="false" aria-controls="area-links-list">
+      <h2>主要エリアから探す</h2>
+    </button>
+    <ul id="area-links-list" class="area-links-list" hidden>
+      {% for area in major_area_links %}<li><a class="area-filter-link" href="{{ area.href }}" data-area="{{ area.label }}">{{ area.label }}</a></li>{% endfor %}
       <li><a href="{{ base_path }}/?q=中間市">中間市</a></li><li><a href="{{ base_path }}/?q=遠賀郡">遠賀郡</a></li><li><a href="{{ base_path }}/?q=京都郡">京都郡</a></li><li><a href="{{ base_path }}/?q=行橋市">行橋市</a></li><li><a href="{{ base_path }}/?q=築上郡">築上郡</a></li><li><a href="{{ base_path }}/?q=豊前市">豊前市</a></li><li><a href="{{ base_path }}/?q=直方市">直方市</a></li><li><a href="{{ base_path }}/?q=鞍手郡">鞍手郡</a></li><li><a href="{{ base_path }}/?q=田川郡">田川郡</a></li><li><a href="{{ base_path }}/?q=田川市">田川市</a></li><li><a href="{{ base_path }}/?q=宗像市">宗像市</a></li><li><a href="{{ base_path }}/?q=宮若市">宮若市</a></li><li><a href="{{ base_path }}/?q=飯塚市">飯塚市</a></li><li><a href="{{ base_path }}/?q=嘉穂郡">嘉穂郡</a></li><li><a href="{{ base_path }}/?q=嘉麻市">嘉麻市</a></li>
     </ul>
-  </section>
-  <section class="static-building-links card" aria-label="建物リンク一覧">
-    <h2>建物一覧（初期表示）</h2>
-    <p>以下は初期HTMLで表示される建物リンクです。検索・並び替え機能はこの下でそのまま使えます。</p>
-    <ul>
-      {% for b in static_building_links %}
-      <li>
-        <a href="{{ base_path }}/b/{{ b.building_key }}.html">
-          {{ b.name or "名称未設定" }}
-          <span class="building-link-meta">{{ b.address or "住所情報なし" }}{% if b.rent_yen_min is not none or b.rent_yen_max is not none %} / {{ b.rent_yen_min|yen }}円〜{{ b.rent_yen_max|yen }}円{% endif %}</span>
-        </a>
-      </li>
-      {% endfor %}
-    </ul>
+    <p class="seo-area-hub-link"><a href="{{ base_path }}/area/fukuoka/kitakyushu/kokurakita/">小倉北区の一覧ページを見る</a></p>
   </section>
 
   <p id="result-counts" class="counts" aria-live="polite" hidden>検索結果: <strong id="result-count-visible">0件</strong><span id="result-count-total"></span> / 空室 <strong id="result-count-vacant">0件</strong></p>
 
-  <ul id="building-list" aria-live="polite"></ul>
+  <ul id="building-list" aria-live="polite">
+    {% for b in static_building_links %}
+      <li class="card building-card">
+        <a class="building-link" href="{{ base_path }}/b/{{ b.building_key }}.html">
+          <h2>{{ b.name or "名称未設定" }}</h2>{% if b.property_kind == "bunjo" %}<span class="kpi">分譲マンション</span>{% endif %}
+        </a>
+        <p class="address">{{ b.address or "住所情報なし" }}</p>
+        <ul class="kpis" aria-label="建物の主要情報">
+          {% if b.property_kind == "bunjo" %}<li class="kpi"><span>販売情報</span>{% if b.sale_listing_count is not none and b.sale_listing_count > 0 %}{{ b.sale_listing_count }}件{% else %}なし{% endif %}</li>{% else %}<li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>{% endif %}
+          <li class="kpi"><span>{% if b.property_kind == "bunjo" %}販売価格{% else %}家賃{% endif %}</span>{% if b.property_kind == "bunjo" %}{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}{% else %}{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円{% endif %}</li>
+        </ul>
+      </li>
+    {% endfor %}
+  </ul>
 
   <div id="empty-state" class="card empty" hidden>条件に合う建物が見つかりませんでした。</div>
   <div class="actions">
@@ -178,6 +191,9 @@
   const counts = document.getElementById('result-counts');
   const empty = document.getElementById('empty-state');
   const loadMore = document.getElementById('load-more');
+  const areaToggle = document.getElementById('area-links-toggle');
+  const areaList = document.getElementById('area-links-list');
+  const areaFilterLinks = Array.from(document.querySelectorAll('#area-links-list a'));
 
   const PAGE_SIZE = 16;
   const SEARCH_RENDER_LIMIT = 200;
@@ -309,10 +325,12 @@
     kpis.className = 'kpis';
     const vacancyKpi = document.createElement('li');
     vacancyKpi.className = 'kpi';
-    vacancyKpi.innerHTML = item.propertyKind === 'bunjo' ? `<span>販売情報</span>${Number.isFinite(Number(item.saleListingCount)) ? Number(item.saleListingCount) : '—'}件` : `<span>空室</span>${Number.isFinite(Number(item.vacancyCount)) ? Number(item.vacancyCount) : '—'}件`;
+    vacancyKpi.innerHTML = item.propertyKind === 'bunjo'
+      ? `<span>販売情報</span>${Number.isFinite(Number(item.saleListingCount)) && Number(item.saleListingCount) > 0 ? `${Number(item.saleListingCount)}件` : 'なし'}`
+      : `<span>空室</span>${Number.isFinite(Number(item.vacancyCount)) ? Number(item.vacancyCount) : '—'}件`;
     const rentKpi = document.createElement('li');
     rentKpi.className = 'kpi';
-    rentKpi.innerHTML = item.propertyKind === 'bunjo' ? `<span>価格</span>${Number.isFinite(Number(item.salePriceAvg)) ? `${formatCount(Math.floor(Number(item.salePriceAvg) / 10000))}万円` : '—'}` : `<span>家賃</span>${formatYen(item.rentMin)}〜${formatYen(item.rentMax)}`;
+    rentKpi.innerHTML = item.propertyKind === 'bunjo' ? `<span>販売価格</span>${Number.isFinite(Number(item.salePriceAvg)) ? `${formatCount(Math.floor(Number(item.salePriceAvg) / 10000))}万円` : '—'}` : `<span>家賃</span>${formatYen(item.rentMin)}〜${formatYen(item.rentMax)}`;
     kpis.append(vacancyKpi, rentKpi);
 
     const meta = document.createElement('dl');
@@ -582,6 +600,20 @@
   loadMore.addEventListener('click', () => {
     displayLimit += PAGE_SIZE;
     render();
+  });
+  areaToggle.addEventListener('click', () => {
+    const expanded = areaToggle.getAttribute('aria-expanded') === 'true';
+    areaToggle.setAttribute('aria-expanded', expanded ? 'false' : 'true');
+    areaList.hidden = expanded;
+  });
+  areaFilterLinks.forEach((link) => {
+    link.addEventListener('click', (event) => {
+      event.preventDefault();
+      const area = link.dataset.area || (link.textContent || '').trim();
+      input.value = area;
+      currentQuery = normalizeText(area);
+      applyFiltersAndSort(true, 'area_filter');
+    });
   });
   input.addEventListener('input', handleInput);
   input.addEventListener('search', handleInput);
