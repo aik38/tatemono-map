@@ -44,3 +44,17 @@ assert Path("dist/v1/index.html").exists(), "dist/v1/index.html is missing"
 print("OK: dist root(v2) and v1 outputs exist")
 PY
 ```
+
+
+## Current UI / internal links memo (2026-03)
+
+- Top page (`v2`) has a "主要エリアから探す" block with accordion toggle behavior.
+- Area chips are in-page filter controls (they do not move users to a different page).
+- SEO area hub pages are separate fixed landing pages; at least `小倉北区` hub (`/area/fukuoka/kitakyushu/kokurakita/`) is implemented.
+- Top list copy has been cleaned up (no developer-facing label like `建物一覧（初期表示）`).
+- Building detail page (`/b/<id>.html`) has internal links via breadcrumbs and related buildings in the same area.
+- Positioning: detail pages are the primary long-tail landing pages (building name / address queries), while area hubs are SEO support pages.
+
+### Next ops memo
+- Next DB update: run vacancy refresh + new building additions across all areas.
+- After data density improves, expand area hubs and continue SEO observation.
