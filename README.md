@@ -285,7 +285,8 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 1. GitHub の **Actions** で `Deploy static site to GitHub Pages` が `Success` になっているか確認する。
 2. `scripts/publish_public.ps1` の再実行ログを確認し、必要なら `data/public/public.sqlite3` をローカル再生成してから `scripts/dev_dist.ps1` で挙動確認する。
 3. `curl.exe -s https://www.tatemono-map.com/build_info.json` で Pages 配信中の build 情報を確認する。
-4. スマホ/ブラウザで古く見える場合は、シークレットウィンドウで開くか、対象サイトのキャッシュ/サイトデータを削除して再読み込みする。
+4. 反映確認は `scripts/dev_dist.ps1` によるローカル Pages-like 確認と、`main` push 後の本番 Pages 応答確認の2段で行う（ローカル確認だけでは本番は変わらない）。
+5. スマホ/ブラウザで古く見える場合は、シークレットウィンドウで開くか、対象サイトのキャッシュ/サイトデータを削除して再読み込みする。
 
 ### よくあるミス
 - `dist/` を push しても公開反映には使われない（CI が再生成する）。
@@ -477,8 +478,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
   - 格納: `listings`（空室単位）に保持し、`building_summaries` を再集約。
   - UI: `building_summaries` を公開DBへコピーし `dist` の建物JSONへ反映。
 - B) Mansion-review（賃貸/分譲）
-  - 既存の HTML/クロールCSV化スクリプトは建物名・住所中心で、`structure / age_years / availability` の canonical 格納経路が未整備。
-  - 対応: `python -m tatemono_map.cli.import_building_master` で `buildings` に建物属性を保存し、空室0でも集約反映。
+  - 正規実行ルートは `scripts/run_mansion_review_listfacts_to_db.ps1`（一覧 listfacts の URL ベース運用）です。
+  - URL ベースで 15 エリア（`1616,1619,1614,1618,1620,1677,1676,1675,1681,1678,1639,1683,1641,1632,1651`）を運用可能です。
+  - 分譲は Mansion Review listfacts で public DB / `dist` へ反映し、賃貸は Ulucks/RealPro 優先を維持して Mansion Review 賃貸は建物facts補完として扱います。
+  - Batch 2（`1639,1683,1641,1632,1651`）の `created=0` 問題は、住所抽出の汎用化・facts selector 見直し・address 欠損時 detail 補完・address coverage stats 追加で解消済みです。
+  - high-confidence auto-seed は既定 OFF（必要時のみ ON）で、low-confidence は review CSV / `auto_seed_skipped_*` に残す方針を維持します。
 - C) Orient 建物一覧
   - 既存ルート定義が薄く、Aのような listings 経路はなし（建物マスター系として扱うのが自然）。
   - 対応: Mansion-review と同じ `import_building_master` で `buildings` へ投入。
