@@ -4,6 +4,9 @@
 
 - 本番公開 URL（custom domain / root 配信）: **https://www.tatemono-map.com/**
 - ローカル確認は従来どおり `scripts/dev_dist.ps1` で `/tatemono-map/` 配信（Pages-like）を使います。
+- Mansion Review listfacts は URL ベースの **15エリア運用**（`1616,1619,1614,1618,1620,1677,1676,1675,1681,1678,1639,1683,1641,1632,1651`）を継続中です。
+- Batch 2（`1639,1683,1641,1632,1651`）の `created=0` 問題は修正済みです。
+- 本番反映は **local 実行だけでは変わりません**。`main` push 後に Actions / Pages 応答まで確認してください。
 
 - ローカル検証は **HTTP のみ** です。`file://` で `dist/index.html` を直開きしないでください。
 - ローカルプレビューは **`scripts/dev_dist.ps1` を唯一の入口** とします。
@@ -256,11 +259,11 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
   - Search Console へ `/sitemap.xml` 送信済み（成功）。
 - エリア導線の役割分離（実装方針）:
   - エリアチップは操作用UI（トップ内絞り込み）として扱います。
-  - エリアハブページは SEO 用の固定着地ページとして扱います（小倉北区: `/area/fukuoka/kitakyushu/kokurakita/` 実装済み）。
+  - エリアハブページは SEO 用の固定着地ページとして扱い、導線は全対象エリアへ一般化済みです（例: 小倉北区 `/area/fukuoka/kitakyushu/kokurakita/`）。
   - 操作UIとSEO導線は混ぜすぎず、役割を分けて運用します。
 - 建物個別ページの内部リンク導線（実装済み）:
   - パンくず（ホーム → エリアハブ → 建物）。
-  - 同じエリアの建物リンク。
+  - 同じエリアの建物リンク（area-driven）。
   - 建物個別ページは建物名・住所などのロングテール検索流入を受ける主役ページとして運用します。
 - Next step（運用メモ）:
   - 次回のDB更新は、空室情報更新 + 新規建物追加を全エリアで進める予定です。
@@ -470,7 +473,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 
 - ローカル確認 URL 例: `http://127.0.0.1:8788/tatemono-map/`（ポートは任意）
 
-## 小倉北区MVP: ルート別データフロー（Ulucks/RealPro + Mansion-review + Orient）
+## 小倉北区MVP（現行は全対象エリアへ拡張済み）: ルート別データフロー（Ulucks/RealPro + Mansion-review + Orient）
 
 ### 監査結果（Inventory / Audit）
 - A) Ulucks/RealPro（listings）

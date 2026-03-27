@@ -241,7 +241,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\publish_public.ps1"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO
 ```
 
-- 取得元は city 一覧ページ（`/mansion/city/...`, `/chintai/city/...`）のみです。詳細ページには入りません（listfacts URL ベース前提）。
+- 取得は listfacts（city 一覧）主体です。通常は一覧ページのみを使い、address 欠損時のみ detail 補完が入ります。
 - 対象 city_id は 15 エリア（`1616,1619,1614,1618,1620,1677,1676,1675,1681,1678,1639,1683,1641,1632,1651`）です。
 - 分譲は「価格レンジ（平均価格）」と「販売情報件数」を public DB / dist に反映します。
 - 入居可能日は `vacancy_count > 0` のときのみ表示対象です（分譲/空室0件は `—`）。
