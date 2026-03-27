@@ -211,8 +211,7 @@
   <section class="area-links card" aria-label="主要エリアから探す">
     <h2>主要エリアから探す</h2>
     <ul>
-      {% for area in major_area_links %}<li><a href="{{ area.href }}">{{ area.label }}</a></li>{% endfor %}
-      <li><a href="{{ base_path }}/?q=中間市">中間市</a></li><li><a href="{{ base_path }}/?q=遠賀郡">遠賀郡</a></li><li><a href="{{ base_path }}/?q=京都郡">京都郡</a></li><li><a href="{{ base_path }}/?q=行橋市">行橋市</a></li><li><a href="{{ base_path }}/?q=築上郡">築上郡</a></li><li><a href="{{ base_path }}/?q=豊前市">豊前市</a></li><li><a href="{{ base_path }}/?q=直方市">直方市</a></li><li><a href="{{ base_path }}/?q=鞍手郡">鞍手郡</a></li><li><a href="{{ base_path }}/?q=田川郡">田川郡</a></li><li><a href="{{ base_path }}/?q=田川市">田川市</a></li><li><a href="{{ base_path }}/?q=宗像市">宗像市</a></li><li><a href="{{ base_path }}/?q=宮若市">宮若市</a></li><li><a href="{{ base_path }}/?q=飯塚市">飯塚市</a></li><li><a href="{{ base_path }}/?q=嘉穂郡">嘉穂郡</a></li><li><a href="{{ base_path }}/?q=嘉麻市">嘉麻市</a></li>
+      {% for area in all_area_links %}<li><a href="{{ area.href }}">{{ area.label }}</a></li>{% endfor %}
     </ul>
   </section>
 
