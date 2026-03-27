@@ -891,7 +891,7 @@ def test_render_dist_includes_seo_meta_on_index_and_building_pages(tmp_path):
     assert 'name="description" content="北九州のマンション・アパートを建物単位で検索できる建物データベース。建物名、住所、空室数、家賃帯、面積帯などをまとめて確認できます。"' in index
     assert 'rel="canonical" href="https://www.tatemono-map.com/tatemono-map/"' in index
 
-    assert "プレジデンスざ三萩野 | 北九州市小倉北区の建物情報 | 建物マップ" in detail
+    assert "プレジデンスざ三萩野 | 小倉北区の建物情報 | 建物マップ" in detail
     assert 'name="description" content="プレジデンスざ三萩野は福岡県北九州市小倉北区黄金1-2-10にある建物です。' in detail
     assert 'rel="canonical" href="https://www.tatemono-map.com/tatemono-map/b/' in detail
 
@@ -946,3 +946,85 @@ def test_render_dist_root_mode_canonical_for_custom_domain(tmp_path, monkeypatch
     assert detail.index('rel="canonical"') < detail.index("</head>")
     assert '<meta name="google-site-verification" content="JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo">' in index
     assert '<meta name="google-site-verification" content="JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo">' in detail
+
+
+def test_render_dist_generates_area_hub_pages_for_non_kokurakita_areas(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("苅田町確認マンション", "福岡県京都郡苅田町神田町1-1-1", 79000, 29.0, "1LDK", "2026-11-01", "ulucks", "karita-hub"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    area_page = (dist / "area" / "fukuoka" / "keichiku" / "miyako-gun" / "index.html").read_text(encoding="utf-8")
+
+    assert "/area/fukuoka/keichiku/miyako-gun/" in index
+    assert "京都郡の建物一覧 | 建物マップ" in area_page
+    assert "苅田町確認マンション" in area_page
+
+
+def test_render_dist_related_buildings_excludes_tagawa_for_karita(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("苅田町ターゲット", "福岡県京都郡苅田町幸町1-1-1", 81000, 30.0, "1LDK", "2026-11-01", "ulucks", "karita-target"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("苅田町関連", "福岡県京都郡苅田町京町2-2-2", 82000, 31.0, "1LDK", "2026-11-01", "ulucks", "karita-related"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("田川市ノイズ", "福岡県田川市本町3-3-3", 65000, 28.0, "1K", "2026-11-01", "ulucks", "tagawa-noise"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    detail = next(
+        page.read_text(encoding="utf-8")
+        for page in (dist / "b").glob("*.html")
+        if "苅田町ターゲット" in page.read_text(encoding="utf-8")
+    )
+    assert "同じエリアの建物" in detail
+    assert "苅田町関連" in detail
+    assert "田川市ノイズ" not in detail
+
+
+def test_render_dist_related_buildings_keeps_existing_kitakyushu_behavior(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("小倉北ターゲット", "福岡県北九州市小倉北区魚町1-1-1", 83000, 31.0, "1LDK", "2026-11-01", "ulucks", "kokurakita-target"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("小倉北関連", "福岡県北九州市小倉北区京町2-2-2", 84000, 32.0, "1LDK", "2026-11-01", "ulucks", "kokurakita-related"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("小倉南ノイズ", "福岡県北九州市小倉南区守恒3-3-3", 76000, 30.0, "1LDK", "2026-11-01", "ulucks", "kokuraminami-noise"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    detail = next(
+        page.read_text(encoding="utf-8")
+        for page in (dist / "b").glob("*.html")
+        if "小倉北ターゲット" in page.read_text(encoding="utf-8")
+    )
+    assert "小倉北関連" in detail
+    assert "小倉南ノイズ" not in detail

@@ -34,6 +34,30 @@ DEFAULT_GOOGLE_SITE_VERIFICATION = "JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo"
 DEFAULT_SITE_ORIGIN = "https://www.tatemono-map.com"
 KOKURAKITA_AREA_PATH = "/area/fukuoka/kitakyushu/kokurakita/"
 DEFAULT_STATIC_BUILDING_LINK_LIMIT = 80
+AREA_PAGE_SPECS = (
+    {"label": "小倉北区", "path": KOKURAKITA_AREA_PATH, "match_tokens": ("北九州市小倉北区",), "is_major": True},
+    {"label": "小倉南区", "path": "/area/fukuoka/kitakyushu/kokuraminami/", "match_tokens": ("北九州市小倉南区",), "is_major": True},
+    {"label": "八幡東区", "path": "/area/fukuoka/kitakyushu/yahatahigashi/", "match_tokens": ("北九州市八幡東区",), "is_major": True},
+    {"label": "八幡西区", "path": "/area/fukuoka/kitakyushu/yahatanishi/", "match_tokens": ("北九州市八幡西区",), "is_major": True},
+    {"label": "若松区", "path": "/area/fukuoka/kitakyushu/wakamatsu/", "match_tokens": ("北九州市若松区",), "is_major": True},
+    {"label": "戸畑区", "path": "/area/fukuoka/kitakyushu/tobata/", "match_tokens": ("北九州市戸畑区",), "is_major": True},
+    {"label": "門司区", "path": "/area/fukuoka/kitakyushu/moji/", "match_tokens": ("北九州市門司区",), "is_major": True},
+    {"label": "中間市", "path": "/area/fukuoka/chikuho/nakama/", "match_tokens": ("中間市",), "is_major": False},
+    {"label": "遠賀郡", "path": "/area/fukuoka/chikuho/onga-gun/", "match_tokens": ("遠賀郡",), "is_major": False},
+    {"label": "京都郡", "path": "/area/fukuoka/keichiku/miyako-gun/", "match_tokens": ("京都郡",), "is_major": False},
+    {"label": "行橋市", "path": "/area/fukuoka/keichiku/yukuhashi/", "match_tokens": ("行橋市",), "is_major": False},
+    {"label": "築上郡", "path": "/area/fukuoka/keichiku/chikujo-gun/", "match_tokens": ("築上郡",), "is_major": False},
+    {"label": "豊前市", "path": "/area/fukuoka/keichiku/buzen/", "match_tokens": ("豊前市",), "is_major": False},
+    {"label": "直方市", "path": "/area/fukuoka/chikuho/nogata/", "match_tokens": ("直方市",), "is_major": False},
+    {"label": "鞍手郡", "path": "/area/fukuoka/chikuho/kurate-gun/", "match_tokens": ("鞍手郡",), "is_major": False},
+    {"label": "田川郡", "path": "/area/fukuoka/chikuho/tagawa-gun/", "match_tokens": ("田川郡",), "is_major": False},
+    {"label": "田川市", "path": "/area/fukuoka/chikuho/tagawa/", "match_tokens": ("田川市",), "is_major": False},
+    {"label": "宗像市", "path": "/area/fukuoka/chikuzen/munakata/", "match_tokens": ("宗像市",), "is_major": False},
+    {"label": "宮若市", "path": "/area/fukuoka/chikuho/miyawaka/", "match_tokens": ("宮若市",), "is_major": False},
+    {"label": "飯塚市", "path": "/area/fukuoka/chikuho/iizuka/", "match_tokens": ("飯塚市",), "is_major": False},
+    {"label": "嘉穂郡", "path": "/area/fukuoka/chikuho/kaho-gun/", "match_tokens": ("嘉穂郡",), "is_major": False},
+    {"label": "嘉麻市", "path": "/area/fukuoka/chikuho/kama/", "match_tokens": ("嘉麻市",), "is_major": False},
+)
 
 
 def _format_yen(value: object) -> str:
@@ -204,11 +228,11 @@ def _build_canonical_url(site_origin: str, base_path: str, page_path: str) -> st
     return f"{origin}{prefix}{suffix}"
 
 
-def _build_sitemap_xml(*, site_origin: str, base_path: str, buildings: list[dict]) -> str:
+def _build_sitemap_xml(*, site_origin: str, base_path: str, buildings: list[dict], area_paths: list[str]) -> str:
     urls = [
         _build_canonical_url(site_origin, base_path, "/"),
-        _build_canonical_url(site_origin, base_path, KOKURAKITA_AREA_PATH),
     ]
+    urls.extend(_build_canonical_url(site_origin, base_path, path) for path in area_paths)
     building_urls = [_build_canonical_url(site_origin, base_path, f"/b/{b['detail_filename']}") for b in buildings]
     urls.extend(sorted(building_urls))
 
@@ -221,8 +245,8 @@ def _build_sitemap_xml(*, site_origin: str, base_path: str, buildings: list[dict
     return "\n".join(lines) + "\n"
 
 
-def _write_sitemap(output_dir: Path, *, site_origin: str, base_path: str, buildings: list[dict]) -> None:
-    sitemap_xml = _build_sitemap_xml(site_origin=site_origin, base_path=base_path, buildings=buildings)
+def _write_sitemap(output_dir: Path, *, site_origin: str, base_path: str, buildings: list[dict], area_paths: list[str]) -> None:
+    sitemap_xml = _build_sitemap_xml(site_origin=site_origin, base_path=base_path, buildings=buildings, area_paths=area_paths)
     (output_dir / "sitemap.xml").write_text(sitemap_xml, encoding="utf-8")
 
 
@@ -243,32 +267,48 @@ def _write_robots_txt(output_dir: Path, *, site_origin: str, base_path: str) -> 
     (output_dir / "robots.txt").write_text(robots_txt, encoding="utf-8")
 
 
+def _normalize_address_for_area(value: object) -> str:
+    text = unicodedata.normalize("NFKC", str(value or ""))
+    return re.sub(r"\s+", "", text)
+
+
+def _resolve_area_spec(address: object) -> dict | None:
+    normalized = _normalize_address_for_area(address)
+    if not normalized:
+        return None
+    for spec in AREA_PAGE_SPECS:
+        if any(token in normalized for token in spec["match_tokens"]):
+            return spec
+    return None
+
+
 def _extract_area_label(address: object) -> str:
+    matched = _resolve_area_spec(address)
+    if matched:
+        return str(matched["label"])
     text = str(address or "").strip()
-    if not text:
-        return "北九州市"
-    city_ward_match = re.search(r"(北九州市[^\d\-ー丁目番地\s]*区)", text)
-    if city_ward_match:
-        return city_ward_match.group(1)
-    if "北九州市" in text:
-        return "北九州市"
-    ward_match = re.search(r"([^\d\-ー丁目番地\s]*区)", text)
-    if ward_match:
-        return ward_match.group(1)
-    return "北九州市"
+    municipality_match = re.search(r"(北九州市[^\d\-ー丁目番地\s]*区|[^\d\-ー丁目番地\s]*(?:市|郡[^\d\-ー丁目番地\s]*(?:町|村)|町|村))", text)
+    if municipality_match:
+        return municipality_match.group(1)
+    return "対象エリア外"
 
 
-def _is_kokurakita_building(building: dict) -> bool:
-    address = str(building.get("address") or "")
-    return "北九州市小倉北区" in address
+def _build_area_link(area_spec: dict, *, base_path: str) -> dict:
+    return {
+        "label": area_spec["label"],
+        "href": f"{base_path}{area_spec['path']}",
+        "path": area_spec["path"],
+    }
 
 
 def _build_related_buildings(buildings: list[dict], current: dict, *, max_items: int = 8) -> list[dict]:
     current_key = current.get("building_key")
-    area_label = _extract_area_label(current.get("address"))
+    current_area = _resolve_area_spec(current.get("address"))
+    if current_area is None:
+        return []
     related = [
         b for b in buildings
-        if b.get("building_key") != current_key and _extract_area_label(b.get("address")) == area_label
+        if b.get("building_key") != current_key and _resolve_area_spec(b.get("address")) == current_area
     ]
     related.sort(key=lambda row: row.get("updated_epoch") or -1, reverse=True)
     return related[:max_items]
@@ -613,16 +653,17 @@ def _build_dist_version(
     parsed_dates = [parsed for parsed in (_build_summary_date(b) for b in buildings) if parsed is not None]
     latest_data_date = max(parsed_dates, default=None)
     latest_data_date_label = latest_data_date.strftime("%Y/%m/%d") if latest_data_date else "—"
-    kokurakita_buildings = [b for b in buildings if _is_kokurakita_building(b)]
-    major_area_links = [
-        {"label": "小倉北区", "href": f"{base_path}{KOKURAKITA_AREA_PATH}", "is_hub": True},
-        {"label": "小倉南区", "href": f"{base_path}/?q=小倉南区", "is_hub": False},
-        {"label": "八幡東区", "href": f"{base_path}/?q=八幡東区", "is_hub": False},
-        {"label": "八幡西区", "href": f"{base_path}/?q=八幡西区", "is_hub": False},
-        {"label": "若松区", "href": f"{base_path}/?q=若松区", "is_hub": False},
-        {"label": "戸畑区", "href": f"{base_path}/?q=戸畑区", "is_hub": False},
-        {"label": "門司区", "href": f"{base_path}/?q=門司区", "is_hub": False},
-    ]
+    area_buildings_map = {spec["path"]: [] for spec in AREA_PAGE_SPECS}
+    for building in buildings:
+        matched_area = _resolve_area_spec(building.get("address"))
+        if matched_area:
+            area_buildings_map[matched_area["path"]].append(building)
+    major_area_links = [_build_area_link(spec, base_path=base_path) for spec in AREA_PAGE_SPECS if spec["is_major"]]
+    all_area_links = [_build_area_link(spec, base_path=base_path) for spec in AREA_PAGE_SPECS]
+    area_hub_links = {
+        spec["label"]: {"label": spec["label"], "href": f"{base_path}{spec['path']}"}
+        for spec in AREA_PAGE_SPECS
+    }
 
     (output_dir / "index.html").write_text(
         index_tpl.render(
@@ -645,39 +686,44 @@ def _build_dist_version(
             page_description="北九州のマンション・アパートを建物単位で検索できる建物データベース。建物名、住所、空室数、家賃帯、面積帯などをまとめて確認できます。",
             canonical_url=_build_canonical_url(site_origin, base_path, "/"),
             major_area_links=major_area_links,
+            all_area_links=all_area_links,
+            area_hub_links=area_hub_links,
             base_path=base_path,
             google_site_verification=google_site_verification,
         ),
         encoding="utf-8",
     )
 
-    kokurakita_dir = output_dir / "area" / "fukuoka" / "kitakyushu" / "kokurakita"
-    kokurakita_dir.mkdir(parents=True, exist_ok=True)
-    kokurakita_dir.joinpath("index.html").write_text(
-        area_tpl.render(
-            area_name="小倉北区",
-            intro_text="小倉北区にある建物をまとめて確認できます。気になる建物があればLINEで最新情報をご相談ください。",
-            buildings=kokurakita_buildings,
-            page_title="小倉北区の建物一覧 | 建物マップ",
-            page_description="小倉北区のマンション・アパートを建物単位で確認できる一覧ページです。住所、空室数、家賃帯、面積帯をまとめてチェックできます。",
-            canonical_url=_build_canonical_url(site_origin, base_path, KOKURAKITA_AREA_PATH),
-            line_cta_url=line_cta_url,
-            line_deep_link_url=line_deep_link_url,
-            base_path=base_path,
-            google_site_verification=google_site_verification,
-        ),
-        encoding="utf-8",
-    )
+    for area_spec in AREA_PAGE_SPECS:
+        area_dir = output_dir / area_spec["path"].strip("/")
+        area_dir.mkdir(parents=True, exist_ok=True)
+        area_name = area_spec["label"]
+        area_dir.joinpath("index.html").write_text(
+            area_tpl.render(
+                area_name=area_name,
+                intro_text=f"{area_name}にある建物をまとめて確認できます。気になる建物があればLINEで最新情報をご相談ください。",
+                buildings=area_buildings_map[area_spec["path"]],
+                page_title=f"{area_name}の建物一覧 | 建物マップ",
+                page_description=f"{area_name}のマンション・アパートを建物単位で確認できる一覧ページです。住所、空室数、家賃帯、面積帯をまとめてチェックできます。",
+                canonical_url=_build_canonical_url(site_origin, base_path, area_spec["path"]),
+                line_cta_url=line_cta_url,
+                line_deep_link_url=line_deep_link_url,
+                base_path=base_path,
+                google_site_verification=google_site_verification,
+            ),
+            encoding="utf-8",
+        )
 
     for b in buildings:
         maps_url = _build_google_maps_url(b.get("address"))
         maps_embed_url = _build_google_maps_embed_url(b.get("address"), google_maps_embed_api_key)
         seo = _build_building_seo(b, site_origin=site_origin, base_path=base_path)
         area_hub = None
-        if _is_kokurakita_building(b):
+        area_spec = _resolve_area_spec(b.get("address"))
+        if area_spec:
             area_hub = {
-                "name": "小倉北区",
-                "url": f"{base_path}{KOKURAKITA_AREA_PATH}",
+                "name": area_spec["label"],
+                "url": f"{base_path}{area_spec['path']}",
             }
         html = building_tpl.render(
             building=b,
@@ -699,7 +745,13 @@ def _build_dist_version(
 
     _write_favicon_assets(output_dir, base_path=base_path)
     _write_buildings_json(output_dir, buildings)
-    _write_sitemap(output_dir, site_origin=site_origin, base_path=base_path, buildings=buildings)
+    _write_sitemap(
+        output_dir,
+        site_origin=site_origin,
+        base_path=base_path,
+        buildings=buildings,
+        area_paths=[spec["path"] for spec in AREA_PAGE_SPECS],
+    )
     _write_robots_txt(output_dir, site_origin=site_origin, base_path=base_path)
     _write_build_info(output_dir, db_path=db_path, buildings_count_json=len(_build_buildings_v2_min_payload(buildings)))
 

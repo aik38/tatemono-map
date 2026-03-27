@@ -140,8 +140,7 @@
       <h2>主要エリアから探す</h2>
     </button>
     <ul id="area-links-list" class="area-links-list" hidden>
-      {% for area in major_area_links %}<li><a class="area-filter-link" href="{{ area.href }}" data-area="{{ area.label }}">{{ area.label }}</a></li>{% endfor %}
-      <li><a href="{{ base_path }}/?q=中間市">中間市</a></li><li><a href="{{ base_path }}/?q=遠賀郡">遠賀郡</a></li><li><a href="{{ base_path }}/?q=京都郡">京都郡</a></li><li><a href="{{ base_path }}/?q=行橋市">行橋市</a></li><li><a href="{{ base_path }}/?q=築上郡">築上郡</a></li><li><a href="{{ base_path }}/?q=豊前市">豊前市</a></li><li><a href="{{ base_path }}/?q=直方市">直方市</a></li><li><a href="{{ base_path }}/?q=鞍手郡">鞍手郡</a></li><li><a href="{{ base_path }}/?q=田川郡">田川郡</a></li><li><a href="{{ base_path }}/?q=田川市">田川市</a></li><li><a href="{{ base_path }}/?q=宗像市">宗像市</a></li><li><a href="{{ base_path }}/?q=宮若市">宮若市</a></li><li><a href="{{ base_path }}/?q=飯塚市">飯塚市</a></li><li><a href="{{ base_path }}/?q=嘉穂郡">嘉穂郡</a></li><li><a href="{{ base_path }}/?q=嘉麻市">嘉麻市</a></li>
+      {% for area in all_area_links %}<li><a class="area-filter-link" href="{{ area.href }}" data-area="{{ area.label }}">{{ area.label }}</a></li>{% endfor %}
     </ul>
   </section>
 
@@ -203,12 +202,9 @@
   const SEARCH_DEBOUNCE_MS = 250;
   const formatCount = (n) => new Intl.NumberFormat('ja-JP').format(n);
   const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, ' ').trim();
-  const AREA_HUB_LINKS = {
-    [normalizeText('小倉北区')]: {
-      label: '小倉北区',
-      href: '{{ base_path }}/area/fukuoka/kitakyushu/kokurakita/'
-    }
-  };
+  const AREA_HUB_LINKS = Object.fromEntries(
+    Object.entries({{ area_hub_links | tojson }}).map(([label, value]) => [normalizeText(label), value])
+  );
   const safeNumber = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
   const positiveNumberOrNull = (value) => {
     const n = Number(value);
