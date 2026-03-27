@@ -5,6 +5,7 @@ param(
   [double]$SleepSec = 0.7,
   [int]$MaxPages = 0,
   [string]$Merge = "fill_only",
+  [switch]$AutoSeedHighConfidence = $false,
   [switch]$CreateMissingSafe = $false,
   [switch]$RunPublish = $true
 )
@@ -36,9 +37,10 @@ try {
   Write-Host "[OK] facts_csv=$($factsCsv.FullName)"
 
   $dbPath = Join-Path $repo "data\tatemono_map.sqlite3"
-  & $py -m tatemono_map.building_registry.ingest_building_facts --db $dbPath --csv $factsCsv.FullName --source mansion_review_list_facts --merge $Merge $(if($CreateMissingSafe){"--create-missing-safe"})
+  $enableAutoSeed = $CreateMissingSafe -or $AutoSeedHighConfidence
+  & $py -m tatemono_map.building_registry.ingest_building_facts --db $dbPath --csv $factsCsv.FullName --source mansion_review_list_facts --merge $Merge $(if($enableAutoSeed){"--create-missing-safe"})
   if ($LASTEXITCODE -ne 0) { throw "ingest_building_facts failed" }
-  Write-Host "[OK] ingest_building_facts db=$dbPath merge=$Merge"
+  Write-Host "[OK] ingest_building_facts db=$dbPath merge=$Merge auto_seed_high_confidence=$enableAutoSeed"
 
   if ($RunPublish) {
     & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\publish_public.ps1") -RepoPath $repo
