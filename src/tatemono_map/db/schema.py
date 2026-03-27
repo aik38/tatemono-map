@@ -685,6 +685,16 @@ def _seed_source_priority(conn: sqlite3.Connection) -> None:
     )
 
 
+def _normalize_add_column_type(column_type: str) -> str:
+    normalized = " ".join(column_type.split())
+    upper = normalized.upper()
+    marker = " DEFAULT CURRENT_TIMESTAMP"
+    if marker in upper:
+        idx = upper.index(marker)
+        return normalized[:idx].strip()
+    return normalized
+
+
 def ensure_schema(db_path: str | Path) -> Path:
     path = normalize_db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -705,7 +715,8 @@ def ensure_schema(db_path: str | Path) -> Path:
                 for column in missing:
                     column_type = migration_cols.get(column)
                     if column_type:
-                        conn.execute(f"ALTER TABLE {table.name} ADD COLUMN {column} {column_type}")
+                        add_type = _normalize_add_column_type(column_type)
+                        conn.execute(f"ALTER TABLE {table.name} ADD COLUMN {column} {add_type}")
                         migrated = True
                 if migrated:
                     info_rows = conn.execute(f"PRAGMA table_info({table.name})").fetchall()
