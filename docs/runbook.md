@@ -101,6 +101,7 @@ curl.exe -s https://www.tatemono-map.com/build_info.json
 ```
 
 - `Headers.Last-Modified` / `Headers.ETag` が更新されていることを確認する。
+- `run_to_pages` / `publish_public` / `dev_dist` をローカル実行しただけでは本番は変わりません。`main` push をトリガーにした Actions 完了後に Pages 応答を確認してください。
 - ブラウザ確認はシークレットウィンドウで行い、必要に応じて `Ctrl+F5`。
 
 ---
@@ -138,7 +139,7 @@ Invoke-WebRequest -Method Head https://www.tatemono-map.com/data/buildings.v2.mi
 $REPO = "C:\path\to\tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\mvp_refresh.ps1" `
   -RepoPath $REPO `
-  -CityIds "1616,1619" `
+  -CityIds "1616,1619,1614,1618,1620,1677,1676,1675,1681,1678,1639,1683,1641,1632,1651" `
   -Kinds "mansion,chintai" `
   -SleepSec 0.7 `
   -MaxPages 0 `
@@ -206,7 +207,7 @@ Mansion-Review / Orient 由来の建物ファクト（構造・築年数・入�
 $REPO = "C:\path\to\tatemono-map"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_mansion_review_facts_to_db.ps1" `
   -RepoPath $REPO `
-  -CityIds "1616,1619" `
+  -CityIds "1616,1619,1614,1618,1620,1677,1676,1675,1681,1678,1639,1683,1641,1632,1651" `
   -Kinds "mansion,chintai" `
   -MaxPages 3 `
   -Merge fill_only
@@ -230,7 +231,7 @@ Set-Location $REPO
 
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_mansion_review_listfacts_to_db.ps1" `
   -RepoPath $REPO `
-  -CityIds "1616,1619" `
+  -CityIds "1616,1619,1614,1618,1620,1677,1676,1675,1681,1678,1639,1683,1641,1632,1651" `
   -Kinds "mansion,chintai" `
   -SleepSec 0.7 `
   -MaxPages 0 `
@@ -240,10 +241,12 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\publish_public.ps1"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -RepoPath $REPO
 ```
 
-- 取得元は city 一覧ページ（`/mansion/city/...`, `/chintai/city/...`）のみです。詳細ページには入りません。
+- 取得元は city 一覧ページ（`/mansion/city/...`, `/chintai/city/...`）のみです。詳細ページには入りません（listfacts URL ベース前提）。
+- 対象 city_id は 15 エリア（`1616,1619,1614,1618,1620,1677,1676,1675,1681,1678,1639,1683,1641,1632,1651`）です。
 - 分譲は「価格レンジ（平均価格）」と「販売情報件数」を public DB / dist に反映します。
 - 入居可能日は `vacancy_count > 0` のときのみ表示対象です（分譲/空室0件は `—`）。
 - 賃貸は Ulucks/RealPro 優先を維持し、マンションレビュー賃貸は建物facts補完として扱います。
+- Batch 2（`1639,1683,1641,1632,1651`）の `created=0` は、住所抽出の汎用化・facts selector 見直し・address 欠損時 detail 補完・address coverage stats 追加で修正済みです。
 - 高確信 auto-seed を有効にする場合のみ `-AutoSeedHighConfidence` を付けます（既定 OFF）。  
   ON の場合も保守的に、通常マッチで未一致のうち「建物名+住所が揃っており、正規化後も非空、既存 canonical/alias/同一正規化住所と衝突なし」のみ新規作成し、曖昧ケースは `unmatched_*` / `auto_seed_skipped_*` に残します。
 
