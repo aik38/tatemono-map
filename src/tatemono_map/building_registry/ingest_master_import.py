@@ -714,7 +714,7 @@ def ingest_master_import_csv(
                         availability_date,
                         availability_flag_immediate,
                         updated_at,
-                        "master",
+                        normalized_source,
                         source_url,
                         ingest_run_id,
                     ),
