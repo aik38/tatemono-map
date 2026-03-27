@@ -213,7 +213,7 @@
       <h2>同じエリアの建物</h2>
       <ul>
         {% for related in related_buildings %}
-        <li><a href="{{ base_path }}/b/{{ related.building_key }}.html">{{ related.name or "名称未設定" }}</a></li>
+        <li><a href="{{ base_path }}/b/{{ related.detail_filename }}">{{ related.name or "名称未設定" }}</a></li>
         {% endfor %}
       </ul>
     </section>

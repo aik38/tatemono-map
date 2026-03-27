@@ -39,7 +39,7 @@
     <ul class="building-list">
       {% for b in buildings %}
       <li class="card building-card">
-        <a class="building-link" href="{{ base_path }}/b/{{ b.building_key }}.html"><h2>{{ b.name or "名称未設定" }}</h2></a>
+        <a class="building-link" href="{{ base_path }}/b/{{ b.detail_filename }}"><h2>{{ b.name or "名称未設定" }}</h2></a>
         <p class="address">{{ b.address or "住所情報なし" }}</p>
         <ul class="kpis" aria-label="建物の主要情報">
           {% if b.property_kind == "bunjo" %}<li class="kpi"><span>販売情報</span>{{ b.sale_listing_count if b.sale_listing_count is not none else "—" }}件</li>{% else %}<li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>{% endif %}

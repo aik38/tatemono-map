@@ -9,6 +9,15 @@ from tatemono_map.normalize.building_summaries import rebuild
 from tatemono_map.render.build import build_dist, build_dist_versions
 
 
+def _pick_primary_detail_path(detail_dir: Path) -> Path:
+    pages = sorted(detail_dir.glob("*.html"))
+    assert pages
+    for page in pages:
+        if "-" in page.stem:
+            return page
+    return pages[0]
+
+
 def test_render_dist_outputs(tmp_path):
     db = tmp_path / "test.sqlite3"
     dist = tmp_path / "dist"
@@ -319,6 +328,7 @@ def test_build_dist_versions_outputs_v2_min_json_with_contract(tmp_path):
 
     required_keys = {
         "id",
+        "detail_filename",
         "name",
         "address",
         "vacancy_count",
@@ -756,7 +766,7 @@ def test_render_dist_generates_root_mode_sitemap_with_canonical_urls(tmp_path, m
     rebuild(str(db))
     build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
 
-    detail_path = next((dist / "b").glob("*.html"))
+    detail_path = _pick_primary_detail_path(dist / "b")
     expected_detail_url = f"https://www.tatemono-map.com/b/{detail_path.stem}.html"
 
     sitemap = (dist / "sitemap.xml").read_text(encoding="utf-8")
@@ -783,7 +793,7 @@ def test_render_dist_generates_project_pages_mode_sitemap_with_base_path(tmp_pat
     rebuild(str(db))
     build_dist(str(db), str(dist), template_root="templates_v2", base_path="/tatemono-map")
 
-    detail_path = next((dist / "b").glob("*.html"))
+    detail_path = _pick_primary_detail_path(dist / "b")
     expected_detail_url = f"https://aik38.github.io/tatemono-map/b/{detail_path.stem}.html"
 
     sitemap = (dist / "sitemap.xml").read_text(encoding="utf-8")
@@ -833,9 +843,9 @@ def test_render_dist_v2_index_contains_static_building_links_in_initial_html(tmp
     build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
 
     index = (dist / "index.html").read_text(encoding="utf-8")
-    assert "建物一覧（初期表示）" in index
-    assert f'href="/b/{first_key}.html"' in index
-    assert f'href="/b/{second_key}.html"' in index
+    assert "建物マップ" in index
+    assert f"-{first_key}.html" in index
+    assert f"-{second_key}.html" in index
 
 
 def test_build_dist_versions_includes_google_site_verification_meta(tmp_path):
@@ -923,7 +933,7 @@ def test_render_dist_root_mode_canonical_for_custom_domain(tmp_path, monkeypatch
     build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
 
     index = (dist / "index.html").read_text(encoding="utf-8")
-    detail_path = next((dist / "b").glob("*.html"))
+    detail_path = _pick_primary_detail_path(dist / "b")
     detail = detail_path.read_text(encoding="utf-8")
 
     assert 'rel="canonical" href="https://www.tatemono-map.com/"' in index

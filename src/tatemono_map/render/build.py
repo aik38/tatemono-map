@@ -5,6 +5,7 @@ import json
 import os
 import re
 import shutil
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -153,6 +154,26 @@ def _normalize_base_path(base_path: str) -> str:
     return normalized
 
 
+def _slugify_building_name(name: object) -> str:
+    text = unicodedata.normalize("NFKC", str(name or "")).strip().lower()
+    if not text:
+        return ""
+    text = re.sub(r"[\s_/]+", "-", text)
+    text = re.sub(r"[^\w\u3040-\u30ff\u3400-\u9fff-]", "-", text)
+    text = re.sub(r"-{2,}", "-", text).strip("-")
+    return text
+
+
+def _build_detail_filename(building: dict) -> str:
+    stable_id = str(building.get("building_key") or "").strip()
+    slug = _slugify_building_name(building.get("name"))
+    if not stable_id:
+        return ""
+    if not slug:
+        return f"{stable_id}.html"
+    return f"{slug}-{stable_id}.html"
+
+
 def _write_favicon_assets(output_dir: Path, *, base_path: str) -> None:
     favicon_dir = output_dir / "assets" / "favicon"
     favicon_dir.mkdir(parents=True, exist_ok=True)
@@ -188,7 +209,7 @@ def _build_sitemap_xml(*, site_origin: str, base_path: str, buildings: list[dict
         _build_canonical_url(site_origin, base_path, "/"),
         _build_canonical_url(site_origin, base_path, KOKURAKITA_AREA_PATH),
     ]
-    building_urls = [_build_canonical_url(site_origin, base_path, f"/b/{b['building_key']}.html") for b in buildings]
+    building_urls = [_build_canonical_url(site_origin, base_path, f"/b/{b['detail_filename']}") for b in buildings]
     urls.extend(sorted(building_urls))
 
     lines = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
@@ -309,7 +330,7 @@ def _build_building_seo(building: dict, *, site_origin: str, base_path: str) -> 
     detail_sentence = f"{'、'.join(facts)}。" if facts else "募集状況は随時更新されています。"
     description = f"{intro}{detail_sentence}建物ごとの募集状況をまとめて確認できます。"
 
-    canonical_url = _build_canonical_url(site_origin, base_path, f"/b/{building['building_key']}.html")
+    canonical_url = _build_canonical_url(site_origin, base_path, f"/b/{building['detail_filename']}")
     return {
         "page_title": title,
         "page_description": description,
@@ -431,6 +452,7 @@ def _build_buildings_payload(buildings: list[dict]) -> list[dict]:
         payload.append(
             {
                 "id": b.get("building_key"),
+                "detail_filename": b.get("detail_filename"),
                 "name": b.get("name"),
                 "address": b.get("address"),
                 "vacancy_count": b.get("vacancy_count"),
@@ -470,6 +492,7 @@ def _build_buildings_v2_min_payload(buildings: list[dict]) -> list[dict]:
         payload.append(
             {
                 "id": b.get("building_key"),
+                "detail_filename": b.get("detail_filename"),
                 "name": b.get("name"),
                 "address": b.get("address"),
                 "vacancy_count": b.get("vacancy_count"),
@@ -583,6 +606,9 @@ def _build_dist_version(
     area_tpl = env.get_template("area.html.j2")
 
     total_buildings = len(buildings)
+    for b in buildings:
+        b["detail_filename"] = _build_detail_filename(b)
+        b["legacy_detail_filename"] = f"{b['building_key']}.html"
     total_vacant = sum((b.get("vacancy_count") or 0) for b in buildings)
     parsed_dates = [parsed for parsed in (_build_summary_date(b) for b in buildings) if parsed is not None]
     latest_data_date = max(parsed_dates, default=None)
@@ -667,7 +693,9 @@ def _build_dist_version(
             base_path=base_path,
             google_site_verification=google_site_verification,
         )
-        (output_dir / "b" / f"{b['building_key']}.html").write_text(html, encoding="utf-8")
+        (output_dir / "b" / b["detail_filename"]).write_text(html, encoding="utf-8")
+        if b["detail_filename"] != b["legacy_detail_filename"]:
+            (output_dir / "b" / b["legacy_detail_filename"]).write_text(html, encoding="utf-8")
 
     _write_favicon_assets(output_dir, base_path=base_path)
     _write_buildings_json(output_dir, buildings)

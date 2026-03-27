@@ -225,7 +225,7 @@
         data-vacancy="{{ b.vacancy_count if b.vacancy_count is not none else -1 }}"
         data-rent-min="{{ b.rent_yen_min if b.rent_yen_min is not none else 999999999 }}"
       >
-        <a class="building-link" href="b/{{ b.building_key }}.html">
+        <a class="building-link" href="b/{{ b.detail_filename }}">
           <h2>{{ b.name or "名称未設定" }}</h2>{% if b.property_kind == "bunjo" %}<span class="kpi">分譲マンション</span>{% endif %}
         </a>
         <p class="address">{{ b.address or "住所情報なし" }}</p>
