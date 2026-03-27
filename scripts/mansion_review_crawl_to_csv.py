@@ -145,6 +145,25 @@ def _find_text_with_pattern(card: Node, patterns: list[str]) -> str:
     return ""
 
 
+def _extract_address_like_text(text: str) -> str:
+    normalized = normalize_space(text)
+    if not normalized:
+        return ""
+    patterns = [
+        r"(?:東京都|北海道|(?:京都|大阪)府|[^\s、,]{2,8}県)?[^\s、,]{1,20}(?:市|区|町|村)[^\s、,]{0,120}\d[^\s、,]{0,40}",
+        r"(?:東京都|北海道|(?:京都|大阪)府|[^\s、,]{2,8}県)?[^\s、,]{1,20}(?:市|区|町|村)[^\s、,]{0,140}",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, normalized)
+        if match:
+            return normalize_space(match.group(0))
+    return ""
+
+
+def _address_has_digits(address: str) -> bool:
+    return bool(re.search(r"\d", normalize_space(address)))
+
+
 def detect_card_nodes(tree: HTMLParser) -> tuple[list[Node], ParseDebug]:
     selectors = [
         "li.property-detail-list-item",
@@ -193,7 +212,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         )
         address = _pick_first_text(card, [".address", "dd.address", "dd", "[class*='address']"])
         if not address:
-            address = _find_text_with_pattern(card, [r"(?:福岡県)?北九州市[^\s]{0,20}区[^\s]{0,120}"])
+            address = _extract_address_like_text(card.text(separator=" "))
         address = _strip_fukuoka_prefix(address)
 
         price_or_rent_text = _pick_first_text(
@@ -426,9 +445,7 @@ def parse_list_card_facts(card: Node, kind: str, detail_url: str, fallback_name:
     building_name = _pick_first_text(card, ["h1", "h2", "h3", ".mansionName", ".property-name", "a[title]", "a"]) or normalize_space(fallback_name)
     address = _pick_first_text(card, [".address", "dd.address", "dd", "[class*='address']"])
     if not address:
-        m_addr = re.search(r"(?:福岡県)?北九州市[^\s]{0,10}区[^\s]{0,120}", full_text)
-        if m_addr:
-            address = normalize_space(m_addr.group(0))
+        address = _extract_address_like_text(full_text)
     address = _strip_fukuoka_prefix(address or fallback_address)
 
     built_year_month = _parse_built_year_month(full_text)
@@ -493,9 +510,7 @@ def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_
                 address = picked
                 break
     if not address:
-        m_addr = re.search(r"(?:福岡県)?北九州市[^\s]{0,10}区[^\s]{0,120}", full_text)
-        if m_addr:
-            address = normalize_space(m_addr.group(0))
+        address = _extract_address_like_text(full_text)
     if not address:
         address = normalize_space(fallback_address)
 
@@ -599,6 +614,7 @@ def run_crawl(
 
     all_rows: list[ListRow] = []
     all_facts_rows: list[FactsRow] = []
+    facts_coverage: dict[tuple[str, str], dict[str, int]] = {}
     stats: dict[str, Any] = {
         "timestamp": timestamp,
         "mode": mode,
@@ -678,12 +694,57 @@ def run_crawl(
                 rows, parse_debug = parse_list_page(page_html, page_url, kind, city_id, page)
                 stats["pages_total"] += 1
                 all_rows.extend(rows)
-                tree = HTMLParser(page_html)
-                for card in tree.css("li.property-detail-list-item"):
-                    detail_url = _find_detail_url(card, page_url, kind)
-                    fallback_name = _pick_first_text(card, ["h1", "h2", "h3", ".mansionName", ".property-name", "a"])
-                    fallback_address = _pick_first_text(card, [".address", "dd.address", "dd", "[class*='address']"])
-                    all_facts_rows.append(parse_list_card_facts(card, kind, detail_url, fallback_name, fallback_address))
+                if mode == "facts":
+                    tree = HTMLParser(page_html)
+                    facts_cards, _ = detect_card_nodes(tree)
+                    for card in facts_cards:
+                        detail_url = _find_detail_url(card, page_url, kind)
+                        fallback_name = _pick_first_text(card, ["h1", "h2", "h3", ".mansionName", ".property-name", "a"])
+                        fallback_address = _pick_first_text(card, [".address", "dd.address", "dd", "[class*='address']"])
+                        facts_row = parse_list_card_facts(card, kind, detail_url, fallback_name, fallback_address)
+
+                        if (not facts_row.address or not _address_has_digits(facts_row.address)) and detail_url:
+                            try:
+                                detail_html, from_cache_detail = fetch_html(
+                                    session,
+                                    detail_url,
+                                    cache_dir,
+                                    retry_count=retry_count,
+                                    sleep_sec=sleep_sec,
+                                )
+                                if from_cache_detail:
+                                    stats["cache_hits"] += 1
+                                detail_facts = parse_detail_facts(
+                                    detail_html,
+                                    detail_url=detail_url,
+                                    fallback_name=facts_row.building_name,
+                                    fallback_address=facts_row.address,
+                                )
+                                if detail_facts.address and _address_has_digits(detail_facts.address):
+                                    facts_row.address = detail_facts.address
+                                elif not facts_row.address and detail_facts.address:
+                                    facts_row.address = detail_facts.address
+                            except Exception as err:  # noqa: BLE001
+                                stats["errors"].append(
+                                    {
+                                        "kind": kind,
+                                        "city_id": city_id,
+                                        "page": page,
+                                        "url": detail_url,
+                                        "error": f"detail fetch failed: {err}",
+                                    }
+                                )
+
+                        coverage_key = (city_id, kind)
+                        counter = facts_coverage.setdefault(
+                            coverage_key, {"rows": 0, "address_non_empty": 0, "address_with_digits": 0}
+                        )
+                        counter["rows"] += 1
+                        if facts_row.address:
+                            counter["address_non_empty"] += 1
+                        if _address_has_digits(facts_row.address):
+                            counter["address_with_digits"] += 1
+                        all_facts_rows.append(facts_row)
 
                 detail_urls = {row.detail_url for row in rows if row.detail_url}
                 same_as_previous = prev_detail_urls is not None and detail_urls == prev_detail_urls
@@ -807,6 +868,16 @@ def run_crawl(
         facts_csv = combined_dir / f"building_facts_{timestamp}.csv"
         write_facts_csv(facts_rows, facts_csv)
         stats["facts_total"] = len(facts_rows)
+        stats["address_coverage"] = [
+            {
+                "city_id": city_id,
+                "kind": kind,
+                "rows": values["rows"],
+                "address_non_empty": values["address_non_empty"],
+                "address_with_digits": values["address_with_digits"],
+            }
+            for (city_id, kind), values in sorted(facts_coverage.items())
+        ]
     stats_path = out_dir / "stats.json"
     write_csv(all_rows, out_csv)
     stats_path.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")

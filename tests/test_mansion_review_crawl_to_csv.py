@@ -311,6 +311,83 @@ def test_run_crawl_facts_writes_combined_facts_csv(monkeypatch: pytest.MonkeyPat
     assert stats["facts_total"] == 1
 
 
+def test_parse_list_card_facts_extracts_non_kitakyushu_address() -> None:
+    html = """
+    <html><body>
+      <section class="property-card">
+        <h2>行橋サンプルレジデンス</h2>
+        <a href="/chintai/123">detail</a>
+        <div class="meta">所在地: 福岡県行橋市西宮市1-2-3</div>
+      </section>
+    </body></html>
+    """
+    tree = crawl.HTMLParser(html)
+    card = tree.css_first("section.property-card")
+    assert card is not None
+
+    row = crawl.parse_list_card_facts(
+        card,
+        kind="chintai",
+        detail_url="https://www.mansion-review.jp/chintai/123",
+        fallback_name="fallback",
+        fallback_address="",
+    )
+
+    assert row.address == "行橋市西宮市1-2-3"
+
+
+def test_run_crawl_facts_fills_address_from_detail_and_records_coverage(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class FakeSession:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+
+    list_page = """
+    <html><body>
+      <section class="property-card">
+        <h2>行橋サンプルレジデンス</h2>
+        <a href="/chintai/50001">detail</a>
+        <dd class="address">福岡県行橋市西宮市</dd>
+      </section>
+    </body></html>
+    """
+    detail_page = """
+    <html><body>
+      <h1>行橋サンプルレジデンス</h1>
+      <div class="address">福岡県行橋市西宮市1-2-3</div>
+    </body></html>
+    """
+
+    def fake_fetch_html(_session, url: str, *_args, **_kwargs):
+        if url.endswith("/chintai/city/1639.html"):
+            return list_page, False
+        if url.endswith("/chintai/50001"):
+            return detail_page, False
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(crawl.requests, "Session", FakeSession)
+    monkeypatch.setattr(crawl, "fetch_html", fake_fetch_html)
+
+    _out_dir, facts_csv, stats = crawl.run_crawl(
+        city_ids=["1639"],
+        kinds=["chintai"],
+        mode="facts",
+        out_root=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        sleep_sec=0,
+        max_pages=1,
+        retry_count=0,
+        user_agent="ua",
+    )
+
+    rows = facts_csv.read_text(encoding="utf-8-sig").splitlines()
+    assert any("行橋市西宮市1-2-3" in line for line in rows)
+    assert stats["address_coverage"] == [
+        {"city_id": "1639", "kind": "chintai", "rows": 1, "address_non_empty": 1, "address_with_digits": 1}
+    ]
+
+
 def test_parse_list_card_facts_bunjo_extracts_required_fields() -> None:
     html = f"<html><body>{_read_fixture('list_card_bunjo_min.html')}</body></html>"
     tree = crawl.HTMLParser(html)
