@@ -326,6 +326,180 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
             "updated_at",
         ),
     ),
+    TableSchema(
+        name="area_master",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS area_master (
+            area_code TEXT PRIMARY KEY,
+            parent_area_code TEXT,
+            country_code TEXT NOT NULL DEFAULT 'JP',
+            admin_level INTEGER NOT NULL DEFAULT 0,
+            area_kind TEXT NOT NULL,
+            area_name TEXT NOT NULL,
+            normalized_name TEXT,
+            acquisition_unit TEXT NOT NULL,
+            latitude REAL,
+            longitude REAL,
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        columns=(
+            "area_code",
+            "parent_area_code",
+            "country_code",
+            "admin_level",
+            "area_kind",
+            "area_name",
+            "normalized_name",
+            "acquisition_unit",
+            "latitude",
+            "longitude",
+            "is_active",
+            "created_at",
+            "updated_at",
+        ),
+    ),
+    TableSchema(
+        name="source_priority",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS source_priority (
+            domain TEXT NOT NULL,
+            source TEXT NOT NULL,
+            priority_rank INTEGER NOT NULL,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            effective_from TEXT,
+            effective_to TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(domain, source)
+        )
+        """,
+        columns=(
+            "domain",
+            "source",
+            "priority_rank",
+            "enabled",
+            "effective_from",
+            "effective_to",
+            "created_at",
+            "updated_at",
+        ),
+    ),
+    TableSchema(
+        name="sale_listings",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS sale_listings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sale_listing_key TEXT UNIQUE,
+            building_key TEXT,
+            source TEXT NOT NULL,
+            source_url TEXT,
+            evidence_id TEXT,
+            price_yen INTEGER,
+            area_sqm REAL,
+            layout TEXT,
+            updated_at TEXT,
+            ingest_run_id INTEGER,
+            fetched_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        columns=(
+            "id",
+            "sale_listing_key",
+            "building_key",
+            "source",
+            "source_url",
+            "evidence_id",
+            "price_yen",
+            "area_sqm",
+            "layout",
+            "updated_at",
+            "ingest_run_id",
+            "fetched_at",
+        ),
+    ),
+    TableSchema(
+        name="unmatched_queue",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS unmatched_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT NOT NULL,
+            source TEXT NOT NULL,
+            ingest_run_id INTEGER,
+            evidence_id TEXT NOT NULL,
+            raw_name TEXT,
+            raw_address TEXT,
+            normalized_name TEXT,
+            normalized_address TEXT,
+            reason TEXT NOT NULL,
+            candidate_building_ids TEXT,
+            candidate_scores TEXT,
+            status TEXT NOT NULL DEFAULT 'open',
+            resolved_building_id TEXT,
+            resolved_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        columns=(
+            "id",
+            "domain",
+            "source",
+            "ingest_run_id",
+            "evidence_id",
+            "raw_name",
+            "raw_address",
+            "normalized_name",
+            "normalized_address",
+            "reason",
+            "candidate_building_ids",
+            "candidate_scores",
+            "status",
+            "resolved_building_id",
+            "resolved_at",
+            "created_at",
+            "updated_at",
+        ),
+    ),
+    TableSchema(
+        name="qc_run_reports",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS qc_run_reports (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pipeline TEXT NOT NULL,
+            source TEXT NOT NULL,
+            ingest_run_id INTEGER,
+            attached_listings INTEGER,
+            suspects INTEGER,
+            unmatched INTEGER,
+            before_count INTEGER,
+            after_count INTEGER,
+            drop_ratio INTEGER,
+            qc_mode TEXT,
+            qc_result TEXT NOT NULL,
+            message TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        )
+        """,
+        columns=(
+            "id",
+            "pipeline",
+            "source",
+            "ingest_run_id",
+            "attached_listings",
+            "suspects",
+            "unmatched",
+            "before_count",
+            "after_count",
+            "drop_ratio",
+            "qc_mode",
+            "qc_result",
+            "message",
+            "created_at",
+        ),
+    ),
 )
 
 ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
@@ -412,6 +586,74 @@ ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "sale_listing_count": "INTEGER",
         "updated_at": "TEXT",
     },
+    "area_master": {
+        "parent_area_code": "TEXT",
+        "country_code": "TEXT NOT NULL DEFAULT 'JP'",
+        "admin_level": "INTEGER NOT NULL DEFAULT 0",
+        "area_kind": "TEXT NOT NULL DEFAULT 'unknown'",
+        "area_name": "TEXT NOT NULL DEFAULT ''",
+        "normalized_name": "TEXT",
+        "acquisition_unit": "TEXT NOT NULL DEFAULT 'unknown'",
+        "latitude": "REAL",
+        "longitude": "REAL",
+        "is_active": "INTEGER NOT NULL DEFAULT 1",
+        "created_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    "source_priority": {
+        "enabled": "INTEGER NOT NULL DEFAULT 1",
+        "effective_from": "TEXT",
+        "effective_to": "TEXT",
+        "created_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    "sale_listings": {
+        "id": "INTEGER",
+        "sale_listing_key": "TEXT",
+        "building_key": "TEXT",
+        "source": "TEXT",
+        "source_url": "TEXT",
+        "evidence_id": "TEXT",
+        "price_yen": "INTEGER",
+        "area_sqm": "REAL",
+        "layout": "TEXT",
+        "updated_at": "TEXT",
+        "ingest_run_id": "INTEGER",
+        "fetched_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    "unmatched_queue": {
+        "domain": "TEXT NOT NULL DEFAULT 'unknown'",
+        "source": "TEXT NOT NULL DEFAULT 'unknown'",
+        "ingest_run_id": "INTEGER",
+        "evidence_id": "TEXT NOT NULL DEFAULT ''",
+        "raw_name": "TEXT",
+        "raw_address": "TEXT",
+        "normalized_name": "TEXT",
+        "normalized_address": "TEXT",
+        "reason": "TEXT NOT NULL DEFAULT ''",
+        "candidate_building_ids": "TEXT",
+        "candidate_scores": "TEXT",
+        "status": "TEXT NOT NULL DEFAULT 'open'",
+        "resolved_building_id": "TEXT",
+        "resolved_at": "TEXT",
+        "created_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+        "updated_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
+    "qc_run_reports": {
+        "pipeline": "TEXT NOT NULL DEFAULT ''",
+        "source": "TEXT NOT NULL DEFAULT ''",
+        "ingest_run_id": "INTEGER",
+        "attached_listings": "INTEGER",
+        "suspects": "INTEGER",
+        "unmatched": "INTEGER",
+        "before_count": "INTEGER",
+        "after_count": "INTEGER",
+        "drop_ratio": "INTEGER",
+        "qc_mode": "TEXT",
+        "qc_result": "TEXT NOT NULL DEFAULT 'unknown'",
+        "message": "TEXT",
+        "created_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
+    },
 }
 
 
@@ -422,6 +664,25 @@ class SchemaMismatchError(RuntimeError):
 
 def normalize_db_path(db_path: str | Path) -> Path:
     return Path(db_path).expanduser().resolve()
+
+
+def _seed_source_priority(conn: sqlite3.Connection) -> None:
+    conn.executemany(
+        """
+        INSERT INTO source_priority(domain, source, priority_rank, enabled, effective_from, effective_to)
+        VALUES (?, ?, ?, 1, NULL, NULL)
+        ON CONFLICT(domain, source) DO UPDATE SET
+          priority_rank=excluded.priority_rank,
+          enabled=excluded.enabled,
+          updated_at=CURRENT_TIMESTAMP
+        """,
+        (
+            ("rental", "ulucks", 1),
+            ("rental", "realpro", 2),
+            ("rental", "mansion_review_chintai", 3),
+            ("sale", "mansion_review_mansion", 1),
+        ),
+    )
 
 
 def ensure_schema(db_path: str | Path) -> Path:
@@ -456,6 +717,7 @@ def ensure_schema(db_path: str | Path) -> Path:
                 raise SchemaMismatchError(
                     f"Schema mismatch on {table.name}. missing_required={missing} actual={columns}"
                 )
+        _seed_source_priority(conn)
     return path
 
 
