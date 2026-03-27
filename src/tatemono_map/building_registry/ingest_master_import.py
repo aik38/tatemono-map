@@ -13,6 +13,7 @@ from pathlib import Path
 from tatemono_map.cli.master_import import _clean_text, _fallback_updated_at, _parse_area, _parse_man_to_yen
 from tatemono_map.db.repo import connect
 
+from .common import insert_unmatched_queue, normalize_source_name
 from .keys import make_alias_key, make_legacy_alias_key
 from .matcher import match_building
 from .normalization import normalize_address_for_matching, normalize_building_input
@@ -409,10 +410,12 @@ def ingest_master_import_csv(
                 category = _clean_text(row.get("category"))
                 if category == "seed":
                     continue
+                normalized_source = normalize_source_name(source, category=category)
 
                 normalized = normalize_building_input(_clean_text(row.get("building_name")), _clean_text(row.get("address")))
                 evidence_id = _row_evidence_id(row, source_url)
                 if not normalized.raw_name and not normalized.raw_address:
+                    reason = "missing_name_and_address"
                     report.unresolved += 1
                     unmatched_rows.append(
                         _to_review_row(
@@ -422,10 +425,21 @@ def ingest_master_import_csv(
                             normalized_address=normalized.normalized_address,
                             raw_name=normalized.raw_name,
                             raw_address=normalized.raw_address,
-                            reason="missing_name_and_address",
+                            reason=reason,
                             candidate_ids=[],
                             candidate_scores=[],
                         )
+                    )
+                    insert_unmatched_queue(
+                        conn,
+                        source=normalized_source,
+                        ingest_run_id=ingest_run_id,
+                        evidence_id=evidence_id,
+                        raw_name=normalized.raw_name,
+                        raw_address=normalized.raw_address,
+                        normalized_name=normalized.normalized_name,
+                        normalized_address=normalized.normalized_address,
+                        reason=reason,
                     )
                     continue
 
@@ -492,6 +506,7 @@ def ingest_master_import_csv(
                         alias_map[new_building_id] = new_building_id
                         building_id = new_building_id
                     else:
+                        reason = f"unmatched_canonical_building:{seed_reason}"
                         report.auto_seed_blocked_count += 1
                         report.unresolved += 1
                         unmatched_rows.append(
@@ -502,14 +517,29 @@ def ingest_master_import_csv(
                                 normalized_address=normalized.normalized_address,
                                 raw_name=normalized.raw_name,
                                 raw_address=normalized.raw_address,
-                                reason=f"unmatched_canonical_building:{seed_reason}",
+                                reason=reason,
                                 candidate_ids=match.candidate_ids,
                                 candidate_scores=match.candidate_scores,
                             )
                         )
+                        insert_unmatched_queue(
+                            conn,
+                            source=normalized_source,
+                            ingest_run_id=ingest_run_id,
+                            evidence_id=evidence_id,
+                            raw_name=normalized.raw_name,
+                            raw_address=normalized.raw_address,
+                            normalized_name=normalized.normalized_name,
+                            normalized_address=normalized.normalized_address,
+                            reason=reason,
+                            candidate_building_ids="|".join(match.candidate_ids[:3]),
+                            candidate_scores="|".join(str(score) for score in match.candidate_scores[:3]),
+                        )
                         continue
 
                 if not building_id:
+                    suspect_reason = match.reason
+                    unmatched_reason = "building_id_unresolved"
                     report.unresolved += 1
                     suspect_rows.append(
                         _to_review_row(
@@ -519,7 +549,7 @@ def ingest_master_import_csv(
                             normalized_address=normalized.normalized_address,
                             raw_name=normalized.raw_name,
                             raw_address=normalized.raw_address,
-                            reason=match.reason,
+                            reason=suspect_reason,
                             candidate_ids=match.candidate_ids,
                             candidate_scores=match.candidate_scores,
                         )
@@ -532,10 +562,23 @@ def ingest_master_import_csv(
                             normalized_address=normalized.normalized_address,
                             raw_name=normalized.raw_name,
                             raw_address=normalized.raw_address,
-                            reason="building_id_unresolved",
+                            reason=unmatched_reason,
                             candidate_ids=match.candidate_ids,
                             candidate_scores=match.candidate_scores,
                         )
+                    )
+                    insert_unmatched_queue(
+                        conn,
+                        source=normalized_source,
+                        ingest_run_id=ingest_run_id,
+                        evidence_id=evidence_id,
+                        raw_name=normalized.raw_name,
+                        raw_address=normalized.raw_address,
+                        normalized_name=normalized.normalized_name,
+                        normalized_address=normalized.normalized_address,
+                        reason=suspect_reason,
+                        candidate_building_ids="|".join(match.candidate_ids[:3]),
+                        candidate_scores="|".join(str(score) for score in match.candidate_scores[:3]),
                     )
                     continue
 

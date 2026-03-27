@@ -10,6 +10,7 @@ from tatemono_map.cli.master_import import _clean_text
 from tatemono_map.db.repo import connect
 from tatemono_map.util.building_age import age_years_from_built_year_month
 
+from .common import insert_unmatched_queue, normalize_source_name, source_domain
 from .ingest_master_import import REVIEW_COLUMNS, _to_review_row
 from .keys import make_alias_key, make_legacy_alias_key
 from .matcher import match_building
@@ -152,11 +153,13 @@ def ingest_building_facts_csv(
 
         for row in reader:
             report.rows_total += 1
+            normalized_source = normalize_source_name(source)
             raw_name = _clean_text(row.get("building_name"))
             raw_address = _clean_text(row.get("address"))
             normalized = normalize_building_input(raw_name, raw_address)
             evidence_id = _clean_text(row.get("evidence_id")) or f"{source}:{report.rows_total}"
             if not normalized.raw_name and not normalized.raw_address:
+                reason = "missing_name_and_address"
                 report.unresolved += 1
                 unmatched_rows.append(
                     _to_review_row(
@@ -166,10 +169,22 @@ def ingest_building_facts_csv(
                         normalized_address=normalized.normalized_address,
                         raw_name=normalized.raw_name,
                         raw_address=normalized.raw_address,
-                        reason="missing_name_and_address",
+                        reason=reason,
                         candidate_ids=[],
                         candidate_scores=[],
                     )
+                )
+                insert_unmatched_queue(
+                    conn,
+                    source=normalized_source,
+                    ingest_run_id=None,
+                    evidence_id=evidence_id,
+                    raw_name=normalized.raw_name,
+                    raw_address=normalized.raw_address,
+                    normalized_name=normalized.normalized_name,
+                    normalized_address=normalized.normalized_address,
+                    reason=reason,
+                    domain=source_domain(normalized_source),
                 )
                 continue
 
@@ -227,6 +242,7 @@ def ingest_building_facts_csv(
                     alias_map[make_alias_key(normalized.normalized_name, normalized.normalized_address)] = building_id
 
             if not building_id:
+                resolved_reason = match.reason if match.reason != "unmatched" else "unmatched_canonical_building"
                 report.unresolved += 1
                 target = suspect_rows if match.reason != "unmatched" else unmatched_rows
                 target.append(
@@ -237,10 +253,24 @@ def ingest_building_facts_csv(
                         normalized_address=normalized.normalized_address,
                         raw_name=normalized.raw_name,
                         raw_address=normalized.raw_address,
-                        reason=match.reason if match.reason != "unmatched" else "unmatched_canonical_building",
+                        reason=resolved_reason,
                         candidate_ids=match.candidate_ids,
                         candidate_scores=match.candidate_scores,
                     )
+                )
+                insert_unmatched_queue(
+                    conn,
+                    source=normalized_source,
+                    ingest_run_id=None,
+                    evidence_id=evidence_id,
+                    raw_name=normalized.raw_name,
+                    raw_address=normalized.raw_address,
+                    normalized_name=normalized.normalized_name,
+                    normalized_address=normalized.normalized_address,
+                    reason=resolved_reason,
+                    candidate_building_ids="|".join(match.candidate_ids[:3]),
+                    candidate_scores="|".join(str(score) for score in match.candidate_scores[:3]),
+                    domain=source_domain(normalized_source),
                 )
                 continue
 

@@ -28,6 +28,63 @@ function Invoke-QcGate {
   }
 }
 
+function Write-QcReport {
+  param(
+    [string]$DbPath,
+    [string]$Pipeline,
+    [string]$Source,
+    [int]$IngestRunId,
+    [int]$Attached,
+    [int]$Suspects,
+    [int]$Unmatched,
+    [int]$BeforeCount,
+    [int]$AfterCount,
+    [int]$DropRatio,
+    [string]$QcMode,
+    [string]$QcResult,
+    [string]$Message
+  )
+  $script = @'
+import sqlite3
+import sys
+
+db_path = sys.argv[1]
+payload = (
+    sys.argv[2],  # pipeline
+    sys.argv[3],  # source
+    int(sys.argv[4]) if sys.argv[4] else None,  # ingest_run_id
+    int(sys.argv[5]) if sys.argv[5] else None,  # attached
+    int(sys.argv[6]) if sys.argv[6] else None,  # suspects
+    int(sys.argv[7]) if sys.argv[7] else None,  # unmatched
+    int(sys.argv[8]) if sys.argv[8] else None,  # before
+    int(sys.argv[9]) if sys.argv[9] else None,  # after
+    int(sys.argv[10]) if sys.argv[10] else None,  # drop_ratio
+    sys.argv[11],  # qc_mode
+    sys.argv[12],  # qc_result
+    sys.argv[13],  # message
+)
+conn = sqlite3.connect(db_path)
+conn.execute(
+    '''
+    INSERT INTO qc_run_reports(
+      pipeline, source, ingest_run_id, attached_listings, suspects, unmatched,
+      before_count, after_count, drop_ratio, qc_mode, qc_result, message
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''',
+    payload,
+)
+conn.commit()
+conn.close()
+'@
+  try {
+    & $py -c $script $DbPath $Pipeline $Source $IngestRunId $Attached $Suspects $Unmatched $BeforeCount $AfterCount $DropRatio $QcMode $QcResult $Message | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "[weekly_update] qc_run_reports write failed: pipeline=$Pipeline result=$QcResult" }
+  }
+  catch {
+    Write-Warning "[weekly_update] qc_run_reports write failed (non-blocking): $($_.Exception.Message)"
+  }
+}
+
 if ([string]::IsNullOrWhiteSpace($MasterImportCsv)) {
   & (Join-Path $RepoPath "scripts\run_pdf_zip_latest.ps1") -RepoPath $RepoPath -DownloadsDir $DownloadsDir -QcMode $QcMode
   if ($LASTEXITCODE -ne 0) { throw "run_pdf_zip_latest failed" }
@@ -127,6 +184,8 @@ $dropRatio = if ($beforeCount -gt 0) { [int](100 * ($beforeCount - $afterCount) 
 Invoke-QcGate -Condition (($beforeCount -gt 0) -and ($afterCount -eq 0)) -Message "[weekly_update] source=$source listing count collapsed to zero from $beforeCount. snapshot switch blocked." -Mode "strict"
 Invoke-QcGate -Condition ($dropRatio -ge $MaxDropRatioPercent) -Message "[weekly_update] source=$source listing_count_drop=${dropRatio}% before=$beforeCount after=$afterCount" -Mode $QcMode
 
+Write-QcReport -DbPath $DbPath -Pipeline "weekly_update" -Source $source -IngestRunId $newRunId -Attached $attached -Suspects $suspects -Unmatched $unmatched -BeforeCount $beforeCount -AfterCount $afterCount -DropRatio $dropRatio -QcMode $QcMode -QcResult "pre_publish_ok" -Message "qc gates passed before publish"
+
 & $py -m tatemono_map.building_registry.ingest_master_import --db $DbPath --source $source --set-current-run-id $newRunId
 if ($LASTEXITCODE -ne 0) { throw "failed to switch current snapshot to run_id=$newRunId" }
 Write-Host "[weekly_update] qc: source=$source attached=$attached suspects=$suspects unmatched=$unmatched"
@@ -137,6 +196,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw "publish_public failed" }
 }
 catch {
+  Write-QcReport -DbPath $DbPath -Pipeline "weekly_update" -Source $source -IngestRunId $newRunId -Attached $attached -Suspects $suspects -Unmatched $unmatched -BeforeCount $beforeCount -AfterCount $afterCount -DropRatio $dropRatio -QcMode $QcMode -QcResult "publish_failed" -Message "publish_public failed; snapshot restored when possible"
   if (-not [string]::IsNullOrWhiteSpace($prevCurrent)) {
     Write-Warning "[weekly_update] publish failed. restoring previous current snapshot run_id=$prevCurrent"
     & $py -m tatemono_map.building_registry.ingest_master_import --db $DbPath --source $source --set-current-run-id $prevCurrent
@@ -164,6 +224,7 @@ if ($publicCheck -ne "OK") { throw "public DB missing required tables: $publicCh
 $finalStatsJson = & $py -c $statsCode $DbPath $source
 if ($LASTEXITCODE -ne 0) { throw "failed to read final stats" }
 $finalStats = ($finalStatsJson | Select-Object -Last 1) | ConvertFrom-Json
+Write-QcReport -DbPath $DbPath -Pipeline "weekly_update" -Source $source -IngestRunId $newRunId -Attached $attached -Suspects $suspects -Unmatched $unmatched -BeforeCount $beforeCount -AfterCount $afterCount -DropRatio $dropRatio -QcMode $QcMode -QcResult "success" -Message "publish_public: success"
 Write-Host "[weekly_update] publish_public: success"
 Write-Host "[weekly_update] current_snapshots(after): $($finalStats.current_snapshots | ConvertTo-Json -Compress)"
 Write-Host "[weekly_update] vacancy_sum(after): $($finalStats.vacancy_sum)"
