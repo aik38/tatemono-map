@@ -244,6 +244,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 - 分譲は「価格レンジ（平均価格）」と「販売情報件数」を public DB / dist に反映します。
 - 入居可能日は `vacancy_count > 0` のときのみ表示対象です（分譲/空室0件は `—`）。
 - 賃貸は Ulucks/RealPro 優先を維持し、マンションレビュー賃貸は建物facts補完として扱います。
+- 高確信 auto-seed を有効にする場合のみ `-AutoSeedHighConfidence` を付けます（既定 OFF）。  
+  ON の場合も保守的に、通常マッチで未一致のうち「建物名+住所が揃っており、正規化後も非空、既存 canonical/alias/同一正規化住所と衝突なし」のみ新規作成し、曖昧ケースは `unmatched_*` / `auto_seed_skipped_*` に残します。
 
 ---
 

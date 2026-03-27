@@ -14,7 +14,7 @@ from .common import insert_unmatched_queue, normalize_source_name, source_domain
 from .ingest_master_import import REVIEW_COLUMNS, _to_review_row
 from .keys import make_alias_key, make_legacy_alias_key
 from .matcher import match_building
-from .normalization import normalize_building_input
+from .normalization import normalize_address_for_matching, normalize_building_input
 from .renormalize_buildings import renormalize_buildings
 
 INPUT_REQUIRED_COLUMNS = (
@@ -23,13 +23,6 @@ INPUT_REQUIRED_COLUMNS = (
     "evidence_id",
 )
 
-AMBIGUOUS_REASONS = {
-    "alias_ambiguous",
-    "address_candidates_low_confidence",
-    "address_name_low_confidence",
-}
-
-
 @dataclass
 class Report:
     rows_total: int = 0
@@ -37,6 +30,7 @@ class Report:
     updated: int = 0
     unresolved: int = 0
     created: int = 0
+    auto_seed_skipped: int = 0
 
 
 def _parse_age_years(value: str | None) -> int | None:
@@ -92,6 +86,33 @@ def _simplify_for_create(address: str) -> tuple[str, bool]:
     return simplified, is_multi_or_range
 
 
+def _has_high_conflict_for_autoseed(conn, *, normalized_name: str, normalized_address: str) -> bool:
+    alias_key = make_alias_key(normalized_name, normalized_address)
+    alias_key_legacy = make_legacy_alias_key(normalized_name, normalized_address)
+    alias_conflict = conn.execute(
+        """
+        SELECT 1
+        FROM building_key_aliases
+        WHERE alias_key IN (?, ?)
+        LIMIT 1
+        """,
+        (alias_key, alias_key_legacy),
+    ).fetchone()
+    if alias_conflict is not None:
+        return True
+
+    canonical_conflict = conn.execute(
+        """
+        SELECT 1
+        FROM buildings
+        WHERE norm_name = ? OR norm_address = ?
+        LIMIT 1
+        """,
+        (normalized_name, normalized_address),
+    ).fetchone()
+    return canonical_conflict is not None
+
+
 
 
 def _recompute_building_age_from_built_year_month(conn, building_id: str) -> None:
@@ -141,6 +162,8 @@ def ingest_building_facts_csv(
     suspect_rows: list[dict[str, str]] = []
     unmatched_rows: list[dict[str, str]] = []
     created_rows: list[dict[str, str]] = []
+    skipped_autoseed_rows: list[dict[str, str]] = []
+    seeded_in_run: set[tuple[str, str]] = set()
 
     alias_rows = conn.execute("SELECT alias_key, canonical_key FROM building_key_aliases").fetchall()
     alias_map = {row["alias_key"]: row["canonical_key"] for row in alias_rows}
@@ -204,14 +227,30 @@ def ingest_building_facts_csv(
 
             if not building_id and create_missing_safe and source == "mansion_review_list_facts":
                 simplified_addr, is_multi_or_range = _simplify_for_create(normalized.normalized_address)
+                normalized_address_for_collision = normalize_address_for_matching(simplified_addr)
+                auto_seed_skipped_reason = ""
                 is_safe_to_create = (
-                    _contains_digit(simplified_addr)
+                    bool(normalized.raw_name)
+                    and bool(normalized.raw_address)
+                    and bool(normalized.normalized_name)
+                    and bool(normalized_address_for_collision)
+                    and _contains_digit(simplified_addr)
                     and not is_multi_or_range
-                    and match.reason not in AMBIGUOUS_REASONS
-                    and match.reason != "address_without_digits"
+                    and match.reason == "unmatched"
                 )
+                if is_safe_to_create and _has_high_conflict_for_autoseed(
+                    conn,
+                    normalized_name=normalized.normalized_name,
+                    normalized_address=normalized_address_for_collision,
+                ):
+                    is_safe_to_create = False
+                    auto_seed_skipped_reason = "collision_with_canonical_or_alias"
+                run_seed_key = (normalized.normalized_name, normalized_address_for_collision)
+                if is_safe_to_create and run_seed_key in seeded_in_run:
+                    is_safe_to_create = False
+                    auto_seed_skipped_reason = "duplicate_in_same_run"
                 if is_safe_to_create:
-                    building_id = make_alias_key(normalized.normalized_name, simplified_addr)
+                    building_id = make_alias_key(normalized.normalized_name, normalized_address_for_collision)
                     exists = conn.execute("SELECT 1 FROM buildings WHERE building_id=?", (building_id,)).fetchone()
                     if exists is None:
                         conn.execute(
@@ -226,20 +265,39 @@ def ingest_building_facts_csv(
                                 normalized.raw_name,
                                 normalized.canonical_address,
                                 normalized.normalized_name,
-                                simplified_addr,
+                                normalized_address_for_collision,
                             ),
                         )
                         report.created += 1
+                        seeded_in_run.add(run_seed_key)
                         created_rows.append(
                             {
+                                "source": source,
+                                "evidence_id": evidence_id,
+                                "building_id": building_id,
                                 "name": normalized.raw_name,
                                 "address": normalized.canonical_address,
-                                "norm": simplified_addr,
+                                "norm_name": normalized.normalized_name,
+                                "norm_address": normalized_address_for_collision,
                                 "source_url": _clean_text(row.get("source_url")) or "",
                             }
                         )
                     _register_alias(conn, normalized.normalized_name, normalized.normalized_address, building_id)
                     alias_map[make_alias_key(normalized.normalized_name, normalized.normalized_address)] = building_id
+                else:
+                    report.auto_seed_skipped += 1
+                    skipped_autoseed_rows.append(
+                        {
+                            "source": source,
+                            "evidence_id": evidence_id,
+                            "name": normalized.raw_name,
+                            "address": normalized.canonical_address,
+                            "norm_name": normalized.normalized_name,
+                            "norm_address": normalized_address_for_collision,
+                            "match_reason": match.reason,
+                            "skip_reason": auto_seed_skipped_reason or "not_high_confidence",
+                        }
+                    )
 
             if not building_id:
                 resolved_reason = match.reason if match.reason != "unmatched" else "unmatched_canonical_building"
@@ -412,11 +470,32 @@ def ingest_building_facts_csv(
     conn.close()
 
     if created_rows:
-        out_created = review_dir / f"created_buildings_{now}.csv"
+        out_created = review_dir / f"new_buildings_{now}.csv"
         with out_created.open("w", encoding="utf-8-sig", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=["name", "address", "norm", "source_url"])
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=[
+                    "source",
+                    "evidence_id",
+                    "building_id",
+                    "name",
+                    "address",
+                    "norm_name",
+                    "norm_address",
+                    "source_url",
+                ],
+            )
             writer.writeheader()
             writer.writerows(created_rows)
+    if skipped_autoseed_rows:
+        out_skipped = review_dir / f"auto_seed_skipped_{now}.csv"
+        with out_skipped.open("w", encoding="utf-8-sig", newline="") as fh:
+            writer = csv.DictWriter(
+                fh,
+                fieldnames=["source", "evidence_id", "name", "address", "norm_name", "norm_address", "match_reason", "skip_reason"],
+            )
+            writer.writeheader()
+            writer.writerows(skipped_autoseed_rows)
 
     if suspect_rows:
         out_sus = review_dir / f"suspects_{now}.csv"
@@ -459,6 +538,7 @@ def main() -> None:
                 f"updated={report.updated}",
                 f"unresolved={report.unresolved}",
                 f"created={report.created}",
+                f"auto_seed_skipped={report.auto_seed_skipped}",
             ]
         )
     )

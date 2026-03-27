@@ -94,7 +94,68 @@ def test_safe_create_missing_blocks_multi_lot_or_range_address(tmp_path: Path) -
 
     assert report.created == 0
     assert report.unresolved == 2
+    assert report.auto_seed_skipped == 2
     assert buildings == 0
+
+
+def test_safe_create_missing_creates_once_and_is_idempotent(tmp_path: Path) -> None:
+    db_path = tmp_path / "idempotent.sqlite3"
+    csv_path = tmp_path / "facts.csv"
+    csv_path.write_text(
+        "building_name,address,evidence_id,property_kind\n"
+        "新規マンション,福岡県北九州市小倉北区馬借1-2-3,mr:new1,chintai\n",
+        encoding="utf-8",
+    )
+
+    first = ingest_building_facts_csv(str(db_path), str(csv_path), source="mansion_review_list_facts", create_missing_safe=True)
+    second = ingest_building_facts_csv(str(db_path), str(csv_path), source="mansion_review_list_facts", create_missing_safe=True)
+
+    conn = connect(str(db_path))
+    buildings = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
+    conn.close()
+
+    assert first.created == 1
+    assert first.unresolved == 0
+    assert second.created == 0
+    assert second.matched == 1
+    assert buildings == 1
+
+
+def test_safe_create_missing_off_keeps_unresolved(tmp_path: Path) -> None:
+    db_path = tmp_path / "off.sqlite3"
+    csv_path = tmp_path / "facts.csv"
+    csv_path.write_text(
+        "building_name,address,evidence_id,property_kind\n"
+        "未登録マンション,福岡県北九州市小倉北区馬借2-3-4,mr:new2,chintai\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_building_facts_csv(str(db_path), str(csv_path), source="mansion_review_list_facts", create_missing_safe=False)
+
+    conn = connect(str(db_path))
+    buildings = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
+    conn.close()
+
+    assert report.created == 0
+    assert report.unresolved == 1
+    assert buildings == 0
+
+
+def test_safe_create_missing_skips_collision_with_existing_norm_address(tmp_path: Path) -> None:
+    db_path = tmp_path / "collision.sqlite3"
+    _seed(db_path, "既存建物,福岡県北九州市小倉北区馬借3-4-5,ui:a,\n")
+
+    csv_path = tmp_path / "facts.csv"
+    csv_path.write_text(
+        "building_name,address,evidence_id,property_kind\n"
+        "別名建物,福岡県北九州市小倉北区馬借3-4-5,mr:new3,chintai\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_building_facts_csv(str(db_path), str(csv_path), source="mansion_review_list_facts", create_missing_safe=True)
+    assert report.created == 0
+    assert report.auto_seed_skipped == 0
+    assert report.matched == 1
 
 
 def test_matcher_alias_requires_address_match_to_avoid_sibling_mix(tmp_path: Path) -> None:
