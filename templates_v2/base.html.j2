@@ -232,7 +232,7 @@
 <body>
   <header class="site-header">
     <div class="site-header__inner">
-      <a class="brand" href="{{ home_href|default('index.html', true) }}">tatemono-map</a>
+      <a class="brand" href="{{ home_href if home_href is defined else (base_path ~ '/') }}">tatemono-map</a>
       {% block header_meta %}{% endblock %}
     </div>
   </header>

@@ -317,7 +317,7 @@
 
     const link = document.createElement('a');
     link.className = 'building-link';
-    link.href = `b/${item.detailFilename || `${item.id}.html`}`;
+    link.href = `b/${item.detailFilename}`;
     const h2 = document.createElement('h2');
     h2.textContent = item.name || '名称未設定';
     link.appendChild(h2);
@@ -505,6 +505,9 @@
       const raw = loadResult.raw;
       const nowEpoch = Date.now() / 1000;
       buildings = raw.map((item, index) => {
+        if (!item.detail_filename) {
+          return null;
+        }
         const vacancyKnown = knownNumberOrNull(item.vacancy_count);
         const vacancyPositive = positiveNumberOrNull(item.vacancy_count);
         const rentMinPositive = item.property_kind === 'bunjo' ? null : positiveNumberOrNull(item.rent_min);
@@ -597,7 +600,7 @@
           originalIndex: index,
           score: 0
         };
-      });
+      }).filter(Boolean);
 
       const totalBuildings = buildings.length;
       const totalVacancies = buildings.reduce((sum, b) => sum + b.vacancyCountSafe, 0);

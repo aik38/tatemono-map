@@ -251,7 +251,8 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 
 ### SEO / Search Console / sitemap の現状（2026-03 時点）
 - SEO 基礎（実装済み）:
-  - トップページおよび建物個別ページ（`/b/<id>.html`）に `title` / `description` / `canonical` を実装済み。
+  - トップページおよび建物個別ページ（`/b/<slugified_name>-<stable_id>.html`）に `title` / `description` / `canonical` を実装済み。
+  - 旧建物URL（`/b/<stable_id>.html`）は本文重複を避けるため、正規URLへの redirect stub（canonical + meta refresh + JS redirect）として生成します。
   - canonical は absolute URL を使用し、`?theme=` は canonical に含めません。
   - custom domain 本番 canonical は `/tatemono-map/` を含まない root URL を使います。
   - GA4（測定ID: `G-P39179E4KK`）を共通 head（`templates_v2/base.html.j2`）で全ページ計測しています。
@@ -260,7 +261,7 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 - Search Console（実装・設定済み）:
   - 共通 head に verification meta tag を挿入できる実装になっており、本番 `https://www.tatemono-map.com/` で所有権確認済み。
 - sitemap（実装・送信済み）:
-  - `dist/sitemap.xml` は build 時に自動生成されます（トップ + `/b/<id>.html`）。
+  - `dist/sitemap.xml` は build 時に自動生成されます（トップ + エリアハブ + `/b/<slugified_name>-<stable_id>.html`）。
   - `?theme=` は sitemap に含めません。
   - Search Console へ `/sitemap.xml` 送信済み（成功）。
 - エリア導線の役割分離（実装方針）:

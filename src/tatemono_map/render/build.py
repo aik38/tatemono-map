@@ -198,6 +198,36 @@ def _build_detail_filename(building: dict) -> str:
     return f"{slug}-{stable_id}.html"
 
 
+def _render_legacy_redirect_stub(*, canonical_url: str, target_path: str, target_label: str) -> str:
+    escaped_canonical = escape(canonical_url)
+    escaped_target = escape(target_path)
+    escaped_label = escape(target_label)
+    return "\n".join(
+        (
+            "<!doctype html>",
+            '<html lang="ja">',
+            "<head>",
+            '  <meta charset="utf-8">',
+            '  <meta name="viewport" content="width=device-width, initial-scale=1">',
+            f"  <title>{escaped_label}へ移動しました | 建物マップ</title>",
+            f'  <link rel="canonical" href="{escaped_canonical}">',
+            f'  <meta http-equiv="refresh" content="0; url={escaped_target}">',
+            "</head>",
+            "<body>",
+            "  <main>",
+            "    <p>ページを移動しました。</p>",
+            f'    <p><a href="{escaped_target}">{escaped_label}はこちら</a></p>',
+            "  </main>",
+            "  <script>",
+            f'    window.location.replace("{escaped_target}");',
+            "  </script>",
+            "</body>",
+            "</html>",
+            "",
+        )
+    )
+
+
 def _write_favicon_assets(output_dir: Path, *, base_path: str) -> None:
     favicon_dir = output_dir / "assets" / "favicon"
     favicon_dir.mkdir(parents=True, exist_ok=True)
@@ -718,6 +748,7 @@ def _build_dist_version(
         maps_url = _build_google_maps_url(b.get("address"))
         maps_embed_url = _build_google_maps_embed_url(b.get("address"), google_maps_embed_api_key)
         seo = _build_building_seo(b, site_origin=site_origin, base_path=base_path)
+        detail_path = f"{base_path}/b/{b['detail_filename']}"
         area_hub = None
         area_spec = _resolve_area_spec(b.get("address"))
         if area_spec:
@@ -741,7 +772,12 @@ def _build_dist_version(
         )
         (output_dir / "b" / b["detail_filename"]).write_text(html, encoding="utf-8")
         if b["detail_filename"] != b["legacy_detail_filename"]:
-            (output_dir / "b" / b["legacy_detail_filename"]).write_text(html, encoding="utf-8")
+            legacy_stub = _render_legacy_redirect_stub(
+                canonical_url=seo["canonical_url"],
+                target_path=detail_path,
+                target_label=str(b.get("name") or "建物詳細"),
+            )
+            (output_dir / "b" / b["legacy_detail_filename"]).write_text(legacy_stub, encoding="utf-8")
 
     _write_favicon_assets(output_dir, base_path=base_path)
     _write_buildings_json(output_dir, buildings)
