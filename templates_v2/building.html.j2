@@ -3,7 +3,7 @@
 {% block title %}{{ page_title or ((building.name or "建物詳細") ~ " | tatemono-map") }}{% endblock %}
 
 {% block header_meta %}
-  <a class="muted" href="../index.html" aria-label="一覧に戻る">← 一覧に戻る</a>
+  <a class="muted" href="{{ base_path }}/" aria-label="一覧に戻る">← 一覧に戻る</a>
 {% endblock %}
 
 {% block extra_head %}

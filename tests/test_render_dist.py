@@ -32,9 +32,7 @@ def test_render_dist_outputs(tmp_path):
 
     index = (dist / "index.html").read_text(encoding="utf-8")
     assert "建物名・住所で絞り込み" in index
-    pages = list((dist / "b").glob("*.html"))
-    assert pages
-    page = pages[0].read_text(encoding="utf-8")
+    page = _pick_primary_detail_path(dist / "b").read_text(encoding="utf-8")
     assert "Googleマップを開く" in page
     assert "号室" not in page
     assert "source_url" not in page
@@ -70,9 +68,7 @@ def test_render_dist_sanitizes_room_number_from_name_and_address(tmp_path):
     assert "サンプルレジデンス" in index
     assert "東京都渋谷区神南1-2-3" in index
 
-    detail_pages = list((dist / "b").glob("*.html"))
-    assert detail_pages
-    detail = detail_pages[0].read_text(encoding="utf-8")
+    detail = _pick_primary_detail_path(dist / "b").read_text(encoding="utf-8")
     assert "号室" not in detail
 
 
@@ -90,6 +86,27 @@ def test_render_dist_creates_nojekyll_file(tmp_path):
     build_dist(str(db), str(dist))
 
     assert (dist / ".nojekyll").exists()
+
+
+def test_render_dist_writes_legacy_detail_redirect_stub(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("旧URL検証マンション", "福岡県北九州市小倉北区", 98000, 26.0, "1K", "2026-03-01", "ulucks", "legacy-stub"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    detail_page = _pick_primary_detail_path(dist / "b")
+    legacy_page = next(page for page in sorted((dist / "b").glob("*.html")) if page.stem == detail_page.stem.split("-")[-1])
+    legacy_html = legacy_page.read_text(encoding="utf-8")
+    assert '<meta http-equiv="refresh"' in legacy_html
+    assert "window.location.replace(" in legacy_html
+    assert 'rel="canonical" href="https://www.tatemono-map.com/b/' in legacy_html
 
 
 def test_render_dist_fails_when_forbidden_text_exists(tmp_path):
@@ -142,7 +159,7 @@ def test_v2_line_cta_is_single_button_with_deeplink_fallback(tmp_path, monkeypat
     rebuild(str(db))
     build_dist_versions(str(db), str(out))
 
-    page = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
+    page = _pick_primary_detail_path(out / "b").read_text(encoding="utf-8")
 
     # CTA section has only one button anchor.
     assert page.count('class="button button--line"') == 1
@@ -166,7 +183,7 @@ def test_render_dist_formats_rent_with_thousands_separator(tmp_path):
     build_dist(str(db), str(dist))
 
     index = (dist / "index.html").read_text(encoding="utf-8")
-    detail = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail = _pick_primary_detail_path(dist / "b").read_text(encoding="utf-8")
 
     assert "123,000円" in index
     assert "123,000円" in detail
@@ -187,8 +204,8 @@ def test_build_dist_versions_formats_rent_with_thousands_separator_in_v1_and_v2(
 
     index_v1 = (out / "v1" / "index.html").read_text(encoding="utf-8")
     index_v2 = (out / "index.html").read_text(encoding="utf-8")
-    detail_v1 = next((out / "v1" / "b").glob("*.html")).read_text(encoding="utf-8")
-    detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail_v1 = _pick_primary_detail_path(out / "v1" / "b").read_text(encoding="utf-8")
+    detail_v2 = _pick_primary_detail_path(out / "b").read_text(encoding="utf-8")
 
     assert "125,000円" in index_v1
     assert "125,000円" in index_v2
@@ -420,8 +437,8 @@ def test_render_dist_versions_detail_shows_immediate_when_availability_label_is_
     rebuild(str(db))
     build_dist_versions(str(db), str(out))
 
-    detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
-    detail_v1 = next((out / "v1" / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail_v2 = _pick_primary_detail_path(out / "b").read_text(encoding="utf-8")
+    detail_v1 = _pick_primary_detail_path(out / "v1" / "b").read_text(encoding="utf-8")
 
     assert "<dt>入居可能日</dt><dd>即入居</dd>" in detail_v2
     assert "<dt>入居可能日</dt>" in detail_v1
@@ -449,7 +466,7 @@ def test_render_dist_versions_detail_uses_building_availability_label_when_prese
     rebuild(str(db))
     build_dist_versions(str(db), str(out))
 
-    detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail_v2 = _pick_primary_detail_path(out / "b").read_text(encoding="utf-8")
     assert "<dt>入居可能日</dt><dd>退去予定</dd>" in detail_v2
 
 def test_export_buildings_json_not_empty_and_required_keys(tmp_path):
@@ -513,7 +530,7 @@ def test_build_dist_versions_theme_init_and_theme_variables_present(tmp_path):
     build_dist_versions(str(db), str(out))
 
     index_v2 = (out / "index.html").read_text(encoding="utf-8")
-    detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail_v2 = _pick_primary_detail_path(out / "b").read_text(encoding="utf-8")
 
     for html in (index_v2, detail_v2):
         assert 'new Set(["default", "ph", "mercari"])' in html
@@ -710,7 +727,7 @@ def test_render_dist_base_path_applies_to_favicon_and_manifest(tmp_path):
     build_dist(str(db), str(dist), template_root="templates_v2", base_path="/tatemono-map")
 
     index = (dist / "index.html").read_text(encoding="utf-8")
-    detail = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail = _pick_primary_detail_path(dist / "b").read_text(encoding="utf-8")
     manifest = json.loads((dist / "assets" / "favicon" / "site.webmanifest").read_text(encoding="utf-8"))
 
     assert 'href="/tatemono-map/assets/favicon/favicon.png"' in index
@@ -736,7 +753,7 @@ def test_render_dist_empty_base_path_applies_to_favicon_and_manifest(tmp_path):
     build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
 
     index = (dist / "index.html").read_text(encoding="utf-8")
-    detail = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail = _pick_primary_detail_path(dist / "b").read_text(encoding="utf-8")
     manifest = json.loads((dist / "assets" / "favicon" / "site.webmanifest").read_text(encoding="utf-8"))
 
     assert 'href="/assets/favicon/favicon.png"' in index
@@ -863,7 +880,7 @@ def test_build_dist_versions_includes_google_site_verification_meta(tmp_path):
 
     expected = '<meta name="google-site-verification" content="JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo">'
     index_v2 = (out / "index.html").read_text(encoding="utf-8")
-    detail_v2 = next((out / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail_v2 = _pick_primary_detail_path(out / "b").read_text(encoding="utf-8")
 
     assert expected in index_v2
     assert expected in detail_v2
@@ -885,7 +902,7 @@ def test_render_dist_includes_seo_meta_on_index_and_building_pages(tmp_path):
     build_dist(str(db), str(dist), template_root="templates_v2", base_path="/tatemono-map")
 
     index = (dist / "index.html").read_text(encoding="utf-8")
-    detail = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail = _pick_primary_detail_path(dist / "b").read_text(encoding="utf-8")
 
     assert "<title>北九州の賃貸・建物データベース | 建物マップ</title>" in index
     assert 'name="description" content="北九州のマンション・アパートを建物単位で検索できる建物データベース。建物名、住所、空室数、家賃帯、面積帯などをまとめて確認できます。"' in index
@@ -909,7 +926,7 @@ def test_render_dist_building_description_handles_missing_values(tmp_path):
     rebuild(str(db))
     build_dist(str(db), str(dist), template_root="templates_v2")
 
-    detail = next((dist / "b").glob("*.html")).read_text(encoding="utf-8")
+    detail = _pick_primary_detail_path(dist / "b").read_text(encoding="utf-8")
 
     assert 'name="description" content="欠損確認マンションは福岡県北九州市門司区にある建物です。' in detail
     assert "、、" not in detail
@@ -1024,7 +1041,7 @@ def test_render_dist_related_buildings_keeps_existing_kitakyushu_behavior(tmp_pa
     detail = next(
         page.read_text(encoding="utf-8")
         for page in (dist / "b").glob("*.html")
-        if "小倉北ターゲット" in page.read_text(encoding="utf-8")
+        if "-" in page.stem and "小倉北ターゲット" in page.stem
     )
     assert "小倉北関連" in detail
     assert "小倉南ノイズ" not in detail
