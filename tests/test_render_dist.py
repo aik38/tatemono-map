@@ -1010,7 +1010,9 @@ def test_render_dist_related_buildings_excludes_tagawa_for_karita(tmp_path):
     detail = next(
         page.read_text(encoding="utf-8")
         for page in (dist / "b").glob("*.html")
-        if "苅田町ターゲット" in page.read_text(encoding="utf-8")
+        if "-" in page.stem
+        and "苅田町ターゲット" in page.read_text(encoding="utf-8")
+        and "window.location.replace(" not in page.read_text(encoding="utf-8")
     )
     assert "同じエリアの建物" in detail
     assert "苅田町関連" in detail
