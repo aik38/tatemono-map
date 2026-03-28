@@ -88,6 +88,8 @@ data/canonical/*
 
 - PR1: listings は run/snapshot-aware になり、失敗 run は current にしない。
 - PR2: current snapshot は source 単位（Ulucks / RealPro / Mansion Review / 将来 source）で管理し、`building_summaries` は各 source の current を合成して空室を更新。
+- `listings.source_kind` は provider 別（`ulucks` / `realpro` / `mansion_review_chintai` など）を保持します。一方で `ingest_runs.source` / `current_ingest_snapshots.source` は運用上 `master_import` のまま使います。
+- `raw_sources.source_kind` は現行運用では従来どおり `master` を保持します（listings の source_kind とは用途が異なる）。
 - 原則: **建物は残る / 空室は sourceごとの current snapshot を合成して更新 / review CSV は例外処理**。
 - review CSV（`new_buildings_*.csv` / `suspects_*.csv` / `unmatched_listings_*.csv`）は異常時の例外ハンドリング用途であり、週次の主経路ではない。
 
@@ -152,12 +154,15 @@ $ZIP_DIR = Join-Path $REPO "tmp/manual/inputs/pdf_zips"
 pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_all_latest.ps1" -RepoPath $REPO -DownloadsDir $ZIP_DIR -QcMode warn
 ```
 
-#### push したくない場合
+#### push したくない場合（run_all_latest を使わない）
 ```powershell
 $REPO = Join-Path $env:USERPROFILE "tatemono-map"
 $ZIP_DIR = Join-Path $REPO "tmp/manual/inputs/pdf_zips"
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_all_latest.ps1" -RepoPath $REPO -DownloadsDir $ZIP_DIR -QcMode warn -SkipPush
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_pdf_zip_latest.ps1" -RepoPath $REPO -DownloadsDir $ZIP_DIR -QcMode warn
+pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\weekly_update.ps1" -RepoPath $REPO -DbPath "$REPO\data\tatemono_map.sqlite3" -MasterImportCsv (Get-ChildItem -Path "$REPO\tmp\pdf_pipeline\out" -Filter "master_import.csv" -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName)
 ```
+
+- `run_all_latest.ps1` は内部で `run_to_pages.ps1` を呼ぶため、公開DB更新後に commit/push まで進む運用です。
 
 #### 旧フローを手動で分けたい場合
 ```powershell
@@ -167,6 +172,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 
 - `run_all_latest` は `buildings` を再構築しません（空室取り込み + 建物突合 + 公開生成）。
 - `ingest_master_import` 実行時に `buildings.norm_name` / `buildings.norm_address` は毎回自動再正規化されます（手作業不要）。
+- 直近の主課題は parser の「PDF読めない」よりも、`attached_listings` / `unmatched` 改善（名寄せ・alias・auto-seed・triage）です。
 
 #### 再正規化のみ先に実行したい場合（任意）
 ```powershell

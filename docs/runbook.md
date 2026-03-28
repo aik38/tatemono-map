@@ -45,6 +45,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 ```
 
 - ZIP 置き場は原則 `tmp/manual/inputs/pdf_zips`。無ければ `Downloads` から最新 `リアプロ-*.zip` / `ウラックス-*.zip` を使います。
+- RealPro PDF は「印刷 → PDF」を避け、元PDFを「ファイル → 名前を付けて保存」で取得する（印刷PDFは no-text になり抽出不能化する場合がある）。
 
 ### 週次更新（public DB 更新まで）
 
@@ -72,8 +73,18 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 ### スクリプトの役割分担（要点）
 
 - `scripts/run_all_latest.ps1`: 空室（Ulucks/RealPro）を最優先で更新。`sync` → `run_pdf_zip_latest` → 最新 `master_import.csv` を `run_to_pages` へ渡す。
+- `scripts/run_pdf_zip_latest.ps1`: `Downloads` などから最新 ZIP（`リアプロ-*.zip` / `ウラックス-*.zip`）を選んで `run_pdf_zip.ps1` を呼ぶ。
+- `scripts/run_pdf_zip.ps1`: ZIP 展開 → `pdf_batch_run` で `master_import.csv` を生成（戸建キーワード行は除外。完全保証ではなくキーワードベース）。
+- `scripts/weekly_update.ps1`: `master_import.csv` を ingest + QC + snapshot 切替 + `publish_public` まで実行（commit/push はしない）。
+- `scripts/run_to_pages.ps1`: 既存 `master_import.csv` を ingest + `publish_public` + 公開JSON更新 + commit/push。
 - `scripts/mvp_refresh.ps1`: Mansion-Review / ORIENT 補助ルート。`fill_only` で building facts を補完し、doctor tri-state（OK/WARN/NG）で判定。
 - `scripts/dev_dist.ps1`: `data/public/public.sqlite3` から `dist` を再生成し、Pages-like (`/tatemono-map/`) でローカルHTTP確認する。
+
+### source_kind / snapshot の整理（実装準拠）
+
+- `listings.source_kind` は provider 別値（例: `ulucks` / `realpro` / `mansion_review_chintai`）を保持する。
+- `ingest_runs.source` と `current_ingest_snapshots.source` は運用上 `master_import` を使用する。
+- `raw_sources.source_kind` は従来どおり `master` を保持する。
 
 ---
 

@@ -31,6 +31,7 @@
   - 建物の正本テーブル。建物ID・canonical名/住所・建物属性を保持。
 - **listings**
   - 空室明細テーブル。取り込みrunごとに `ingest_run_id` を持つ。
+  - `source_kind` は provider 別値（`ulucks` / `realpro` / `mansion_review_chintai` など）を保持する。
 - **building_summaries**
   - 公開・検索向けの建物集約。current snapshot の空室を合成して `vacancy_count` 等を持つ。
 - **public.sqlite3**
@@ -48,6 +49,7 @@
   - 例外行を人が確認するためのCSV（new_buildings / suspects / unmatched_listings）。
 - **current snapshot**
   - `current_ingest_snapshots` で source ごとに選ばれた現在有効run。空室集計はこの集合を参照。
+  - 運用上、`ingest_runs.source` / `current_ingest_snapshots.source` は `master_import` を使う。
 
 ---
 
@@ -60,6 +62,7 @@
 - `building_summaries`: 公開用集約（派生）
 - `building_key_aliases`: 表記ゆれ吸収の対応表
 - `building_sources`: 証拠IDと建物IDの対応（由来追跡）
+- `raw_sources`: 生データ保管（現行では `source_kind='master'` を保持）
 
 ### `data/public/public.sqlite3`（公開DB）
 
