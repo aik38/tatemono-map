@@ -35,28 +35,28 @@ DEFAULT_SITE_ORIGIN = "https://www.tatemono-map.com"
 KOKURAKITA_AREA_PATH = "/area/fukuoka/kitakyushu/kokurakita/"
 DEFAULT_STATIC_BUILDING_LINK_LIMIT = 80
 AREA_PAGE_SPECS = (
-    {"label": "小倉北区", "path": KOKURAKITA_AREA_PATH, "match_tokens": ("北九州市小倉北区",), "is_major": True},
-    {"label": "小倉南区", "path": "/area/fukuoka/kitakyushu/kokuraminami/", "match_tokens": ("北九州市小倉南区",), "is_major": True},
-    {"label": "八幡東区", "path": "/area/fukuoka/kitakyushu/yahatahigashi/", "match_tokens": ("北九州市八幡東区",), "is_major": True},
-    {"label": "八幡西区", "path": "/area/fukuoka/kitakyushu/yahatanishi/", "match_tokens": ("北九州市八幡西区",), "is_major": True},
-    {"label": "若松区", "path": "/area/fukuoka/kitakyushu/wakamatsu/", "match_tokens": ("北九州市若松区",), "is_major": True},
-    {"label": "戸畑区", "path": "/area/fukuoka/kitakyushu/tobata/", "match_tokens": ("北九州市戸畑区",), "is_major": True},
-    {"label": "門司区", "path": "/area/fukuoka/kitakyushu/moji/", "match_tokens": ("北九州市門司区",), "is_major": True},
-    {"label": "中間市", "path": "/area/fukuoka/chikuho/nakama/", "match_tokens": ("中間市",), "is_major": False},
-    {"label": "遠賀郡", "path": "/area/fukuoka/chikuho/onga-gun/", "match_tokens": ("遠賀郡",), "is_major": False},
-    {"label": "京都郡", "path": "/area/fukuoka/keichiku/miyako-gun/", "match_tokens": ("京都郡",), "is_major": False},
-    {"label": "行橋市", "path": "/area/fukuoka/keichiku/yukuhashi/", "match_tokens": ("行橋市",), "is_major": False},
-    {"label": "築上郡", "path": "/area/fukuoka/keichiku/chikujo-gun/", "match_tokens": ("築上郡",), "is_major": False},
-    {"label": "豊前市", "path": "/area/fukuoka/keichiku/buzen/", "match_tokens": ("豊前市",), "is_major": False},
-    {"label": "直方市", "path": "/area/fukuoka/chikuho/nogata/", "match_tokens": ("直方市",), "is_major": False},
-    {"label": "鞍手郡", "path": "/area/fukuoka/chikuho/kurate-gun/", "match_tokens": ("鞍手郡",), "is_major": False},
-    {"label": "田川郡", "path": "/area/fukuoka/chikuho/tagawa-gun/", "match_tokens": ("田川郡",), "is_major": False},
-    {"label": "田川市", "path": "/area/fukuoka/chikuho/tagawa/", "match_tokens": ("田川市",), "is_major": False},
-    {"label": "宗像市", "path": "/area/fukuoka/chikuzen/munakata/", "match_tokens": ("宗像市",), "is_major": False},
-    {"label": "宮若市", "path": "/area/fukuoka/chikuho/miyawaka/", "match_tokens": ("宮若市",), "is_major": False},
-    {"label": "飯塚市", "path": "/area/fukuoka/chikuho/iizuka/", "match_tokens": ("飯塚市",), "is_major": False},
-    {"label": "嘉穂郡", "path": "/area/fukuoka/chikuho/kaho-gun/", "match_tokens": ("嘉穂郡",), "is_major": False},
-    {"label": "嘉麻市", "path": "/area/fukuoka/chikuho/kama/", "match_tokens": ("嘉麻市",), "is_major": False},
+    {"label": "小倉北区", "path": KOKURAKITA_AREA_PATH, "match_tokens": ("北九州市小倉北区",), "is_major": True, "intro_text": "小倉北区の建物を建物単位で確認できる一覧ページです。小倉駅周辺の商業エリアから近郊の住宅街まで、エリア内の建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "小倉南区", "path": "/area/fukuoka/kitakyushu/kokuraminami/", "match_tokens": ("北九州市小倉南区",), "is_major": True, "intro_text": "小倉南区の建物を建物単位で確認できる一覧ページです。ニュータウンやベッドタウンが広がる住宅エリアを中心に、住所や現在の募集状況を建物単位で比較しながら探せます。"},
+    {"label": "八幡東区", "path": "/area/fukuoka/kitakyushu/yahatahigashi/", "match_tokens": ("北九州市八幡東区",), "is_major": True, "intro_text": "八幡東区の建物を建物単位で確認できる一覧ページです。山麓の住宅地から再開発が進む駅周辺エリアまで、建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "八幡西区", "path": "/area/fukuoka/kitakyushu/yahatanishi/", "match_tokens": ("北九州市八幡西区",), "is_major": True, "intro_text": "八幡西区の建物を建物単位で確認できる一覧ページです。黒崎周辺の商業地から折尾周辺の学生街、郊外の住宅地まで、住所や募集状況を建物単位で比較しながら探せます。"},
+    {"label": "若松区", "path": "/area/fukuoka/kitakyushu/wakamatsu/", "match_tokens": ("北九州市若松区",), "is_major": True, "intro_text": "若松区の建物を建物単位で確認できる一覧ページです。洞海湾沿いの市街地から北部の自然に近い住宅エリアまで、建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "戸畑区", "path": "/area/fukuoka/kitakyushu/tobata/", "match_tokens": ("北九州市戸畑区",), "is_major": True, "intro_text": "戸畑区の建物を建物単位で確認できる一覧ページです。JR駅周辺の市街地と文教地区の側面を持つ住宅エリアの建物情報を、住所や募集状況ごとに比較しながら探せます。"},
+    {"label": "門司区", "path": "/area/fukuoka/kitakyushu/moji/", "match_tokens": ("北九州市門司区",), "is_major": True, "intro_text": "門司区の建物を建物単位で確認できる一覧ページです。門司港周辺の商業エリアから高台の住宅地まで、エリア内の建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "中間市", "path": "/area/fukuoka/chikuho/nakama/", "match_tokens": ("中間市",), "is_major": False, "intro_text": "中間市の建物を建物単位で確認できる一覧ページです。北九州市に隣接する市街地と落ち着いた住宅エリアの建物情報を、住所や募集状況を建物単位で見比べながら探せます。"},
+    {"label": "遠賀郡", "path": "/area/fukuoka/chikuho/onga-gun/", "match_tokens": ("遠賀郡",), "is_major": False, "intro_text": "遠賀郡の建物を建物単位で確認できる一覧ページです。遠賀川流域から海沿いの居住エリアまで、郡内の建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "京都郡", "path": "/area/fukuoka/keichiku/miyako-gun/", "match_tokens": ("京都郡",), "is_major": False, "intro_text": "京都郡の建物を建物単位で確認できる一覧ページです。臨海部の産業拠点から内陸の住宅エリアまで、エリア内の建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "行橋市", "path": "/area/fukuoka/keichiku/yukuhashi/", "match_tokens": ("行橋市",), "is_major": False, "intro_text": "行橋市の建物を建物単位で確認できる一覧ページです。京築地域の中心市街地から平野部に広がる住宅地まで、建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "築上郡", "path": "/area/fukuoka/keichiku/chikujo-gun/", "match_tokens": ("築上郡",), "is_major": False, "intro_text": "築上郡の建物を建物単位で確認できる一覧ページです。山々と海に囲まれた自然豊かな住環境エリアの建物情報を、住所や現在の募集状況を建物単位で比較しながら探せます。"},
+    {"label": "豊前市", "path": "/area/fukuoka/keichiku/buzen/", "match_tokens": ("豊前市",), "is_major": False, "intro_text": "豊前市の建物を建物単位で確認できる一覧ページです。市役所周辺の市街地から郊外の自然に近い住宅地まで、建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "直方市", "path": "/area/fukuoka/chikuho/nogata/", "match_tokens": ("直方市",), "is_major": False, "intro_text": "直方市の建物を建物単位で確認できる一覧ページです。遠賀川沿いの市街地と歴史ある旧街道周辺の住宅エリアまで、住所や募集状況を建物単位で比較しながら探せます。"},
+    {"label": "鞍手郡", "path": "/area/fukuoka/chikuho/kurate-gun/", "match_tokens": ("鞍手郡",), "is_major": False, "intro_text": "鞍手郡の建物を建物単位で確認できる一覧ページです。幹線道路沿いの市街地と田園風景が広がる住宅エリアの建物情報を、住所や募集状況を見比べながら探せます。"},
+    {"label": "田川郡", "path": "/area/fukuoka/chikuho/tagawa-gun/", "match_tokens": ("田川郡",), "is_major": False, "intro_text": "田川郡の建物を建物単位で確認できる一覧ページです。盆地特有の地勢を活かした住環境が広がる郡内エリアの建物情報を、住所や募集状況を建物単位で比較して探せます。"},
+    {"label": "田川市", "path": "/area/fukuoka/chikuho/tagawa/", "match_tokens": ("田川市",), "is_major": False, "intro_text": "田川市の建物を建物単位で確認できる一覧ページです。中心市街地を囲むように広がる住宅・商業エリアの建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "宗像市", "path": "/area/fukuoka/chikuzen/munakata/", "match_tokens": ("宗像市",), "is_major": False, "intro_text": "宗像市の建物を建物単位で確認できる一覧ページです。福岡・北九州両都市圏のベッドタウンとして広がる住宅地の建物情報を、住所や募集状況を建物単位で比較して探せます。"},
+    {"label": "宮若市", "path": "/area/fukuoka/chikuho/miyawaka/", "match_tokens": ("宮若市",), "is_major": False, "intro_text": "宮若市の建物を建物単位で確認できる一覧ページです。工業拠点と自然環境が共存する住宅エリアの建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "飯塚市", "path": "/area/fukuoka/chikuho/iizuka/", "match_tokens": ("飯塚市",), "is_major": False, "intro_text": "飯塚市の建物を建物単位で確認できる一覧ページです。筑豊地域の中心的な商業地と文教・住宅エリアが揃う市内の建物を、住所や募集状況ごとに比較して探せます。"},
+    {"label": "嘉穂郡", "path": "/area/fukuoka/chikuho/kaho-gun/", "match_tokens": ("嘉穂郡",), "is_major": False, "intro_text": "嘉穂郡の建物を建物単位で確認できる一覧ページです。飯塚市に隣接し、自然と住宅地が調和するエリア内の建物情報をまとめて見ながら、住所や募集状況を比較して探せます。"},
+    {"label": "嘉麻市", "path": "/area/fukuoka/chikuho/kama/", "match_tokens": ("嘉麻市",), "is_major": False, "intro_text": "嘉麻市の建物を建物単位で確認できる一覧ページです。遠賀川源流域の自然環境に包まれた住宅エリアの建物情報を、住所や募集状況を建物単位で比較しながら探せます。"},
 )
 
 
@@ -461,6 +461,23 @@ def _build_building_seo(building: dict, *, site_origin: str, base_path: str) -> 
     }
 
 
+def _build_breadcrumb_json_ld(items: list[dict[str, str]]) -> str:
+    payload = {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {
+                "@type": "ListItem",
+                "position": index,
+                "name": item["name"],
+                "item": item["url"],
+            }
+            for index, item in enumerate(items, start=1)
+        ],
+    }
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
 def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     conn = connect(db_path)
     canonical_buildings_count = conn.execute("SELECT COUNT(*) FROM buildings WHERE COALESCE(hidden_from_public, 0) = 0").fetchone()[0]
@@ -781,14 +798,21 @@ def _build_dist_version(
         area_dir = output_dir / area_spec["path"].strip("/")
         area_dir.mkdir(parents=True, exist_ok=True)
         area_name = area_spec["label"]
+        area_canonical_url = _build_canonical_url(site_origin, base_path, area_spec["path"])
+        area_breadcrumb_items = [
+            {"name": "ホーム", "url": _build_canonical_url(site_origin, base_path, "/")},
+            {"name": area_name, "url": area_canonical_url},
+        ]
         area_dir.joinpath("index.html").write_text(
             area_tpl.render(
                 area_name=area_name,
-                intro_text=f"{area_name}にある建物をまとめて確認できます。気になる建物があればLINEで最新情報をご相談ください。",
+                intro_text=area_spec["intro_text"],
                 buildings=area_buildings_map[area_spec["path"]],
-                page_title=f"{area_name}の建物一覧 | 建物マップ",
-                page_description=f"{area_name}のマンション・アパートを建物単位で確認できる一覧ページです。住所、空室数、家賃帯、面積帯をまとめてチェックできます。",
-                canonical_url=_build_canonical_url(site_origin, base_path, area_spec["path"]),
+                page_title=f"{area_name}の建物一覧・住所・募集情報 | 建物マップ",
+                page_description=area_spec["intro_text"],
+                canonical_url=area_canonical_url,
+                breadcrumb_items=area_breadcrumb_items,
+                breadcrumb_json_ld=_build_breadcrumb_json_ld(area_breadcrumb_items),
                 line_cta_url=line_cta_url,
                 line_deep_link_url=line_deep_link_url,
                 base_path=base_path,
@@ -809,6 +833,15 @@ def _build_dist_version(
                 "name": area_spec["label"],
                 "url": f"{base_path}{area_spec['path']}",
             }
+        detail_canonical_url = seo["canonical_url"]
+        breadcrumb_items = [
+            {"name": "ホーム", "url": _build_canonical_url(site_origin, base_path, "/")},
+        ]
+        if area_spec:
+            breadcrumb_items.append(
+                {"name": area_spec["label"], "url": _build_canonical_url(site_origin, base_path, area_spec["path"])}
+            )
+        breadcrumb_items.append({"name": str(b.get("name") or "建物詳細"), "url": detail_canonical_url})
         html = building_tpl.render(
             building=b,
             maps_url=maps_url,
@@ -819,7 +852,9 @@ def _build_dist_version(
             related_buildings=_build_related_buildings(buildings, b, max_items=8),
             page_title=seo["page_title"],
             page_description=seo["page_description"],
-            canonical_url=seo["canonical_url"],
+            canonical_url=detail_canonical_url,
+            breadcrumb_items=breadcrumb_items,
+            breadcrumb_json_ld=_build_breadcrumb_json_ld(breadcrumb_items),
             base_path=base_path,
             google_site_verification=google_site_verification,
         )
