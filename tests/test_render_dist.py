@@ -7,6 +7,7 @@ from tatemono_map.db.keys import make_building_key
 from tatemono_map.db.repo import ListingRecord, connect, upsert_listing
 from tatemono_map.normalize.building_summaries import rebuild
 from tatemono_map.render.build import build_dist, build_dist_versions
+from tatemono_map.render.build import _sort_area_buildings
 
 
 def _pick_primary_detail_path(detail_dir: Path) -> Path:
@@ -605,6 +606,70 @@ def test_build_dist_versions_v2_index_applies_user_sort_without_relevance_overri
     assert "const isFutureBuilt = builtYmSort !== null && builtYmSort > currentYm;" in index_v2
     assert "built_age_asc: compareBuiltAgeAsc" in index_v2
     assert "calcAgeYearsFromBuiltYearMonth" not in index_v2
+
+
+def test_sort_area_buildings_defaults_to_base_score_when_popularity_missing():
+    rows = [
+        {
+            "building_key": "old-full",
+            "updated_epoch": 1_700_000_000,
+            "vacancy_count": 2,
+            "rent_yen_min": 70000,
+            "rent_yen_max": 80000,
+            "area_sqm_min": 20,
+            "area_sqm_max": 30,
+            "structure": "RC",
+            "property_kind": "chintai",
+        },
+        {
+            "building_key": "new-empty",
+            "updated_epoch": 1_700_100_000,
+            "vacancy_count": 0,
+            "rent_yen_min": None,
+            "rent_yen_max": None,
+            "area_sqm_min": None,
+            "area_sqm_max": None,
+            "structure": None,
+            "property_kind": "",
+        },
+    ]
+
+    sorted_rows = _sort_area_buildings(rows)
+
+    assert [row["building_key"] for row in sorted_rows] == ["old-full", "new-empty"]
+
+
+def test_sort_area_buildings_accepts_popularity_score_and_ignores_invalid_values():
+    rows = [
+        {
+            "building_key": "base-top",
+            "updated_epoch": 1_700_000_000,
+            "vacancy_count": 3,
+            "rent_yen_min": 70000,
+            "rent_yen_max": 80000,
+            "area_sqm_min": 20,
+            "area_sqm_max": 30,
+            "structure": "RC",
+            "property_kind": "chintai",
+            "popularity_score": "not-a-number",
+        },
+        {
+            "building_key": "popular",
+            "updated_epoch": 1_699_900_000,
+            "vacancy_count": 1,
+            "rent_yen_min": 70000,
+            "rent_yen_max": 80000,
+            "area_sqm_min": 20,
+            "area_sqm_max": 30,
+            "structure": "RC",
+            "property_kind": "chintai",
+            "popularity_score": 1000,
+        },
+    ]
+
+    sorted_rows = _sort_area_buildings(rows)
+
+    assert [row["building_key"] for row in sorted_rows] == ["popular", "base-top"]
 
 
 def test_built_age_asc_priority_rules_and_relevance_override_guard():

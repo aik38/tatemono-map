@@ -397,6 +397,72 @@ def _build_related_buildings(buildings: list[dict], current: dict, *, max_items:
     return _sort_related(related)
 
 
+def _to_float_or_zero(value: object) -> float:
+    if value is None:
+        return 0.0
+    try:
+        return float(str(value).replace(",", "").strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _has_meaningful_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _build_area_base_score(building: dict) -> float:
+    vacancy_count = max(0.0, _to_float_or_zero(building.get("vacancy_count")))
+    sale_listing_count = max(0.0, _to_float_or_zero(building.get("sale_listing_count")))
+    active_listing_count = sale_listing_count if (building.get("property_kind") == "bunjo" and sale_listing_count > 0) else vacancy_count
+    listing_bonus = min(active_listing_count, 5.0) * 12.0
+
+    info_bonus = 0.0
+    for key in (
+        "rent_yen_min",
+        "rent_yen_max",
+        "area_sqm_min",
+        "area_sqm_max",
+        "structure",
+        "building_structure",
+        "building_built_year_month",
+    ):
+        if _has_meaningful_value(building.get(key)):
+            info_bonus += 3.0
+    if _has_meaningful_value(building.get("property_kind")):
+        info_bonus += 2.0
+
+    updated_epoch = int(_to_float_or_zero(building.get("updated_epoch")))
+    if updated_epoch > 0:
+        now_epoch = int(datetime.now(timezone.utc).timestamp())
+        age_days = max(0, (now_epoch - updated_epoch) // 86400)
+        recency_bonus = max(0.0, 40.0 - min(float(age_days), 40.0))
+    else:
+        recency_bonus = 0.0
+
+    return listing_bonus + info_bonus + recency_bonus
+
+
+def _build_area_sort_score(building: dict) -> float:
+    base_score = _build_area_base_score(building)
+    popularity_score = _to_float_or_zero(building.get("popularity_score"))
+    return base_score + popularity_score
+
+
+def _sort_area_buildings(buildings: list[dict]) -> list[dict]:
+    return sorted(
+        buildings,
+        key=lambda building: (
+            -_build_area_sort_score(building),
+            -int(_to_float_or_zero(building.get("updated_epoch"))),
+            str(building.get("building_key") or ""),
+        ),
+    )
+
+
 def _format_range(min_value: object, max_value: object, suffix: str) -> str | None:
     if min_value is None and max_value is None:
         return None
@@ -758,6 +824,8 @@ def _build_dist_version(
         matched_area = _resolve_area_spec(building.get("address"))
         if matched_area:
             area_buildings_map[matched_area["path"]].append(building)
+    for area_path, area_buildings in area_buildings_map.items():
+        area_buildings_map[area_path] = _sort_area_buildings(area_buildings)
     major_area_links = [_build_area_link(spec, base_path=base_path) for spec in AREA_PAGE_SPECS if spec["is_major"]]
     all_area_links = [_build_area_link(spec, base_path=base_path) for spec in AREA_PAGE_SPECS]
     area_hub_links = {
