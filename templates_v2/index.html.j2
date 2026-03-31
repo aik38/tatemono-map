@@ -135,9 +135,9 @@
       </select>
     </div>
   </section>
-  <section class="area-links card" aria-label="主要エリアから探す">
+  <section class="area-links card" aria-label="エリアから探す">
     <button id="area-links-toggle" class="area-links-toggle" type="button" aria-expanded="false" aria-controls="area-links-list">
-      <h2>主要エリアから探す</h2>
+      <h2>エリアから探す</h2>
     </button>
     <ul id="area-links-list" class="area-links-list" hidden>
       {% for area in all_area_links %}<li><a class="area-filter-link" href="{{ area.href }}" data-area="{{ area.label }}">{{ area.label }}</a></li>{% endfor %}
@@ -202,6 +202,7 @@
   const SEARCH_DEBOUNCE_MS = 250;
   const formatCount = (n) => new Intl.NumberFormat('ja-JP').format(n);
   const normalizeText = (text) => (text || '').normalize('NFKC').toLowerCase().replace(/[\s　]+/g, ' ').trim();
+  const tokenizeQuery = (text) => normalizeText(text).split(' ').filter(Boolean);
   const AREA_HUB_LINKS = Object.fromEntries(
     Object.entries({{ area_hub_links | tojson }}).map(([label, value]) => [normalizeText(label), value])
   );
@@ -275,32 +276,13 @@
   let displayLimit = PAGE_SIZE;
   const initialQuery = new URLSearchParams(window.location.search).get('q') || '';
   let currentQuery = normalizeText(initialQuery);
+  let currentTokens = tokenizeQuery(initialQuery);
   let debounceTimer = null;
   const REQUIRED_KEYS = ['id', 'name', 'address', 'vacancy_count', 'rent_min', 'rent_max', 'area_min', 'area_max', 'updated_epoch', 'property_kind'];
 
-  function getMatchScore(card, q) {
-    if (!q) return 0;
-    let score = 0;
-    let matched = false;
-    if (card.nameNormalized.startsWith(q)) {
-      score += 300;
-      matched = true;
-    } else if (card.nameNormalized.includes(q)) {
-      score += 200;
-      matched = true;
-    }
-    if (card.addressNormalized.startsWith(q)) {
-      score += 120;
-      matched = true;
-    } else if (card.addressNormalized.includes(q)) {
-      score += 80;
-      matched = true;
-    }
-    if (card.combined.includes(q)) {
-      score += 20;
-      matched = true;
-    }
-    return matched ? score : 0;
+  function matchesTokens(card, tokens) {
+    if (tokens.length === 0) return true;
+    return tokens.every((token) => card.nameNormalized.includes(token) || card.addressNormalized.includes(token));
   }
 
   function compareCards(a, b, q, sorter) {
@@ -366,7 +348,11 @@
   }
 
   function updateAreaHubLink() {
-    const areaHub = AREA_HUB_LINKS[currentQuery] || null;
+    if (currentTokens.length !== 1) {
+      seoAreaHubLink.hidden = true;
+      return;
+    }
+    const areaHub = AREA_HUB_LINKS[currentTokens[0]] || null;
     if (!areaHub) {
       seoAreaHubLink.hidden = true;
       return;
@@ -400,8 +386,7 @@
     filtered = [];
 
     buildings.forEach((card) => {
-      card.score = getMatchScore(card, currentQuery);
-      if (currentQuery !== '' && card.score === 0) return;
+      if (!matchesTokens(card, currentTokens)) return;
       filtered.push(card);
     });
 
@@ -419,6 +404,7 @@
 
   function handleInput() {
     currentQuery = normalizeText(input.value);
+    currentTokens = tokenizeQuery(input.value);
     if (debounceTimer) {
       clearTimeout(debounceTimer);
     }
@@ -428,6 +414,8 @@
   }
 
   function update() {
+    currentQuery = normalizeText(input.value);
+    currentTokens = tokenizeQuery(input.value);
     applyFiltersAndSort(true);
     // legacy marker for regression tests: list.appendChild(card.el)
   }
@@ -633,6 +621,7 @@
       const area = link.dataset.area || (link.textContent || '').trim();
       input.value = area;
       currentQuery = normalizeText(area);
+      currentTokens = tokenizeQuery(area);
       applyFiltersAndSort(true, 'area_filter');
     });
   });
