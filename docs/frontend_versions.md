@@ -52,7 +52,8 @@ PY
 - Area chips are in-page filter controls (they do not move users to a different page).
 - SEO area hub pages are separate fixed landing pages; at least `小倉北区` hub (`/area/fukuoka/kitakyushu/kokurakita/`) is implemented.
 - Top list copy has been cleaned up (no developer-facing label like `建物一覧（初期表示）`).
-- Building detail page (`/b/<id>.html`) has internal links via breadcrumbs and related buildings in the same area.
+- Building detail page (`/b/<slug>-<stable_id>.html`) has internal links via breadcrumbs and related buildings in the same area.
+- URL memo: `slug` is for readability, while `stable_id` is the immutable key. If slug generation is not possible, `/b/<stable_id>.html` is allowed. Keep the current `.html`-included URL rule fixed going forward.
 - Positioning: detail pages are the primary long-tail landing pages (building name / address queries), while area hubs are SEO support pages.
 
 ### Next ops memo

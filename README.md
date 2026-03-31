@@ -252,6 +252,10 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 ### SEO / Search Console / sitemap の現状（2026-03 時点）
 - SEO 基礎（実装済み）:
   - トップページおよび建物個別ページ（`/b/<slugified_name>-<stable_id>.html`）に `title` / `description` / `canonical` を実装済み。
+  - 建物詳細URLの正規形式は **`/b/<slug>-<stable_id>.html`** を固定方針とします（全国展開時も同一ルールを基本維持）。
+  - `slug` は建物名由来の可読性向上のための表示用要素で、同定キーは `stable_id`（不変キー）です。
+  - `slug` が生成できない場合は `/b/<stable_id>.html` を許容します（`.html` を含む現行ルールを維持）。
+  - `slug` が将来変わる場合でも、URLルール自体（`/b/... .html` + `stable_id` ベース）は変更しません。
   - 旧建物URL（`/b/<stable_id>.html`）は本文重複を避けるため、正規URLへの redirect stub（canonical + meta refresh + JS redirect）として生成します。
   - canonical は absolute URL を使用し、`?theme=` は canonical に含めません。
   - custom domain 本番 canonical は `/tatemono-map/` を含まない root URL を使います。
