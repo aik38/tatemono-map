@@ -1019,6 +1019,69 @@ def test_render_dist_related_buildings_excludes_tagawa_for_karita(tmp_path):
     assert "田川市ノイズ" not in detail
 
 
+
+
+def test_render_dist_related_buildings_prioritizes_same_town_then_fills_same_ward(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("浅野ターゲット", "福岡県北九州市小倉北区浅野2-1-1", 83000, 31.0, "1LDK", "2026-11-01", "ulucks", "asano-target"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("浅野関連", "福岡県北九州市小倉北区浅野1-2-3", 82000, 30.0, "1LDK", "2026-10-01", "ulucks", "asano-related"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("京町補完", "福岡県北九州市小倉北区京町9-9-9", 84000, 32.0, "1LDK", "2026-12-01", "ulucks", "kyomachi-fill"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("小倉南ノイズ2", "福岡県北九州市小倉南区守恒3-3-3", 76000, 30.0, "1LDK", "2026-11-01", "ulucks", "kokuraminami-noise-2"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    detail = next(
+        page.read_text(encoding="utf-8")
+        for page in (dist / "b").glob("*.html")
+        if "浅野ターゲット" in page.read_text(encoding="utf-8") and "window.location.replace(" not in page.read_text(encoding="utf-8")
+    )
+
+    assert "浅野関連" in detail
+    assert "京町補完" in detail
+    assert "小倉南ノイズ2" not in detail
+    assert detail.index("浅野関連") < detail.index("京町補完")
+
+
+def test_render_dist_related_buildings_falls_back_to_same_ward_when_town_missing(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("町名なしターゲット", "福岡県北九州市小倉北区", 83000, 31.0, "1LDK", "2026-11-01", "ulucks", "no-town-target"),
+    )
+    upsert_listing(
+        conn,
+        ListingRecord("同区関連", "福岡県北九州市小倉北区京町2-2-2", 84000, 32.0, "1LDK", "2026-11-01", "ulucks", "same-ward-related"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2", base_path="")
+
+    detail = next(
+        page.read_text(encoding="utf-8")
+        for page in (dist / "b").glob("*.html")
+        if "町名なしターゲット" in page.read_text(encoding="utf-8") and "window.location.replace(" not in page.read_text(encoding="utf-8")
+    )
+    assert "同区関連" in detail
+
 def test_render_dist_related_buildings_keeps_existing_kitakyushu_behavior(tmp_path):
     db = tmp_path / "test.sqlite3"
     dist = tmp_path / "dist"

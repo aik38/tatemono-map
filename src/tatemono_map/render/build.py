@@ -331,17 +331,70 @@ def _build_area_link(area_spec: dict, *, base_path: str) -> dict:
     }
 
 
+def _extract_kitakyushu_ward_key(address: object) -> str | None:
+    normalized = _normalize_address_for_area(address)
+    if not normalized:
+        return None
+    match = re.search(r"北九州市([^\d\-ー丁目番地\s]*区)", normalized)
+    if not match:
+        return None
+    return f"北九州市{match.group(1)}"
+
+
+def _extract_kitakyushu_town_key(address: object) -> str | None:
+    normalized = _normalize_address_for_area(address)
+    if not normalized:
+        return None
+    match = re.search(r"北九州市[^\d\-ー丁目番地\s]*区([^\d０-９\-ー丁目番地\s]+)", normalized)
+    if not match:
+        return None
+    town = match.group(1)
+    if town.startswith("大字") and len(town) > 2:
+        town = town[2:]
+    return town or None
+
+
 def _build_related_buildings(buildings: list[dict], current: dict, *, max_items: int = 8) -> list[dict]:
     current_key = current.get("building_key")
-    current_area = _resolve_area_spec(current.get("address"))
+    current_address = current.get("address")
+    current_ward = _extract_kitakyushu_ward_key(current_address)
+    current_town = _extract_kitakyushu_town_key(current_address)
+
+    def _sort_related(rows: list[dict]) -> list[dict]:
+        rows.sort(key=lambda row: row.get("updated_epoch") or -1, reverse=True)
+        return rows[:max_items]
+
+    if current_ward:
+        same_ward: list[dict] = []
+        same_town: list[dict] = []
+        for b in buildings:
+            if b.get("building_key") == current_key:
+                continue
+            if _extract_kitakyushu_ward_key(b.get("address")) != current_ward:
+                continue
+            same_ward.append(b)
+            if current_town and _extract_kitakyushu_town_key(b.get("address")) == current_town:
+                same_town.append(b)
+
+        if current_town:
+            same_town_sorted = _sort_related(same_town)
+            if len(same_town_sorted) >= max_items:
+                return same_town_sorted
+
+            seen = {row.get("building_key") for row in same_town_sorted}
+            ward_fallback = _sort_related([row for row in same_ward if row.get("building_key") not in seen])
+            return (same_town_sorted + ward_fallback)[:max_items]
+
+        return _sort_related(same_ward)
+
+    current_area = _resolve_area_spec(current_address)
     if current_area is None:
         return []
     related = [
         b for b in buildings
         if b.get("building_key") != current_key and _resolve_area_spec(b.get("address")) == current_area
     ]
-    related.sort(key=lambda row: row.get("updated_epoch") or -1, reverse=True)
-    return related[:max_items]
+    return _sort_related(related)
 
 
 def _format_range(min_value: object, max_value: object, suffix: str) -> str | None:
