@@ -260,7 +260,7 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
   - canonical は absolute URL を使用し、`?theme=` は canonical に含めません。
   - custom domain 本番 canonical は `/tatemono-map/` を含まない root URL を使います。
   - GA4（測定ID: `G-P39179E4KK`）を共通 head（`templates_v2/base.html.j2`）で全ページ計測しています。
-  - トップページには「主要エリアから探す」ブロックがあり、見出しタップで開閉するアコーディオンUIとして実装しています（エリアチップはトップページ内の絞り込み操作）。
+  - トップページには「エリアから探す」ブロックがあり、見出しタップで開閉するアコーディオンUIとして実装しています（エリアチップはトップページ内の絞り込み操作）。
   - フロントの初期表示ラベルは整理済みで、`建物一覧（初期表示）` のような開発者向け文言は表示しません。
 - Search Console（実装・設定済み）:
   - 共通 head に verification meta tag を挿入できる実装になっており、本番 `https://www.tatemono-map.com/` で所有権確認済み。

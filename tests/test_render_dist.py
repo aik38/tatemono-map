@@ -306,7 +306,7 @@ def test_build_dist_versions_v2_index_renders_counts_with_initial_values(tmp_pat
     assert '.counts { margin: -2px 0 14px; color: var(--muted); font-size: .92rem; white-space: nowrap; }' in index_v2
 
 
-def test_build_dist_versions_v2_index_has_search_ranking_logic(tmp_path):
+def test_build_dist_versions_v2_index_has_multi_token_search_logic(tmp_path):
     db = tmp_path / "test.sqlite3"
     out = tmp_path / "dist"
     conn = connect(db)
@@ -320,9 +320,10 @@ def test_build_dist_versions_v2_index_has_search_ranking_logic(tmp_path):
     build_dist_versions(str(db), str(out))
 
     index_v2 = (out / "index.html").read_text(encoding="utf-8")
-    assert "function getMatchScore" in index_v2
+    assert "const tokenizeQuery" in index_v2
+    assert "function matchesTokens" in index_v2
     assert "function compareCards" in index_v2
-    assert "card.score === 0" in index_v2
+    assert "tokens.every" in index_v2
     assert "b.score - a.score" not in index_v2
 
 
