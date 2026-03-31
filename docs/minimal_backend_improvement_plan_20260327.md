@@ -151,7 +151,7 @@
 - `scripts/run_pdf_zip_latest.ps1`（入力生成系は維持）
 - `src/tatemono_map/render/build.py`（見た目/URL非変更のため）
 - `templates/` および `templates_v2/`（フロント非変更）
-- 公開URL構造（`/`, `/area/...`, `/b/<id>.html`）
+- 公開URL構造（`/`, `/area/...`, `/b/<slug>-<stable_id>.html`。slug不可時は `/b/<stable_id>.html`）
 
 ## リスク
 
@@ -196,4 +196,3 @@
 
 7. **週次主経路の回帰確認**
    - `weekly_update` / `publish_public` / `run_all_latest` の既存成功条件を維持確認
-
