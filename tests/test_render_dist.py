@@ -982,7 +982,7 @@ def test_render_dist_generates_area_hub_pages_for_non_kokurakita_areas(tmp_path)
     area_page = (dist / "area" / "fukuoka" / "keichiku" / "miyako-gun" / "index.html").read_text(encoding="utf-8")
 
     assert "/area/fukuoka/keichiku/miyako-gun/" in index
-    assert "京都郡の建物一覧 | 建物マップ" in area_page
+    assert "京都郡の建物一覧・住所・募集情報 | 建物マップ" in area_page
     assert "苅田町確認マンション" in area_page
 
 

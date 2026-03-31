@@ -9,6 +9,9 @@
 {% block extra_head %}
 <style>
   .stack { display: grid; gap: 14px; }
+  .breadcrumb { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; font-size: .9rem; color: var(--muted); }
+  .breadcrumb a { color: var(--muted); text-decoration: none; }
+  .breadcrumb a:hover { text-decoration: underline; }
   .hero { padding: 20px; }
   .hero p { margin: 8px 0 0; color: var(--muted); }
   .building-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
@@ -23,10 +26,22 @@
   .line-cta { padding: 20px; border: 1px solid var(--line-border); background: linear-gradient(180deg, var(--line-bg-start) 0%, var(--line-bg-end) 100%); }
   .line-cta p { margin: 0 0 12px; color: var(--line-cta-text); }
 </style>
+{% if breadcrumb_json_ld %}
+<script type="application/ld+json">{{ breadcrumb_json_ld | safe }}</script>
+{% endif %}
 {% endblock %}
 
 {% block content %}
 <div class="stack">
+  {% if breadcrumb_items %}
+  <nav aria-label="パンくず">
+    <ol class="breadcrumb">
+      {% for crumb in breadcrumb_items %}
+      <li>{% if not loop.last %}<a href="{{ crumb.url }}">{{ crumb.name }}</a> ›{% else %}{{ crumb.name }}{% endif %}</li>
+      {% endfor %}
+    </ol>
+  </nav>
+  {% endif %}
   <section class="hero card" aria-label="エリア概要">
     <h1>{{ area_name }}の建物一覧</h1>
     <p>{{ intro_text }}</p>

@@ -127,16 +127,19 @@
     }
   }
 </style>
+{% if breadcrumb_json_ld %}
+<script type="application/ld+json">{{ breadcrumb_json_ld | safe }}</script>
+{% endif %}
 {% endblock %}
 
 {% block content %}
   <div class="stack">
-    {% if area_hub %}
+    {% if breadcrumb_items %}
     <nav aria-label="パンくず">
       <ol class="breadcrumb">
-        <li><a href="{{ base_path }}/">ホーム</a> ›</li>
-        <li><a href="{{ area_hub.url }}">{{ area_hub.name }}</a> ›</li>
-        <li>{{ building.name or "建物詳細" }}</li>
+        {% for crumb in breadcrumb_items %}
+        <li>{% if not loop.last %}<a href="{{ crumb.url }}">{{ crumb.name }}</a> ›{% else %}{{ crumb.name }}{% endif %}</li>
+        {% endfor %}
       </ol>
     </nav>
     {% endif %}
