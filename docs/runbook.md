@@ -117,10 +117,24 @@ curl.exe -s https://www.tatemono-map.com/build_info.json
 
 ### 住所表示モード（full / short）の運用
 
-- ローカル表示確認は `render.build --address-mode full|short` を使う（例: `python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2 --address-mode short`）。
-- 本番URLの切替は GitHub Actions の `Deploy GitHub Pages` を `workflow_dispatch` で起動し、`address_mode`（`full` / `short`）を選んで deploy する。
-- `main` push で自動実行される deploy の既定値は `full`。
-- `scripts/run_to_pages.ps1` は ingest / 公開DB更新用であり、住所表示モード切替の操作には不要。
+- 仕様（実装準拠）:
+  - `full`: フロント表示は完全住所。
+  - `short`: フロント表示のみ短縮住所。
+  - Google Maps 埋め込み / Google Maps リンク / DB保存 / 名寄せ / correction は常に完全住所。
+  - `short` の短縮は原則「市区町村 + 町名 + 丁目」まで（先頭の都道府県名を除去）。丁目が安全に取れない場合は無理に壊さない。
+    - 例: `福岡県北九州市小倉北区黄金1-2-10` → `北九州市小倉北区黄金1丁目`
+    - 例: `福岡県北九州市小倉北区片野3-15-2` → `北九州市小倉北区片野3丁目`
+
+- ローカル表示確認は `render.build --address-mode full|short` を使う（repo ルートで実行）。
+  - `python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --address-mode full`
+  - `python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --address-mode short`
+- 本番URLの切替は GitHub Actions の `Deploy GitHub Pages` を `workflow_dispatch` で起動し、`address_mode`（`full` / `short`）を選び、branch は `main` で deploy する。
+- build / deploy 完了後は https://www.tatemono-map.com/ で確認し、必要に応じて `Ctrl+F5` か通常再読込を行う。
+- 既定値: `workflow_dispatch` の `address_mode` 入力の default は `full`。`main` push の自動 deploy も `full` で build される。
+- 役割分担（住所表示確認）:
+  - ローカル確認: `render.build`
+  - 本番URL切替: `Deploy GitHub Pages` の `workflow_dispatch`
+  - `scripts/run_to_pages.ps1`: ingest / 公開DB更新用（今回の住所表示確認には使わない）
 
 ---
 
