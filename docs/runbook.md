@@ -115,6 +115,13 @@ curl.exe -s https://www.tatemono-map.com/build_info.json
 - `run_to_pages` / `publish_public` / `dev_dist` をローカル実行しただけでは本番は変わりません。`main` push をトリガーにした Actions 完了後に Pages 応答を確認してください。
 - ブラウザ確認はシークレットウィンドウで行い、必要に応じて `Ctrl+F5`。
 
+### 住所表示モード（full / short）の運用
+
+- ローカル表示確認は `render.build --address-mode full|short` を使う（例: `python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2 --address-mode short`）。
+- 本番URLの切替は GitHub Actions の `Deploy GitHub Pages` を `workflow_dispatch` で起動し、`address_mode`（`full` / `short`）を選んで deploy する。
+- `main` push で自動実行される deploy の既定値は `full`。
+- `scripts/run_to_pages.ps1` は ingest / 公開DB更新用であり、住所表示モード切替の操作には不要。
+
 ---
 
 
