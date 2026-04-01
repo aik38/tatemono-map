@@ -33,6 +33,7 @@ DEFAULT_BASE_PATH = "/tatemono-map"
 DEFAULT_GOOGLE_SITE_VERIFICATION = "JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo"
 DEFAULT_SITE_ORIGIN = "https://www.tatemono-map.com"
 DEFAULT_ADDRESS_MODE = "full"
+DEFAULT_THEME = "ph"
 KOKURAKITA_AREA_PATH = "/area/fukuoka/kitakyushu/kokurakita/"
 DEFAULT_STATIC_BUILDING_LINK_LIMIT = 80
 AREA_PAGE_SPECS = (
@@ -128,6 +129,13 @@ def _resolve_address_mode(value: str) -> str:
     if normalized in {"full", "short"}:
         return normalized
     return DEFAULT_ADDRESS_MODE
+
+
+def _resolve_theme(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"default", "ph", "mercari"}:
+        return normalized
+    return DEFAULT_THEME
 
 
 def _normalize_json_scalar(value: object) -> object:
@@ -847,6 +855,7 @@ def _build_dist_version(
     google_site_verification: str,
     site_origin: str,
     address_mode: str,
+    default_theme: str,
 ) -> None:
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -909,6 +918,7 @@ def _build_dist_version(
             area_hub_links=area_hub_links,
             base_path=base_path,
             google_site_verification=google_site_verification,
+            default_theme=default_theme,
         ),
         encoding="utf-8",
     )
@@ -936,6 +946,7 @@ def _build_dist_version(
                 line_deep_link_url=line_deep_link_url,
                 base_path=base_path,
                 google_site_verification=google_site_verification,
+                default_theme=default_theme,
             ),
             encoding="utf-8",
         )
@@ -976,6 +987,7 @@ def _build_dist_version(
             breadcrumb_json_ld=_build_breadcrumb_json_ld(breadcrumb_items),
             base_path=base_path,
             google_site_verification=google_site_verification,
+            default_theme=default_theme,
         )
         (output_dir / "b" / b["detail_filename"]).write_text(html, encoding="utf-8")
         if b["detail_filename"] != b["legacy_detail_filename"]:
@@ -1010,6 +1022,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
     google_site_verification = os.getenv("TATEMONO_MAP_GOOGLE_SITE_VERIFICATION", DEFAULT_GOOGLE_SITE_VERIFICATION).strip()
     site_origin = _resolve_site_origin()
     address_mode = _resolve_address_mode(os.getenv("TATEMONO_MAP_ADDRESS_MODE", DEFAULT_ADDRESS_MODE))
+    default_theme = _resolve_theme(os.getenv("TATEMONO_MAP_THEME", DEFAULT_THEME))
     normalized_base_path = _normalize_base_path(base_path)
 
     buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
@@ -1029,6 +1042,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
         google_site_verification=google_site_verification,
         site_origin=site_origin,
         address_mode=address_mode,
+        default_theme=default_theme,
     )
 
 
@@ -1040,6 +1054,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
     google_site_verification = os.getenv("TATEMONO_MAP_GOOGLE_SITE_VERIFICATION", DEFAULT_GOOGLE_SITE_VERIFICATION).strip()
     site_origin = _resolve_site_origin()
     address_mode = _resolve_address_mode(os.getenv("TATEMONO_MAP_ADDRESS_MODE", DEFAULT_ADDRESS_MODE))
+    default_theme = _resolve_theme(os.getenv("TATEMONO_MAP_THEME", DEFAULT_THEME))
     normalized_base_path = _normalize_base_path(base_path)
 
     out = Path(output_dir)
@@ -1064,6 +1079,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
         google_site_verification=google_site_verification,
         site_origin=site_origin,
         address_mode=address_mode,
+        default_theme=default_theme,
     )
     _build_dist_version(
         out / "v1",
@@ -1081,6 +1097,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
         google_site_verification=google_site_verification,
         site_origin=site_origin,
         address_mode=address_mode,
+        default_theme=default_theme,
     )
 
 
@@ -1091,8 +1108,10 @@ def main() -> None:
     parser.add_argument("--version", choices=("v1", "v2", "all"), default="all")
     parser.add_argument("--base-path", default=os.getenv("TATEMONO_MAP_BASE_PATH", DEFAULT_BASE_PATH))
     parser.add_argument("--address-mode", choices=("full", "short"), default=os.getenv("TATEMONO_MAP_ADDRESS_MODE", DEFAULT_ADDRESS_MODE))
+    parser.add_argument("--theme", choices=("default", "ph", "mercari"), default=os.getenv("TATEMONO_MAP_THEME", DEFAULT_THEME))
     args = parser.parse_args()
     os.environ["TATEMONO_MAP_ADDRESS_MODE"] = args.address_mode
+    os.environ["TATEMONO_MAP_THEME"] = args.theme
 
     if args.version == "all":
         build_dist_versions(args.db_path, args.output_dir, base_path=args.base_path)

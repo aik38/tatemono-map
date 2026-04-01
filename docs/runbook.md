@@ -136,6 +136,19 @@ curl.exe -s https://www.tatemono-map.com/build_info.json
   - 本番URL切替: `Deploy GitHub Pages` の `workflow_dispatch`
   - `scripts/run_to_pages.ps1`: ingest / 公開DB更新用（今回の住所表示確認には使わない）
 
+### 配色テーマ（ph / default / mercari）の運用
+
+- 仕様（実装準拠）:
+  - クエリなしURL（トップ / エリア / 建物詳細）は、build 時に設定した既定テーマで表示する。
+  - `?theme=default|ph|mercari` がある場合は、そのページでのみクエリ指定を最優先する。
+  - canonical は常にクエリなし正規URLを維持する（`?theme=` は canonical に含めない）。
+- ローカル表示確認（repo ルートで実行）:
+  - `python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --theme ph`
+  - `python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --theme default`
+  - `python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --theme mercari`
+- 本番URLの切替は GitHub Actions の `Deploy GitHub Pages` を `workflow_dispatch` で起動し、`theme`（`ph` / `default` / `mercari`）を選び、branch は `main` で deploy する。
+- 既定値: `workflow_dispatch` の `theme` 入力の default は `ph`。`main` push の自動 deploy も `ph` で build される。
+
 ---
 
 
