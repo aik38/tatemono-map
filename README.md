@@ -219,6 +219,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 - CSV を明示したい場合は `-CsvPath <path-to-master_import.csv>`、コミット文言を固定したい場合は `-Message "..."` を追加します。
 - `scripts/run_to_pages.ps1` は ingest と公開データ更新の運用コマンドです。Pages への公開物は Actions が `data/public/public.sqlite3` を入力に再生成します。
 - 本番 Pages deploy（`.github/workflows/deploy_pages.yml`）は custom domain 前提で `TATEMONO_MAP_BASE_PATH=""` を使って root 配信向けに build します。
+- 本番 deploy の住所表示は `.github/workflows/deploy_pages.yml` の `workflow_dispatch` 入力 `address_mode`（`full` / `short`）で切り替えます。`main` push 時の既定値は `full` です。
 - ローカル確認や project pages 相当の確認では、従来どおり `/tatemono-map` ベースの build / 配信も利用できます。
 
 ### フォルダ役割（固定）
@@ -248,6 +249,19 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 - `public.sqlite3` には `listings` テーブルは無く、公開用に必要なテーブルだけを持ちます。
 
 ## GitHub Pages 公開フロー
+
+### 住所表示モードの確認と切替（full / short）
+
+- ローカル確認（表示のみ切替）:
+
+```powershell
+python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2 --address-mode full
+python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2 --address-mode short
+```
+
+- 本番URL（https://www.tatemono-map.com/）切替:
+  - GitHub Actions の **Deploy GitHub Pages** を `workflow_dispatch` 実行し、`address_mode` で `full` / `short` を選択して deploy します。
+  - `scripts/run_to_pages.ps1` は ingest / 公開DB更新のためのコマンドで、住所表示モードの確認・切替には不要です。
 
 ### SEO / Search Console / sitemap の現状（2026-03 時点）
 - SEO 基礎（実装済み）:

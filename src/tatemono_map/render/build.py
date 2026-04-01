@@ -1092,15 +1092,13 @@ def main() -> None:
     parser.add_argument("--base-path", default=os.getenv("TATEMONO_MAP_BASE_PATH", DEFAULT_BASE_PATH))
     parser.add_argument("--address-mode", choices=("full", "short"), default=os.getenv("TATEMONO_MAP_ADDRESS_MODE", DEFAULT_ADDRESS_MODE))
     args = parser.parse_args()
+    os.environ["TATEMONO_MAP_ADDRESS_MODE"] = args.address_mode
 
     if args.version == "all":
-        os.environ["TATEMONO_MAP_ADDRESS_MODE"] = args.address_mode
         build_dist_versions(args.db_path, args.output_dir, base_path=args.base_path)
     elif args.version == "v2":
-        os.environ["TATEMONO_MAP_ADDRESS_MODE"] = args.address_mode
         build_dist(args.db_path, args.output_dir, template_root="templates_v2", base_path=args.base_path)
     else:
-        os.environ["TATEMONO_MAP_ADDRESS_MODE"] = args.address_mode
         build_dist(args.db_path, args.output_dir, template_root="templates", base_path=args.base_path)
     print("dist generated")
 
