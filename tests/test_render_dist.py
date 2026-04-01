@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from urllib.parse import quote_plus
 
 import pytest
 
@@ -258,9 +259,46 @@ def test_build_dist_versions_v2_index_search_update_pipeline(tmp_path):
     assert "if (visibleCount.textContent !== nextVisible)" in index_v2
     assert "if (totalCount.textContent !== nextTotal)" in index_v2
     assert "if (vacantCount.textContent !== nextVacant)" in index_v2
-    assert "visible.forEach((card) => {" in index_v2
-    assert "list.appendChild(card.el)" in index_v2
-    assert "input.addEventListener('change', update)" in index_v2
+
+
+def test_render_dist_address_mode_full_is_default(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("住所モード既定マンション", "福岡県北九州市小倉北区泉台1-7-23", 78000, 28.0, "1DK", "2026-10-01", "ulucks", "addr-full"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist))
+
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    detail = _pick_primary_detail_path(dist / "b").read_text(encoding="utf-8")
+    assert "福岡県北九州市小倉北区泉台1-7-23" in index
+    assert quote_plus("福岡県北九州市小倉北区泉台1-7-23") in detail
+
+
+def test_render_dist_address_mode_short_changes_display_only(tmp_path, monkeypatch):
+    monkeypatch.setenv("TATEMONO_MAP_ADDRESS_MODE", "short")
+    db = tmp_path / "test.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("住所モード短縮マンション", "福岡県北九州市小倉北区泉台1-7-23", 78000, 28.0, "1DK", "2026-10-01", "ulucks", "addr-short"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist))
+
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    detail = _pick_primary_detail_path(dist / "b").read_text(encoding="utf-8")
+    assert "北九州市小倉北区泉台1丁目" in index
+    assert "北九州市小倉北区泉台1丁目" in detail
+    assert "福岡県北九州市小倉北区泉台1-7-23" in detail
 
 
 

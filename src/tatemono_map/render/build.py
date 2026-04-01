@@ -32,6 +32,7 @@ DEFAULT_LINE_DEEP_LINK = "line://ti/p/@055wdvuq"
 DEFAULT_BASE_PATH = "/tatemono-map"
 DEFAULT_GOOGLE_SITE_VERIFICATION = "JCW5x0Dh0VamrnKUfDq10VrBt27IDc0ceuWccjjpaUo"
 DEFAULT_SITE_ORIGIN = "https://www.tatemono-map.com"
+DEFAULT_ADDRESS_MODE = "full"
 KOKURAKITA_AREA_PATH = "/area/fukuoka/kitakyushu/kokurakita/"
 DEFAULT_STATIC_BUILDING_LINK_LIMIT = 80
 AREA_PAGE_SPECS = (
@@ -82,6 +83,51 @@ def _sanitize_building(building: dict) -> dict:
         elif isinstance(value, list):
             sanitized[key] = [_sanitize_text(item) if isinstance(item, str) else item for item in value]
     return sanitized
+
+
+def _to_ascii_digits(value: str) -> str:
+    return value.translate(str.maketrans("０１２３４５６７８９", "0123456789"))
+
+
+def _kanji_chome_to_ascii(rest: str) -> str:
+    kanji_map = {"一": "1", "二": "2", "三": "3", "四": "4", "五": "5", "六": "6", "七": "7", "八": "8", "九": "9"}
+    return re.sub(r"([一二三四五六七八九])丁目", lambda m: f"{kanji_map[m.group(1)]}丁目", rest)
+
+
+def _build_display_address(address_full: object) -> str:
+    text = str(address_full or "").strip()
+    if not text:
+        return ""
+    text = _to_ascii_digits(text).replace("　", "")
+    text = re.sub(r"^福岡県", "", text)
+    city_match = re.match(r"^((?:[^市]+市)?(?:[^区]+区|[^町]+町|[^村]+村)?)(.*)$", text)
+    if not city_match:
+        return text
+    prefix = city_match.group(1)
+    rest = city_match.group(2).strip()
+    if not rest:
+        return prefix
+
+    rest = _kanji_chome_to_ascii(rest)
+    chome_match = re.search(r"(.+?)(\d+)丁目", rest)
+    if chome_match:
+        return f"{prefix}{chome_match.group(1)}{chome_match.group(2)}丁目"
+
+    hyphen_chome_match = re.search(r"(.+?)(\d+)-\d+(?:-\d+)?", rest)
+    if hyphen_chome_match:
+        return f"{prefix}{hyphen_chome_match.group(1)}{hyphen_chome_match.group(2)}丁目"
+
+    town_match = re.search(r"(.+?)(?:\d+番地|\d+番|\d+-\d+|[0-9].*)", rest)
+    if town_match:
+        return f"{prefix}{town_match.group(1)}".rstrip()
+    return f"{prefix}{rest}".rstrip()
+
+
+def _resolve_address_mode(value: str) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"full", "short"}:
+        return normalized
+    return DEFAULT_ADDRESS_MODE
 
 
 def _normalize_json_scalar(value: object) -> object:
@@ -660,7 +706,7 @@ def _build_buildings_payload(buildings: list[dict]) -> list[dict]:
                 "id": b.get("building_key"),
                 "detail_filename": b.get("detail_filename"),
                 "name": b.get("name"),
-                "address": b.get("address"),
+                "address": b.get("render_address") or b.get("address"),
                 "vacancy_count": b.get("vacancy_count"),
                 "rent_min": b.get("rent_yen_min"),
                 "rent_max": b.get("rent_yen_max"),
@@ -700,7 +746,7 @@ def _build_buildings_v2_min_payload(buildings: list[dict]) -> list[dict]:
                 "id": b.get("building_key"),
                 "detail_filename": b.get("detail_filename"),
                 "name": b.get("name"),
-                "address": b.get("address"),
+                "address": b.get("render_address") or b.get("address"),
                 "vacancy_count": b.get("vacancy_count"),
                 "rent_min": b.get("rent_yen_min"),
                 "rent_max": b.get("rent_yen_max"),
@@ -800,6 +846,7 @@ def _build_dist_version(
     base_path: str,
     google_site_verification: str,
     site_origin: str,
+    address_mode: str,
 ) -> None:
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -812,9 +859,13 @@ def _build_dist_version(
     area_tpl = env.get_template("area.html.j2")
 
     total_buildings = len(buildings)
+    selected_mode = _resolve_address_mode(address_mode)
     for b in buildings:
         b["detail_filename"] = _build_detail_filename(b)
         b["legacy_detail_filename"] = f"{b['building_key']}.html"
+        b["address_full"] = b.get("address")
+        b["display_address"] = _build_display_address(b.get("address"))
+        b["render_address"] = b.get("display_address") if selected_mode == "short" else b.get("address_full")
     total_vacant = sum((b.get("vacancy_count") or 0) for b in buildings)
     parsed_dates = [parsed for parsed in (_build_summary_date(b) for b in buildings) if parsed is not None]
     latest_data_date = max(parsed_dates, default=None)
@@ -958,6 +1009,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
     google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
     google_site_verification = os.getenv("TATEMONO_MAP_GOOGLE_SITE_VERIFICATION", DEFAULT_GOOGLE_SITE_VERIFICATION).strip()
     site_origin = _resolve_site_origin()
+    address_mode = _resolve_address_mode(os.getenv("TATEMONO_MAP_ADDRESS_MODE", DEFAULT_ADDRESS_MODE))
     normalized_base_path = _normalize_base_path(base_path)
 
     buildings, canonical_buildings_count, summary_buildings_count, buildings_count, vacancy_total = _load_buildings(db_path)
@@ -976,6 +1028,7 @@ def build_dist(db_path: str, output_dir: str, *, template_root: str = "templates
         base_path=normalized_base_path,
         google_site_verification=google_site_verification,
         site_origin=site_origin,
+        address_mode=address_mode,
     )
 
 
@@ -986,6 +1039,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
     google_maps_embed_api_key = os.getenv("TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY", "")
     google_site_verification = os.getenv("TATEMONO_MAP_GOOGLE_SITE_VERIFICATION", DEFAULT_GOOGLE_SITE_VERIFICATION).strip()
     site_origin = _resolve_site_origin()
+    address_mode = _resolve_address_mode(os.getenv("TATEMONO_MAP_ADDRESS_MODE", DEFAULT_ADDRESS_MODE))
     normalized_base_path = _normalize_base_path(base_path)
 
     out = Path(output_dir)
@@ -1009,6 +1063,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
         base_path=normalized_base_path,
         google_site_verification=google_site_verification,
         site_origin=site_origin,
+        address_mode=address_mode,
     )
     _build_dist_version(
         out / "v1",
@@ -1025,6 +1080,7 @@ def build_dist_versions(db_path: str, output_dir: str, *, base_path: str = DEFAU
         base_path=normalized_base_path,
         google_site_verification=google_site_verification,
         site_origin=site_origin,
+        address_mode=address_mode,
     )
 
 
@@ -1034,13 +1090,17 @@ def main() -> None:
     parser.add_argument("--output-dir", default="dist")
     parser.add_argument("--version", choices=("v1", "v2", "all"), default="all")
     parser.add_argument("--base-path", default=os.getenv("TATEMONO_MAP_BASE_PATH", DEFAULT_BASE_PATH))
+    parser.add_argument("--address-mode", choices=("full", "short"), default=os.getenv("TATEMONO_MAP_ADDRESS_MODE", DEFAULT_ADDRESS_MODE))
     args = parser.parse_args()
 
     if args.version == "all":
+        os.environ["TATEMONO_MAP_ADDRESS_MODE"] = args.address_mode
         build_dist_versions(args.db_path, args.output_dir, base_path=args.base_path)
     elif args.version == "v2":
+        os.environ["TATEMONO_MAP_ADDRESS_MODE"] = args.address_mode
         build_dist(args.db_path, args.output_dir, template_root="templates_v2", base_path=args.base_path)
     else:
+        os.environ["TATEMONO_MAP_ADDRESS_MODE"] = args.address_mode
         build_dist(args.db_path, args.output_dir, template_root="templates", base_path=args.base_path)
     print("dist generated")
 
