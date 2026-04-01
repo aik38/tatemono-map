@@ -139,15 +139,27 @@ curl.exe -s https://www.tatemono-map.com/build_info.json
 ### 配色テーマ（ph / default / mercari）の運用
 
 - 仕様（実装準拠）:
-  - クエリなしURL（トップ / エリア / 建物詳細）は、build 時に設定した既定テーマで表示する。
-  - `?theme=default|ph|mercari` がある場合は、そのページでのみクエリ指定を最優先する。
+  - クエリなしURL（トップ / エリア / 建物詳細）は、deploy/build 時に設定した既定テーマで表示する。
+  - `?theme=default|ph|mercari` が有効値なら、そのページでのみクエリ指定を最優先する。
+  - `?theme=` が無い場合は deploy/build の既定テーマを使う。
+  - 内部リンク（一覧→詳細リンク、パンくず、サイト内導線）は SEO 安全運用のためクエリなしURL基準で、`?theme=` を自動引き継ぎしない。
   - canonical は常にクエリなし正規URLを維持する（`?theme=` は canonical に含めない）。
+  - sitemap / 内部リンク / 一覧→詳細リンク / パンくずはクエリなし正規URL基準。
+  - テーマ切替は配色・クラス適用のみで、本文意味・`title` / `description` 方針は変更しない。
 - ローカル表示確認（repo ルートで実行）:
   - `python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --theme ph`
   - `python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --theme default`
   - `python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --theme mercari`
-- 本番URLの切替は GitHub Actions の `Deploy GitHub Pages` を `workflow_dispatch` で起動し、`theme`（`ph` / `default` / `mercari`）を選び、branch は `main` で deploy する。
+- 本番既定テーマの切替手順:
+  - GitHub Actions の `Deploy GitHub Pages` を開く。
+  - `Run workflow` を押し、`theme`（`ph` / `default` / `mercari`）を選ぶ（branch は `main`）。
+  - build / deploy 完了後、https://www.tatemono-map.com/ の **クエリなしURL** で反映を確認する。
 - 既定値: `workflow_dispatch` の `theme` 入力の default は `ph`。`main` push の自動 deploy も `ph` で build される。
+- 確認時の考え方:
+  - 本番既定テーマの確認は、deploy 後にクエリなしURL（トップ/詳細）で行う。
+  - `?theme=` の確認は、トップや詳細URLに直接 `?theme=...` を付けてページ単体で行う。
+  - 「トップで `?theme=` を付けた後に詳細へ遷移しても同じテーマを維持する」仕様ではない。
+  - `scripts/run_to_pages.ps1` は ingest / 公開DB更新用であり、今回のテーマ確認手順には不要。
 
 ---
 

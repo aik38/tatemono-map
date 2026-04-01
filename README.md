@@ -25,6 +25,10 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 ## フロント配色テーマ切替（静的・クエリ指定）
 - **クエリなしURL（`/` や `/b/...html` を含む）は deploy 時に選んだ既定テーマ**で表示します（`ph` / `default` / `mercari`）。
 - `?theme=...` がある場合は、クエリ指定を最優先で適用します（`default` / `ph` / `mercari`）。クエリ指定はそのページの表示上書きとして扱います。
+- 役割分担:
+  - 本番既定テーマの切替: GitHub Actions の **Deploy GitHub Pages**（`workflow_dispatch`）で `theme` を選択。
+  - `?theme=`: そのページだけの一時上書き（有効値のみ）。
+  - 内部リンク（一覧→詳細、パンくず、サイト内導線）: SEO 安全運用のためクエリなしURL基準。`?theme=` は引き継ぎません。
 
 ### 本番（GitHub Pages + custom domain）
 - クエリなし（既定テーマは deploy 設定）
@@ -47,6 +51,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
   - http://127.0.0.1:8788/tatemono-map/?theme=ph
 - mercari
   - http://127.0.0.1:8788/tatemono-map/?theme=mercari
+
+### `?theme=` の優先順位と確認ポイント
+- 優先順位は **`?theme=`（有効値） > deploy/build の既定テーマ** です。
+- `?theme=` はページ単位の一時上書きです。トップページで `?theme=ph` を付けても、一覧→詳細遷移の内部リンクでは `?theme=` を持ち回らないため、詳細はクエリなしURL側（本番既定テーマ）で表示されます。
+- これは canonical / sitemap / 内部リンクをクエリなし正規URLに固定する **SEO安全運用** の仕様です。
 
 ## 開発同期（GitHub↔ローカル）
 
@@ -298,6 +307,9 @@ python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --addres
   - `dist/sitemap.xml` は build 時に自動生成されます（トップ + エリアハブ + `/b/<slugified_name>-<stable_id>.html`）。
   - `?theme=` は sitemap に含めません。
   - Search Console へ `/sitemap.xml` 送信済み（成功）。
+- テーマとSEOの分離（実装方針）:
+  - テーマ切替は配色・クラス適用のみを対象とし、本文の意味・`title` / `description` 方針は変えません。
+  - 内部リンク / 一覧→詳細リンク / パンくずはクエリなし正規URL基準を維持します（`?theme=` は内部遷移で自動引き継ぎしない）。
 - エリア導線の役割分離（実装方針）:
   - エリアチップは操作用UI（トップ内絞り込み）として扱います。
   - エリアハブページは SEO 用の固定着地ページとして扱い、導線は全対象エリアへ一般化済みです（例: 小倉北区 `/area/fukuoka/kitakyushu/kokurakita/`）。
