@@ -62,7 +62,7 @@
   {% endif %}
   <section class="hero card" aria-label="建物概要">
     <h1>{{ building.name or "名称未設定" }}</h1>
-    <p>{{ building.address or "住所情報なし" }}</p>
+    <p>{{ building.render_address or "住所情報なし" }}</p>
   </section>
 
   {% if maps_embed_url %}

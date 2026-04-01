@@ -153,7 +153,7 @@
         <a class="building-link" href="{{ base_path }}/b/{{ b.detail_filename }}">
           <h2>{{ b.name or "名称未設定" }}</h2>{% if b.property_kind == "bunjo" %}<span class="kpi">分譲マンション</span>{% endif %}
         </a>
-        <p class="address">{{ b.address or "住所情報なし" }}</p>
+        <p class="address">{{ b.render_address or "住所情報なし" }}</p>
         <ul class="kpis" aria-label="建物の主要情報">
           {% if b.property_kind == "bunjo" %}<li class="kpi"><span>販売情報</span>{% if b.sale_listing_count is not none and b.sale_listing_count > 0 %}{{ b.sale_listing_count }}件{% else %}なし{% endif %}</li>{% else %}<li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>{% endif %}
           <li class="kpi"><span>{% if b.property_kind == "bunjo" %}販売価格{% else %}家賃{% endif %}</span>{% if b.property_kind == "bunjo" %}{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}{% else %}{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円{% endif %}</li>

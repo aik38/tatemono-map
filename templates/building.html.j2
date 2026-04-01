@@ -146,7 +146,7 @@
     <section class="hero card" aria-label="建物概要">
       <h1>{{ building.name or "名称未設定" }}</h1>
     {% if building.property_kind == "bunjo" %}<span class="kpi">分譲マンション</span>{% endif %}
-      <p>{{ building.address or "住所情報なし" }}</p>
+      <p>{{ building.render_address or "住所情報なし" }}</p>
 
       <ul class="kpis" aria-label="注目情報">
         {% if building.property_kind == "bunjo" %}<li class="kpi"><span>販売情報</span>{{ building.sale_listing_count if building.sale_listing_count is not none else "—" }}件</li>{% else %}<li class="kpi"><span>空室</span>{{ building.vacancy_count if building.vacancy_count is not none else "—" }}件</li>{% endif %}
