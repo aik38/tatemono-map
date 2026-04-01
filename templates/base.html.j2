@@ -13,11 +13,10 @@
   <script>
     (() => {
       const allowed = new Set(["default", "ph", "mercari"]);
+      const defaultTheme = "{{ default_theme | default('ph') }}";
+      const fallbackTheme = allowed.has(defaultTheme) ? defaultTheme : "ph";
       const q = new URLSearchParams(window.location.search).get("theme");
-      const theme = allowed.has(q) ? q : "ph";
-      if (allowed.has(q)) {
-        localStorage.setItem("tm_theme", theme);
-      }
+      const theme = allowed.has(q) ? q : fallbackTheme;
       const root = document.documentElement;
       root.classList.remove("theme-ph", "theme-mercari");
       if (theme === "ph") root.classList.add("theme-ph");

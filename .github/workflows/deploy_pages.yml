@@ -13,6 +13,15 @@ on:
         options:
           - full
           - short
+      theme:
+        description: "Theme for deploy default (query theme overrides per-page)"
+        required: true
+        default: ph
+        type: choice
+        options:
+          - ph
+          - default
+          - mercari
 
 concurrency:
   group: "pages"
@@ -68,12 +77,13 @@ jobs:
           TATEMONO_MAP_SITE_URL: https://www.tatemono-map.com
           TATEMONO_MAP_BASE_PATH: ""
           TATEMONO_MAP_ADDRESS_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.address_mode || 'full' }}
+          TATEMONO_MAP_THEME: ${{ github.event_name == 'workflow_dispatch' && inputs.theme || 'ph' }}
           TATEMONO_MAP_GOOGLE_VERIFICATION_FILE: google9e29480048aec8bf.html
           TATEMONO_MAP_LINE_CTA_URL: ${{ vars.TATEMONO_MAP_LINE_CTA_URL }}
           TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY: ${{ secrets.TATEMONO_MAP_GOOGLE_MAPS_EMBED_API_KEY }}
         run: |
           rm -rf dist
-          python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2 --address-mode "$TATEMONO_MAP_ADDRESS_MODE"
+          python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2 --address-mode "$TATEMONO_MAP_ADDRESS_MODE" --theme "$TATEMONO_MAP_THEME"
           touch dist/.nojekyll
 
       - name: Copy favicon assets into dist

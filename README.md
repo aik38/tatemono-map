@@ -23,11 +23,11 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 
 
 ## フロント配色テーマ切替（静的・クエリ指定）
-- **クエリなしURL（`/tatemono-map/` または `/tatemono-map/index.html`）は常に ph（黒 + 白 + オレンジ）を既定表示**します。
-- `?theme=...` がある場合は、クエリ指定を最優先で適用します（`default` / `ph` / `mercari`）。
+- **クエリなしURL（`/` や `/b/...html` を含む）は deploy 時に選んだ既定テーマ**で表示します（`ph` / `default` / `mercari`）。
+- `?theme=...` がある場合は、クエリ指定を最優先で適用します（`default` / `ph` / `mercari`）。クエリ指定はそのページの表示上書きとして扱います。
 
 ### 本番（GitHub Pages + custom domain）
-- クエリなし（既定: ph）
+- クエリなし（既定テーマは deploy 設定）
   - https://www.tatemono-map.com/
   - https://www.tatemono-map.com/index.html
 - default（現行互換）
@@ -38,7 +38,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
   - https://www.tatemono-map.com/?theme=mercari
 
 ### ローカル（dev_dist.ps1 起動後）
-- クエリなし（既定: ph）
+- クエリなし（既定テーマは build 設定）
   - http://127.0.0.1:8788/tatemono-map/
   - http://127.0.0.1:8788/tatemono-map/index.html
 - default
@@ -220,6 +220,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -
 - `scripts/run_to_pages.ps1` は ingest と公開データ更新の運用コマンドです。Pages への公開物は Actions が `data/public/public.sqlite3` を入力に再生成します。
 - 本番 Pages deploy（`.github/workflows/deploy_pages.yml`）は custom domain 前提で `TATEMONO_MAP_BASE_PATH=""` を使って root 配信向けに build します。
 - 本番 deploy の住所表示は `.github/workflows/deploy_pages.yml` の `workflow_dispatch` 入力 `address_mode`（`full` / `short`）で切り替えます。`main` push 時の既定値は `full` です。
+- 本番 deploy のテーマ既定値は `.github/workflows/deploy_pages.yml` の `workflow_dispatch` 入力 `theme`（`ph` / `default` / `mercari`）で切り替えます。`main` push 時の既定値は `ph` です。
 - ローカル確認や project pages 相当の確認では、従来どおり `/tatemono-map` ベースの build / 配信も利用できます。
 
 ### フォルダ役割（固定）
@@ -269,9 +270,9 @@ python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --addres
 
 - 本番URL（https://www.tatemono-map.com/）切替:
   - GitHub Actions の **Deploy GitHub Pages** を開く。
-  - **Run workflow** を押し、`address_mode` で `full` / `short` を選択（branch は `main`）。
+  - **Run workflow** を押し、`address_mode`（`full` / `short`）と `theme`（`ph` / `default` / `mercari`）を選択（branch は `main`）。
   - build / deploy 完了後、https://www.tatemono-map.com/ で確認（必要に応じて `Ctrl+F5` や通常再読込）。
-  - `workflow_dispatch` では `full` / `short` を都度選択可能、入力の既定値は `full`。`main` push の自動 deploy も `full` で build されます。
+  - `workflow_dispatch` では `address_mode` / `theme` を都度選択可能。入力の既定値は `full` / `ph` です。`main` push の自動 deploy も `full` / `ph` で build されます。
 
 - 役割分担（今回の住所表示確認）:
   - ローカル確認: `render.build --address-mode ...`
@@ -286,7 +287,7 @@ python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --addres
   - `slug` が生成できない場合は `/b/<stable_id>.html` を許容します（`.html` を含む現行ルールを維持）。
   - `slug` が将来変わる場合でも、URLルール自体（`/b/... .html` + `stable_id` ベース）は変更しません。
   - 旧建物URL（`/b/<stable_id>.html`）は本文重複を避けるため、正規URLへの redirect stub（canonical + meta refresh + JS redirect）として生成します。
-  - canonical は absolute URL を使用し、`?theme=` は canonical に含めません。
+  - canonical は absolute URL を使用し、`?theme=` は canonical に含めません（クエリ付きURLでも canonical はクエリなし正規URL）。
   - custom domain 本番 canonical は `/tatemono-map/` を含まない root URL を使います。
   - GA4（測定ID: `G-P39179E4KK`）を共通 head（`templates_v2/base.html.j2`）で全ページ計測しています。
   - トップページには「エリアから探す」ブロックがあり、見出しタップで開閉するアコーディオンUIとして実装しています（エリアチップはトップページ内の絞り込み操作）。
