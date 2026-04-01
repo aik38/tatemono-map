@@ -252,16 +252,31 @@ python -c "import sqlite3; c=sqlite3.connect(r'data/public/public.sqlite3'); q='
 
 ### 住所表示モードの確認と切替（full / short）
 
-- ローカル確認（表示のみ切替）:
+- 仕様（実装準拠）:
+  - `full`: フロント表示も完全住所。
+  - `short`: フロント表示のみ短縮住所。
+  - Google Maps 埋め込み / Google Maps リンク / DB保存 / 名寄せ / correction は常に完全住所を使います（表示文字列のみ切替）。
+  - `short` の短縮ルールは原則「市区町村 + 町名 + 丁目」まで（先頭の都道府県名を除去）。丁目が安全に取れない場合は無理に壊しません。
+    - 例: `福岡県北九州市小倉北区黄金1-2-10` → `北九州市小倉北区黄金1丁目`
+    - 例: `福岡県北九州市小倉北区片野3-15-2` → `北九州市小倉北区片野3丁目`
+
+- ローカル確認（`render.build` / repo ルートで実行）:
 
 ```powershell
-python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2 --address-mode full
-python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version v2 --address-mode short
+python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --address-mode full
+python -m tatemono_map.render.build --db-path data/tatemono_map.sqlite3 --address-mode short
 ```
 
 - 本番URL（https://www.tatemono-map.com/）切替:
-  - GitHub Actions の **Deploy GitHub Pages** を `workflow_dispatch` 実行し、`address_mode` で `full` / `short` を選択して deploy します。
-  - `scripts/run_to_pages.ps1` は ingest / 公開DB更新のためのコマンドで、住所表示モードの確認・切替には不要です。
+  - GitHub Actions の **Deploy GitHub Pages** を開く。
+  - **Run workflow** を押し、`address_mode` で `full` / `short` を選択（branch は `main`）。
+  - build / deploy 完了後、https://www.tatemono-map.com/ で確認（必要に応じて `Ctrl+F5` や通常再読込）。
+  - `workflow_dispatch` では `full` / `short` を都度選択可能、入力の既定値は `full`。`main` push の自動 deploy も `full` で build されます。
+
+- 役割分担（今回の住所表示確認）:
+  - ローカル確認: `render.build --address-mode ...`
+  - 本番URL切替: `Deploy GitHub Pages`（`workflow_dispatch`）
+  - `scripts/run_to_pages.ps1`: ingest / 公開DB更新用（今回の住所表示確認には使わない）
 
 ### SEO / Search Console / sitemap の現状（2026-03 時点）
 - SEO 基礎（実装済み）:
