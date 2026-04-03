@@ -16,6 +16,7 @@
   .hero p { margin: 8px 0 0; color: var(--muted); }
   .building-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
   .building-card { padding: 16px; display: grid; gap: 9px; }
+  .building-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
   .building-link { text-decoration: none; }
   .building-link:hover h2 { text-decoration: underline; text-underline-offset: 3px; }
   .building-card h2 { margin: 0; font-size: 1.08rem; }
@@ -23,6 +24,11 @@
   .kpis { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
   .kpi { border-radius: 999px; background: var(--surface-2); padding: 5px 10px; font-size: .84rem; }
   .kpi span { color: var(--muted); margin-right: 6px; }
+  .kind-badge { border-radius: 999px; background: var(--surface-2); padding: 5px 10px; font-size: .78rem; line-height: 1; white-space: nowrap; }
+  .meta { margin: 0; display: grid; gap: 7px; }
+  .meta-row { margin: 0; display: grid; grid-template-columns: 120px minmax(0,1fr); }
+  .meta-row dt { color: var(--muted); }
+  .meta-row dd { margin: 0; font-weight: 600; }
   .line-cta { padding: 20px; border: 1px solid var(--line-border); background: linear-gradient(180deg, var(--line-bg-start) 0%, var(--line-bg-end) 100%); }
   .line-cta p { margin: 0 0 12px; color: var(--line-cta-text); }
 </style>
@@ -51,7 +57,10 @@
     <ul class="building-list">
       {% for b in buildings %}
       <li class="card building-card">
-        <a class="building-link" href="{{ base_path }}/b/{{ b.detail_filename }}"><h2>{{ b.name or "名称未設定" }}</h2>{% if b.listing_mode == "both" %}<span class="kpi">賃貸/分譲</span>{% endif %}</a>
+        <div class="building-head">
+          <a class="building-link" href="{{ base_path }}/b/{{ b.detail_filename }}"><h2>{{ b.name or "名称未設定" }}</h2></a>
+          <span class="kind-badge">{% if b.listing_mode == "sale" %}分譲{% elif b.listing_mode == "both" %}賃貸/分譲{% else %}賃貸{% endif %}</span>
+        </div>
         <p class="address">{{ b.render_address or "住所情報なし" }}</p>
         <ul class="kpis" aria-label="建物の主要情報">
           {% if b.listing_mode == "both" %}
@@ -62,9 +71,19 @@
             <li class="kpi"><span>家賃</span>{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}</li>
           {% else %}
             <li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>
-            <li class="kpi"><span>家賃</span>{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円</li>
+            {% set rent_min = b.rent_yen_min if b.rent_yen_min is not none and b.rent_yen_min > 0 else none %}
+            {% set rent_max = b.rent_yen_max if b.rent_yen_max is not none and b.rent_yen_max > 0 else none %}
+            <li class="kpi"><span>家賃</span>{% if rent_min and rent_max %}{% if rent_min == rent_max %}{{ rent_min|yen }}円{% else %}{{ rent_min|yen }}円〜{{ rent_max|yen }}円{% endif %}{% elif rent_min %}{{ rent_min|yen }}円{% elif rent_max %}{{ rent_max|yen }}円{% else %}—{% endif %}</li>
           {% endif %}
         </ul>
+        {% set area_min = b.area_sqm_min if b.area_sqm_min is not none and b.area_sqm_min > 0 else none %}
+        {% set area_max = b.area_sqm_max if b.area_sqm_max is not none and b.area_sqm_max > 0 else none %}
+        <dl class="meta">
+          <div class="meta-row">
+            <dt>面積</dt>
+            <dd>{% if area_min and area_max %}{% if area_min == area_max %}{{ area_min }}㎡{% else %}{{ area_min }}㎡〜{{ area_max }}㎡{% endif %}{% elif area_min %}{{ area_min }}㎡{% elif area_max %}{{ area_max }}㎡{% else %}—{% endif %}</dd>
+          </div>
+        </dl>
       </li>
       {% endfor %}
     </ul>
