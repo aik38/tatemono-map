@@ -102,8 +102,43 @@ def _format_range(min_value: object, max_value: object, *, suffix: str = "") -> 
     if max_value is None:
         max_value = min_value
     if min_value == max_value:
-        return f"{_format_yen(min_value) if suffix == '円' else min_value}{suffix}"
-    return f"{_format_yen(min_value) if suffix == '円' else min_value}{suffix}〜{_format_yen(max_value) if suffix == '円' else max_value}{suffix}"
+        if suffix == "円":
+            return f"{_format_yen(min_value)}{suffix}"
+        if suffix == "万円":
+            return f"{_format_man_value(min_value)}{suffix}"
+        return f"{min_value}{suffix}"
+    if suffix == "円":
+        return f"{_format_yen(min_value)}{suffix}〜{_format_yen(max_value)}{suffix}"
+    if suffix == "万円":
+        return f"{_format_man_value(min_value)}{suffix}〜{_format_man_value(max_value)}{suffix}"
+    return f"{min_value}{suffix}〜{max_value}{suffix}"
+
+
+def _format_man_value(value: object) -> str:
+    try:
+        num = float(str(value).strip().replace(",", ""))
+    except (TypeError, ValueError):
+        return str(value)
+    if num.is_integer():
+        return f"{int(num):,}"
+    text = f"{num:,.2f}".rstrip("0").rstrip(".")
+    return text
+
+
+def _normalize_structure_label(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    ascii_text = unicodedata.normalize("NFKC", text).upper()
+    if ascii_text == "RC":
+        return "RC造"
+    if ascii_text == "SRC":
+        return "SRC造"
+    if text == "鉄骨":
+        return "鉄骨造"
+    if text == "木":
+        return "木造"
+    return text
 
 
 def _sanitize_text(value: str) -> str:
@@ -591,7 +626,7 @@ def _build_building_seo(building: dict, *, site_origin: str, base_path: str) -> 
     if area_range:
         facts.append(f"面積帯は{area_range}")
 
-    structure = building.get("building_structure") or building.get("structure")
+    structure = _normalize_structure_label(building.get("building_structure") or building.get("structure"))
     if structure:
         facts.append(f"構造は{structure}")
 
@@ -1041,6 +1076,7 @@ def _build_dist_version(
             suffix="㎡",
         )
         b["rental_move_in_label"] = rental_summary.get("move_in_summary") if rental_summary else b.get("building_availability_label")
+        b["display_structure"] = _normalize_structure_label(b.get("building_structure") or b.get("structure"))
         sale_count = sale_summary.get("sale_listing_count") if sale_summary else b.get("sale_listing_count")
         b["sale_status_label"] = f"{int(sale_count)}件" if (sale_count or 0) > 0 else "現在、販売中の住戸はありません。"
         b["sale_price_label"] = _format_range(
