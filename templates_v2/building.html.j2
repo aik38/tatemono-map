@@ -96,8 +96,8 @@
   {% endif %}
 
   {% if show_sale %}
-  <section class="info card mode-panel" aria-label="売出し情報" data-mode-panel="sale" {% if is_both_mode %}hidden{% endif %}>
-    <h2>売出し情報</h2>
+  <section class="info card mode-panel" aria-label="販売状況" data-mode-panel="sale" {% if is_both_mode %}hidden{% endif %}>
+    <h2>販売状況</h2>
     <dl class="facts">
       <div class="fact"><dt>販売状況</dt><dd>{{ building.sale_status_label }}</dd></div>
       {% if (building.sale_summary and (building.sale_summary.sale_listing_count or 0) > 0) or (building.sale_listing_count or 0) > 0 %}
@@ -111,16 +111,36 @@
     </dl>
   </section>
 
-  <section class="info card" aria-label="建物概要">
+  <section class="info card{% if is_both_mode %} mode-panel{% endif %}" aria-label="建物概要" {% if is_both_mode %}data-mode-panel="sale" hidden{% endif %}>
     <h2>建物概要</h2>
     <dl class="facts">
-      <div class="fact"><dt>築年月</dt><dd>{{ building.built_label or "要確認" }}</dd></div>
+      {% if building.built_label %}<div class="fact"><dt>築年月</dt><dd>{{ building.built_label }}</dd></div>{% endif %}
       {% if building.display_structure %}<div class="fact"><dt>構造</dt><dd>{{ building.display_structure }}</dd></div>{% endif %}
-      <div class="fact"><dt>階建て</dt><dd>{{ building.sale_summary.floor_count_text if building.sale_summary else "" }}</dd></div>
-      <div class="fact"><dt>総戸数</dt><dd>{{ building.sale_summary.total_units if building.sale_summary and building.sale_summary.total_units else "" }}</dd></div>
+      {% if building.sale_summary and building.sale_summary.floor_count_text %}<div class="fact"><dt>階建て</dt><dd>{{ building.sale_summary.floor_count_text }}</dd></div>{% endif %}
+      {% if building.sale_summary and building.sale_summary.total_units %}<div class="fact"><dt>総戸数</dt><dd>{{ building.sale_summary.total_units }}</dd></div>{% endif %}
       {% if building.sale_summary and building.sale_summary.management_style %}<div class="fact"><dt>管理方式</dt><dd>{{ building.sale_summary.management_style }}</dd></div>{% endif %}
     </dl>
   </section>
+
+  <section class="line-cta card{% if is_both_mode %} mode-panel{% endif %}" aria-label="分譲のお問い合わせ" {% if is_both_mode %}data-mode-panel="sale" hidden{% endif %}>
+    {% if (building.sale_summary and (building.sale_summary.sale_listing_count or 0) > 0) or (building.sale_listing_count or 0) > 0 %}
+    <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener" data-line-universal-url="{{ line_cta_url }}" data-line-deep-link="{{ line_deep_link_url }}" onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)">この建物の購入相談をする</a>
+    <a class="button" href="{{ line_cta_url }}" target="_blank" rel="noopener">この建物の売却査定をする</a>
+    {% else %}
+    <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener" data-line-universal-url="{{ line_cta_url }}" data-line-deep-link="{{ line_deep_link_url }}" onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)">この建物の売却査定をする</a>
+    {% endif %}
+  </section>
+
+  {% if related_buildings and is_both_mode %}
+  <section class="related card mode-panel" aria-label="同じエリアの建物" data-mode-panel="sale" hidden>
+    <h2>同じエリアの建物</h2>
+    <ul>
+      {% for related in related_buildings %}
+      <li><a href="{{ base_path }}/b/{{ related.detail_filename }}">{{ related.name or "名称未設定" }}</a></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
   {% endif %}
   {% if show_rental %}
   <section class="info card mode-panel" aria-label="募集情報" data-mode-panel="rental">
@@ -132,25 +152,29 @@
       {% if building.rental_maint_label %}<div class="fact"><dt>管理費 / 共益費</dt><dd>{{ building.rental_maint_label }}</dd></div>{% endif %}
       {% if building.rental_layout_label %}<div class="fact"><dt>間取り</dt><dd>{{ building.rental_layout_label }}</dd></div>{% endif %}
       {% if building.rental_area_label %}<div class="fact"><dt>面積</dt><dd>{{ building.rental_area_label }}</dd></div>{% endif %}
-      {% if building.rental_move_in_label %}<div class="fact"><dt>入居可能日</dt><dd>{{ "即入居あり" if building.rental_move_in_label == "入居" else building.rental_move_in_label }}</dd></div>{% endif %}
+      {% if building.rental_move_in_label %}<div class="fact"><dt>入居可能日</dt><dd>{{ "即入居" if building.rental_move_in_label == "入居" else building.rental_move_in_label }}</dd></div>{% endif %}
       {% else %}
       <div class="fact"><dt>補足</dt><dd>現在、この建物の募集は確認できていません。ご希望に近いお部屋もご案内可能です。</dd></div>
       {% endif %}
+    </dl>
+  </section>
+
+  {% if is_both_mode %}
+  <section class="info card mode-panel" aria-label="建物概要" data-mode-panel="rental">
+    <h2>建物概要</h2>
+    <dl class="facts">
       {% if building.built_label %}<div class="fact"><dt>築年月</dt><dd>{{ building.built_label }}</dd></div>{% endif %}
       {% if building.display_structure %}<div class="fact"><dt>構造</dt><dd>{{ building.display_structure }}</dd></div>{% endif %}
+      {% if building.sale_summary and building.sale_summary.floor_count_text %}<div class="fact"><dt>階建て</dt><dd>{{ building.sale_summary.floor_count_text }}</dd></div>{% endif %}
+      {% if building.sale_summary and building.sale_summary.total_units %}<div class="fact"><dt>総戸数</dt><dd>{{ building.sale_summary.total_units }}</dd></div>{% endif %}
     </dl>
   </section>
   {% endif %}
+  {% endif %}
 
+  {% if building.detail_mode == "sale" %}
   <section class="line-cta card" aria-label="LINEで問い合わせる">
-    {% if building.detail_mode in ["sale", "both"] %}
-    <h2>お問い合わせ</h2>
-    {% if building.detail_mode == "both" %}
-    <p>賃貸・分譲どちらのご相談にも対応しています。</p>
-    <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener" data-line-universal-url="{{ line_cta_url }}" data-line-deep-link="{{ line_deep_link_url }}" onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)">LINEで空室確認・内見相談</a>
-    <a class="button" href="{{ line_cta_url }}" target="_blank" rel="noopener">この建物の購入相談をする</a>
-    <a class="button" href="{{ line_cta_url }}" target="_blank" rel="noopener">この建物の売却査定をする</a>
-    {% elif (building.sale_summary and (building.sale_summary.sale_listing_count or 0) > 0) or (building.sale_listing_count or 0) > 0 %}
+    {% if (building.sale_summary and (building.sale_summary.sale_listing_count or 0) > 0) or (building.sale_listing_count or 0) > 0 %}
     <p>この建物の売出し状況にあわせて、購入と売却の相談を受け付けています。</p>
     <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener" data-line-universal-url="{{ line_cta_url }}" data-line-deep-link="{{ line_deep_link_url }}" onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)">この建物の購入相談をする</a>
     <a class="button" href="{{ line_cta_url }}" target="_blank" rel="noopener">この建物の売却査定をする</a>
@@ -158,12 +182,22 @@
     <p>現在の売出しがない建物でも、売却査定のご相談を受け付けています。</p>
     <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener" data-line-universal-url="{{ line_cta_url }}" data-line-deep-link="{{ line_deep_link_url }}" onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)">この建物の売却査定をする</a>
     {% endif %}
-    {% else %}
+  </section>
+  {% elif building.detail_mode == "rental" %}
+  <section class="line-cta card" aria-label="LINEで問い合わせる">
     <h2>LINEで空室確認・内見相談</h2>
     <p>最新の空室状況や内見可否を、LINEでまとめて確認できます。</p>
     <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener" data-line-universal-url="{{ line_cta_url }}" data-line-deep-link="{{ line_deep_link_url }}" onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)">LINEで空室確認・内見相談</a>
-    {% endif %}
   </section>
+  {% endif %}
+
+  {% if is_both_mode %}
+  <section class="line-cta card mode-panel" aria-label="LINEで問い合わせる" data-mode-panel="rental">
+    <h2>LINEで空室確認・内見相談</h2>
+    <p>最新の空室状況や内見可否を、LINEでまとめて確認できます。</p>
+    <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener" data-line-universal-url="{{ line_cta_url }}" data-line-deep-link="{{ line_deep_link_url }}" onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)">LINEで空室確認・内見相談</a>
+  </section>
+  {% endif %}
 
   {% if building.sponsor %}
   <section class="info card" aria-label="このエリアの相談先">
@@ -178,8 +212,18 @@
   </section>
   {% endif %}
 
-  {% if related_buildings %}
+  {% if related_buildings and not is_both_mode %}
   <section class="related card" aria-label="同じエリアの建物">
+    <h2>同じエリアの建物</h2>
+    <ul>
+      {% for related in related_buildings %}
+      <li><a href="{{ base_path }}/b/{{ related.detail_filename }}">{{ related.name or "名称未設定" }}</a></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  {% if related_buildings and is_both_mode %}
+  <section class="related card mode-panel" aria-label="同じエリアの建物" data-mode-panel="rental">
     <h2>同じエリアの建物</h2>
     <ul>
       {% for related in related_buildings %}
