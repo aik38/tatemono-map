@@ -110,6 +110,10 @@
   }
   .related { padding: clamp(16px, 2.6vw, 24px); }
   .related ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+  .mode-tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .mode-tab { border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2); padding: 8px 14px; font-weight: 600; cursor: pointer; }
+  .mode-tab[aria-selected="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+  .mode-panel[hidden] { display: none; }
 
   @media (max-width: 740px) {
     .fact {
@@ -133,6 +137,9 @@
 {% endblock %}
 
 {% block content %}
+  {% set is_both_mode = building.detail_mode == "both" %}
+  {% set show_sale = building.detail_mode in ["sale", "both"] %}
+  {% set show_rental = building.detail_mode in ["rental", "both"] %}
   <div class="stack">
     {% if breadcrumb_items %}
     <nav aria-label="パンくず">
@@ -155,8 +162,17 @@
       </div>
     </section>
 
-    {% if building.detail_mode == "sale" %}
-    <section class="info card" aria-label="売出し情報">
+    {% if is_both_mode %}
+    <section class="card" aria-label="表示切替">
+      <div class="mode-tabs" role="tablist" aria-label="募集種別">
+        <button class="mode-tab" type="button" role="tab" aria-selected="false" data-mode-tab="sale">分譲</button>
+        <button class="mode-tab" type="button" role="tab" aria-selected="true" data-mode-tab="rental">賃貸</button>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if show_sale %}
+    <section class="info card mode-panel" aria-label="売出し情報" data-mode-panel="sale" {% if is_both_mode %}hidden{% endif %}>
       <h2>売出し情報</h2>
       <dl class="facts">
         <div class="fact">
@@ -208,8 +224,9 @@
         {% if building.sale_summary and building.sale_summary.management_style %}<div class="fact"><dt>管理方式</dt><dd>{{ building.sale_summary.management_style }}</dd></div>{% endif %}
       </dl>
     </section>
-    {% else %}
-    <section class="info card" aria-label="募集情報">
+    {% endif %}
+    {% if show_rental %}
+    <section class="info card mode-panel" aria-label="募集情報" data-mode-panel="rental">
       <h2>募集情報</h2>
       <dl class="facts">
         <div class="fact"><dt>空室</dt><dd>{{ building.rental_vacancy_label }}</dd></div>
@@ -229,7 +246,7 @@
     {% endif %}
 
     <section class="line-cta" aria-label="LINEで問い合わせる">
-      {% if building.detail_mode == "sale" %}
+      {% if building.detail_mode in ["sale", "both"] %}
       <h2>お問い合わせ</h2>
       {% if (building.sale_summary and (building.sale_summary.sale_listing_count or 0) > 0) or (building.sale_listing_count or 0) > 0 %}
       <p>この建物の売出し状況にあわせて、購入と売却の相談を受け付けています。</p>
@@ -242,7 +259,11 @@
       {% endif %}
       <div>
         {% if line_cta_url %}
-          {% if building.detail_mode == "sale" %}
+          {% if building.detail_mode == "both" %}
+            <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener">LINEで空室確認・内見相談</a>
+            <a class="button" href="{{ line_cta_url }}" target="_blank" rel="noopener">この建物の購入相談をする</a>
+            <a class="button" href="{{ line_cta_url }}" target="_blank" rel="noopener">この建物の売却査定をする</a>
+          {% elif building.detail_mode == "sale" %}
             {% if (building.sale_summary and (building.sale_summary.sale_listing_count or 0) > 0) or (building.sale_listing_count or 0) > 0 %}
               <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener">この建物の購入相談をする</a>
               <a class="button" href="{{ line_cta_url }}" target="_blank" rel="noopener">この建物の売却査定をする</a>
@@ -282,4 +303,18 @@
     </section>
     {% endif %}
   </div>
+  {% if is_both_mode %}
+  <script>
+  (() => {
+    const tabs = Array.from(document.querySelectorAll('[data-mode-tab]'));
+    const panels = Array.from(document.querySelectorAll('[data-mode-panel]'));
+    const setMode = (mode) => {
+      tabs.forEach((tab) => tab.setAttribute('aria-selected', String(tab.dataset.modeTab === mode)));
+      panels.forEach((panel) => { panel.hidden = panel.dataset.modePanel !== mode; });
+    };
+    tabs.forEach((tab) => tab.addEventListener('click', () => setMode(tab.dataset.modeTab)));
+    setMode('rental');
+  })();
+  </script>
+  {% endif %}
 {% endblock %}

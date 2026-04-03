@@ -151,12 +151,12 @@
     {% for b in static_building_links %}
       <li class="card building-card">
         <a class="building-link" href="{{ base_path }}/b/{{ b.detail_filename }}">
-          <h2>{{ b.name or "名称未設定" }}</h2>{% if b.property_kind == "bunjo" %}<span class="kpi">分譲マンション</span>{% endif %}
+          <h2>{{ b.name or "名称未設定" }}</h2>{% if b.listing_mode in ["sale", "both"] %}<span class="kpi">分譲マンション</span>{% endif %}
         </a>
         <p class="address">{{ b.render_address or "住所情報なし" }}</p>
         <ul class="kpis" aria-label="建物の主要情報">
-          {% if b.property_kind == "bunjo" %}<li class="kpi"><span>販売情報</span>{% if b.sale_listing_count is not none and b.sale_listing_count > 0 %}{{ b.sale_listing_count }}件{% else %}なし{% endif %}</li>{% else %}<li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>{% endif %}
-          <li class="kpi"><span>{% if b.property_kind == "bunjo" %}販売価格{% else %}家賃{% endif %}</span>{% if b.property_kind == "bunjo" %}{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}{% else %}{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円{% endif %}</li>
+          {% if b.listing_mode in ["sale", "both"] %}<li class="kpi"><span>販売情報</span>{% if b.sale_listing_count is not none and b.sale_listing_count > 0 %}{{ b.sale_listing_count }}件{% else %}なし{% endif %}</li>{% else %}<li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>{% endif %}
+          <li class="kpi"><span>{% if b.listing_mode in ["sale", "both"] %}販売価格{% else %}家賃{% endif %}</span>{% if b.listing_mode in ["sale", "both"] %}{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}{% else %}{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円{% endif %}</li>
         </ul>
       </li>
     {% endfor %}
@@ -310,14 +310,15 @@
 
     const kpis = document.createElement('ul');
     kpis.className = 'kpis';
+    const isSaleLike = item.listingMode === 'sale' || item.listingMode === 'both';
     const vacancyKpi = document.createElement('li');
     vacancyKpi.className = 'kpi';
-    vacancyKpi.innerHTML = item.propertyKind === 'bunjo'
+    vacancyKpi.innerHTML = isSaleLike
       ? `<span>販売情報</span>${Number.isFinite(Number(item.saleListingCount)) && Number(item.saleListingCount) > 0 ? `${Number(item.saleListingCount)}件` : 'なし'}`
       : `<span>空室</span>${Number.isFinite(Number(item.vacancyCount)) ? Number(item.vacancyCount) : '—'}件`;
     const rentKpi = document.createElement('li');
     rentKpi.className = 'kpi';
-    rentKpi.innerHTML = item.propertyKind === 'bunjo' ? `<span>販売価格</span>${Number.isFinite(Number(item.salePriceAvg)) ? `${formatCount(Math.floor(Number(item.salePriceAvg) / 10000))}万円` : '—'}` : `<span>家賃</span>${formatYen(item.rentMin)}〜${formatYen(item.rentMax)}`;
+    rentKpi.innerHTML = isSaleLike ? `<span>販売価格</span>${Number.isFinite(Number(item.salePriceAvg)) ? `${formatCount(Math.floor(Number(item.salePriceAvg) / 10000))}万円` : '—'}` : `<span>家賃</span>${formatYen(item.rentMin)}〜${formatYen(item.rentMax)}`;
     kpis.append(vacancyKpi, rentKpi);
 
     const meta = document.createElement('dl');
@@ -330,7 +331,7 @@
     updatedRow.innerHTML = `<dt>建物構造</dt><dd>${item.buildingStructure || '—'}</dd>`;
     meta.append(areaRow, updatedRow);
 
-    if (item.propertyKind === 'bunjo') { const badge=document.createElement('span'); badge.className='kpi'; badge.textContent='分譲マンション'; link.appendChild(badge);} li.append(link, address, kpis, meta);
+    if (isSaleLike) { const badge=document.createElement('span'); badge.className='kpi'; badge.textContent='分譲マンション'; link.appendChild(badge);} li.append(link, address, kpis, meta);
     return li;
   }
 
@@ -498,7 +499,9 @@
         }
         const vacancyKnown = knownNumberOrNull(item.vacancy_count);
         const vacancyPositive = positiveNumberOrNull(item.vacancy_count);
-        const rentMinPositive = item.property_kind === 'bunjo' ? null : positiveNumberOrNull(item.rent_min);
+        const listingMode = item.listing_mode || (item.property_kind === 'bunjo' ? 'sale' : 'rental');
+        const isSaleLike = listingMode === 'sale' || listingMode === 'both';
+        const rentMinPositive = isSaleLike ? null : positiveNumberOrNull(item.rent_min);
         const areaMinPositive = positiveNumberOrNull(item.area_min);
         const builtAgeKnown = knownNumberOrNull(item.building_built_age_years);
         const builtYmSort = parseBuiltYm(item.building_built_year_month);
@@ -564,6 +567,7 @@
           name: item.name || '',
           address: item.address || '',
           propertyKind: item.property_kind || '',
+          listingMode,
           salePriceAvg: item.sale_price_avg,
           saleListingCount: item.sale_listing_count,
           vacancyCount: safeNumber(item.vacancy_count, 0),
