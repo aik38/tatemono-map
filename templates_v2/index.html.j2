@@ -27,7 +27,9 @@
   .field select option { background: var(--control-bg); color: var(--control-text); }
   #building-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
   .building-card { padding: 18px; display: grid; gap: 10px; }
+  .building-head { display: flex; gap: 8px; justify-content: space-between; align-items: flex-start; }
   .building-link { text-decoration: none; }
+  .building-link h2 { margin: 0; }
   .building-link:hover h2 { text-decoration: underline; text-underline-offset: 3px; }
 
   .intro h1,
@@ -50,6 +52,7 @@
   .kpis { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
   .kpi { border-radius: 999px; background: var(--surface-2); padding: 5px 10px; font-size: .84rem; }
   .kpi span { color: var(--muted); margin-right: 6px; }
+  .kind-badge { border-radius: 999px; background: var(--surface-2); padding: 5px 10px; font-size: .78rem; line-height: 1; white-space: nowrap; }
   #result-counts[hidden] { display: none; }
   .empty { margin-top: 20px; padding: 20px; text-align: center; }
   .empty[hidden] { display: none; }
@@ -150,9 +153,10 @@
   <ul id="building-list" aria-live="polite">
     {% for b in static_building_links %}
       <li class="card building-card">
-        <a class="building-link" href="{{ base_path }}/b/{{ b.detail_filename }}">
-          <h2>{{ b.name or "名称未設定" }}</h2>{% if b.listing_mode == "sale" %}<span class="kpi">分譲マンション</span>{% elif b.listing_mode == "both" %}<span class="kpi">賃貸/分譲</span>{% endif %}
-        </a>
+        <div class="building-head">
+          <a class="building-link" href="{{ base_path }}/b/{{ b.detail_filename }}"><h2>{{ b.name or "名称未設定" }}</h2></a>
+          <span class="kind-badge">{% if b.listing_mode == "sale" %}分譲{% elif b.listing_mode == "both" %}賃貸/分譲{% else %}賃貸{% endif %}</span>
+        </div>
         <p class="address">{{ b.render_address or "住所情報なし" }}</p>
         <ul class="kpis" aria-label="建物の主要情報">
           {% if b.listing_mode == "both" %}
@@ -163,9 +167,19 @@
             <li class="kpi"><span>販売価格</span>{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}</li>
           {% else %}
             <li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>
-            <li class="kpi"><span>家賃</span>{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円</li>
+            {% set rent_min = b.rent_yen_min if b.rent_yen_min is not none and b.rent_yen_min > 0 else none %}
+            {% set rent_max = b.rent_yen_max if b.rent_yen_max is not none and b.rent_yen_max > 0 else none %}
+            <li class="kpi"><span>家賃</span>{% if rent_min and rent_max %}{% if rent_min == rent_max %}{{ rent_min|yen }}円{% else %}{{ rent_min|yen }}円〜{{ rent_max|yen }}円{% endif %}{% elif rent_min %}{{ rent_min|yen }}円{% elif rent_max %}{{ rent_max|yen }}円{% else %}—{% endif %}</li>
           {% endif %}
         </ul>
+        {% set area_min = b.area_sqm_min if b.area_sqm_min is not none and b.area_sqm_min > 0 else none %}
+        {% set area_max = b.area_sqm_max if b.area_sqm_max is not none and b.area_sqm_max > 0 else none %}
+        <dl class="meta">
+          <div class="meta-row">
+            <dt>面積</dt>
+            <dd>{% if area_min and area_max %}{% if area_min == area_max %}{{ area_min }}㎡{% else %}{{ area_min }}㎡〜{{ area_max }}㎡{% endif %}{% elif area_min %}{{ area_min }}㎡{% elif area_max %}{{ area_max }}㎡{% else %}—{% endif %}</dd>
+          </div>
+        </dl>
       </li>
     {% endfor %}
   </ul>
@@ -235,6 +249,21 @@
   };
   const formatYen = (value) => Number.isFinite(Number(value)) ? `${formatCount(Number(value))}円` : '—';
   const formatArea = (value) => Number.isFinite(Number(value)) ? `${Number(value)}㎡` : '—';
+  const positiveNumber = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? num : null;
+  };
+  const formatRangeLabel = (minValue, maxValue, formatter) => {
+    const min = positiveNumber(minValue);
+    const max = positiveNumber(maxValue);
+    if (min !== null && max !== null) {
+      if (min === max) return formatter(min);
+      return `${formatter(min)}〜${formatter(max)}`;
+    }
+    if (min !== null) return formatter(min);
+    if (max !== null) return formatter(max);
+    return '—';
+  };
   const currentYm = (() => {
     const now = new Date();
     return now.getFullYear() * 12 + (now.getMonth() + 1);
@@ -305,12 +334,21 @@
     const li = document.createElement('li');
     li.className = 'card building-card';
 
+    const head = document.createElement('div');
+    head.className = 'building-head';
+
     const link = document.createElement('a');
     link.className = 'building-link';
     link.href = `b/${item.detailFilename}`;
     const h2 = document.createElement('h2');
     h2.textContent = item.name || '名称未設定';
     link.appendChild(h2);
+    head.appendChild(link);
+
+    const kindBadge = document.createElement('span');
+    kindBadge.className = 'kind-badge';
+    kindBadge.textContent = item.listingMode === 'sale' ? '分譲' : (item.listingMode === 'both' ? '賃貸/分譲' : '賃貸');
+    head.appendChild(kindBadge);
 
     const address = document.createElement('p');
     address.className = 'address';
@@ -332,7 +370,7 @@
       rentKpi.innerHTML = `<span>販売価格</span>${Number.isFinite(Number(item.salePriceAvg)) ? `${formatCount(Math.floor(Number(item.salePriceAvg) / 10000))}万円` : '—'}`;
     } else {
       vacancyKpi.innerHTML = `<span>空室</span>${Number.isFinite(Number(item.vacancyCount)) ? Number(item.vacancyCount) : '—'}件`;
-      rentKpi.innerHTML = `<span>家賃</span>${formatYen(item.rentMin)}〜${formatYen(item.rentMax)}`;
+      rentKpi.innerHTML = `<span>家賃</span>${formatRangeLabel(item.rentMin, item.rentMax, (n) => formatYen(n))}`;
     }
     kpis.append(vacancyKpi, rentKpi);
 
@@ -340,13 +378,13 @@
     meta.className = 'meta';
     const areaRow = document.createElement('div');
     areaRow.className = 'meta-row';
-    areaRow.innerHTML = `<dt>面積</dt><dd>${formatArea(item.areaMin)} 〜 ${formatArea(item.areaMax)}</dd>`;
+    areaRow.innerHTML = `<dt>面積</dt><dd>${formatRangeLabel(item.areaMin, item.areaMax, (n) => formatArea(n))}</dd>`;
     const updatedRow = document.createElement('div');
     updatedRow.className = 'meta-row';
     updatedRow.innerHTML = `<dt>建物構造</dt><dd>${item.buildingStructure || '—'}</dd>`;
     meta.append(areaRow, updatedRow);
 
-    if (isSale || isBoth) { const badge=document.createElement('span'); badge.className='kpi'; badge.textContent=isBoth?'賃貸/分譲':'分譲マンション'; link.appendChild(badge);} li.append(link, address, kpis, meta);
+    li.append(head, address, kpis, meta);
     return li;
   }
 
