@@ -71,6 +71,41 @@ def _format_yen(value: object) -> str:
         return "—"
 
 
+def _format_built_label(building: dict) -> str | None:
+    built = str(building.get("building_built_year_month") or "").strip()
+    age = building.get("derived_built_age_years")
+    if built:
+        parts = built.split("-")
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            ym = f"{int(parts[0])}/{int(parts[1])}"
+            if isinstance(age, int):
+                if age <= 0:
+                    return "新築"
+                if age <= 3:
+                    return "築浅"
+                return f"{ym}（築{age}年）"
+            return ym
+    if isinstance(age, int):
+        if age <= 0:
+            return "新築"
+        if age <= 3:
+            return "築浅"
+        return f"築{age}年"
+    return None
+
+
+def _format_range(min_value: object, max_value: object, *, suffix: str = "") -> str | None:
+    if min_value is None and max_value is None:
+        return None
+    if min_value is None:
+        min_value = max_value
+    if max_value is None:
+        max_value = min_value
+    if min_value == max_value:
+        return f"{_format_yen(min_value) if suffix == '円' else min_value}{suffix}"
+    return f"{_format_yen(min_value) if suffix == '円' else min_value}{suffix}〜{_format_yen(max_value) if suffix == '円' else max_value}{suffix}"
+
+
 def _sanitize_text(value: str) -> str:
     sanitized = ROOM_SUFFIX_RE.sub("", value)
     return re.sub(r"\s{2,}", " ", sanitized).strip()
@@ -644,6 +679,8 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             s.building_built_age_years,
             s.building_structure,
             s.building_availability_label,
+            COALESCE(s.has_rental, 0) AS has_rental,
+            COALESCE(s.has_sale, 0) AS has_sale,
             COALESCE(s.vacancy_count, 0) AS vacancy_count,
             s.sale_listing_count,
             s.last_updated,
@@ -676,6 +713,8 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             NULL AS building_built_age_years,
             NULL AS building_structure,
             NULL AS building_availability_label,
+            0 AS has_rental,
+            0 AS has_sale,
             0 AS vacancy_count,
             NULL AS sale_listing_count,
             NULL AS last_updated,
@@ -695,7 +734,27 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         summary_date = _build_summary_date(building)
         building["updated_epoch"] = int(summary_date.timestamp()) if summary_date else -1
         building_list.append(_sanitize_building(_apply_built_age_guard(building)))
+    sponsor_rows = conn.execute(
+        """
+        SELECT building_key, company_name, catch_copy, coverage_domains, coverage_areas, cta_label, cta_url
+        FROM building_page_sponsors
+        WHERE COALESCE(is_active, 1) = 1
+        """
+    ).fetchall()
+    sponsor_map = {str(row["building_key"]): dict(row) for row in sponsor_rows}
+    rental_summary_rows = conn.execute(
+        "SELECT * FROM building_rental_summaries"
+    ).fetchall()
+    rental_summary_map = {str(row["building_key"]): dict(row) for row in rental_summary_rows}
+    sale_summary_rows = conn.execute(
+        "SELECT * FROM building_sale_summaries"
+    ).fetchall()
+    sale_summary_map = {str(row["building_key"]): dict(row) for row in sale_summary_rows}
     conn.close()
+    for building in building_list:
+        building["sponsor"] = sponsor_map.get(str(building.get("building_key")))
+        building["rental_summary"] = rental_summary_map.get(str(building.get("building_key")))
+        building["sale_summary"] = sale_summary_map.get(str(building.get("building_key")))
     print(
         "render_kpi_counts canonical_buildings_count={} summary_buildings_count={} vacancy_total={}".format(
             canonical_buildings_count,
@@ -954,6 +1013,49 @@ def _build_dist_version(
     for b in buildings:
         maps_url = _build_google_maps_url(b.get("address"))
         maps_embed_url = _build_google_maps_embed_url(b.get("address"), google_maps_embed_api_key)
+        rental_summary = b.get("rental_summary") or {}
+        sale_summary = b.get("sale_summary") or {}
+        has_sale = bool(b.get("has_sale")) or bool((b.get("sale_listing_count") or 0) > 0)
+        has_rental = bool(b.get("has_rental")) or bool((b.get("vacancy_count") or 0) > 0)
+        b["detail_mode"] = "sale" if has_sale and not has_rental else "rental"
+        b["built_label"] = _format_built_label(b)
+        b["rental_vacancy_label"] = (
+            f"{int(b.get('vacancy_count') or 0)}件" if (b.get("vacancy_count") or 0) > 0 else "現在、募集中はありません。"
+        )
+        b["rental_rent_label"] = _format_range(
+            rental_summary.get("rent_yen_min") if rental_summary else b.get("rent_yen_min"),
+            rental_summary.get("rent_yen_max") if rental_summary else b.get("rent_yen_max"),
+            suffix="円",
+        )
+        b["rental_maint_label"] = _format_range(
+            rental_summary.get("maint_yen_min"),
+            rental_summary.get("maint_yen_max"),
+            suffix="円",
+        ) if rental_summary else None
+        b["rental_layout_label"] = " / ".join((json.loads(rental_summary.get("layout_types_json") or "[]")[:3])) if rental_summary else (
+            " / ".join((b.get("layout_types") or [])[:3]) if b.get("layout_types") else None
+        )
+        b["rental_area_label"] = _format_range(
+            rental_summary.get("area_sqm_min") if rental_summary else b.get("area_sqm_min"),
+            rental_summary.get("area_sqm_max") if rental_summary else b.get("area_sqm_max"),
+            suffix="㎡",
+        )
+        b["rental_move_in_label"] = rental_summary.get("move_in_summary") if rental_summary else b.get("building_availability_label")
+        sale_count = sale_summary.get("sale_listing_count") if sale_summary else b.get("sale_listing_count")
+        b["sale_status_label"] = f"{int(sale_count)}件" if (sale_count or 0) > 0 else "現在、販売中の住戸はありません。"
+        b["sale_price_label"] = _format_range(
+            (sale_summary.get("price_yen_min") if sale_summary else b.get("sale_price_yen_min")) / 10000 if (sale_summary.get("price_yen_min") if sale_summary else b.get("sale_price_yen_min")) else None,
+            (sale_summary.get("price_yen_max") if sale_summary else b.get("sale_price_yen_max")) / 10000 if (sale_summary.get("price_yen_max") if sale_summary else b.get("sale_price_yen_max")) else None,
+            suffix="万円",
+        )
+        b["sale_area_label"] = _format_range(
+            sale_summary.get("area_sqm_min") if sale_summary else b.get("sale_area_sqm_min"),
+            sale_summary.get("area_sqm_max") if sale_summary else b.get("sale_area_sqm_max"),
+            suffix="㎡",
+        )
+        b["sale_layout_label"] = " / ".join((json.loads(sale_summary.get("layout_types_json") or "[]")[:3])) if sale_summary else (
+            " / ".join((json.loads(b.get("sale_layout_types_json") or "[]")[:3])) if b.get("sale_layout_types_json") else None
+        )
         seo = _build_building_seo(b, site_origin=site_origin, base_path=base_path)
         detail_path = f"{base_path}/b/{b['detail_filename']}"
         area_hub = None

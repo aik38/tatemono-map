@@ -38,8 +38,7 @@ def test_render_dist_outputs(tmp_path):
     assert "Googleマップを開く" in page
     assert "号室" not in page
     assert "source_url" not in page
-    assert "築年数" in page
-    assert "構造" in page
+    assert "募集情報" in page
     assert "最終更新日時" not in page
 
 

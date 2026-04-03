@@ -149,8 +149,8 @@ def replace_building_summary(conn: sqlite3.Connection, row: dict) -> None:
             area_sqm_min, area_sqm_max, sale_area_sqm_min, sale_area_sqm_max,
             layout_types_json, sale_layout_types_json, property_kind, move_in_dates_json, age_years, structure,
             building_built_year_month, building_built_age_years, building_structure, building_availability_label,
-            vacancy_count, sale_listing_count, last_updated, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            has_rental, has_sale, vacancy_count, sale_listing_count, last_updated, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(building_key) DO UPDATE SET
             name=excluded.name,
             raw_name=excluded.raw_name,
@@ -174,6 +174,8 @@ def replace_building_summary(conn: sqlite3.Connection, row: dict) -> None:
             building_built_age_years=excluded.building_built_age_years,
             building_structure=excluded.building_structure,
             building_availability_label=excluded.building_availability_label,
+            has_rental=excluded.has_rental,
+            has_sale=excluded.has_sale,
             vacancy_count=excluded.vacancy_count,
             sale_listing_count=excluded.sale_listing_count,
             last_updated=excluded.last_updated,
@@ -203,6 +205,8 @@ def replace_building_summary(conn: sqlite3.Connection, row: dict) -> None:
             row.get("building_built_age_years"),
             row.get("building_structure"),
             row.get("building_availability_label"),
+            int(bool(row.get("has_rental"))),
+            int(bool(row.get("has_sale"))),
             row.get("vacancy_count"),
             row.get("sale_listing_count"),
             row.get("last_updated"),

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import Counter
 from datetime import date
 
@@ -90,9 +91,25 @@ def refresh_building_availability_labels(conn) -> None:
     return None
 
 
+def _load_priority_rank(conn, domain: str) -> dict[str, int]:
+    rows = conn.execute(
+        """
+        SELECT source, priority_rank
+        FROM source_priority
+        WHERE domain = ? AND enabled = 1
+        ORDER BY priority_rank ASC
+        """,
+        (domain,),
+    ).fetchall()
+    return {str(row["source"]): int(row["priority_rank"]) for row in rows}
+
+
 def rebuild(db_path: str) -> int:
     conn = connect(db_path)
     conn.execute("DELETE FROM building_summaries")
+    conn.execute("DELETE FROM building_rental_summaries")
+    conn.execute("DELETE FROM building_sale_summaries")
+    rental_priority = _load_priority_rank(conn, "rental")
 
     building_rows = conn.execute(
         """
@@ -110,9 +127,9 @@ def rebuild(db_path: str) -> int:
 
     rows = conn.execute(
         """
-        SELECT building_key, name, address, rent_yen, area_sqm, layout, move_in_date, updated_at,
+        SELECT building_key, name, address, rent_yen, maint_yen, area_sqm, layout, move_in_date, updated_at,
                age_years, structure, availability_raw, built_raw, structure_raw,
-               built_year_month, built_age_years, availability_date, availability_flag_immediate
+               built_year_month, built_age_years, availability_date, availability_flag_immediate, source_kind
         FROM listings
         WHERE (
             ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
@@ -136,8 +153,18 @@ def rebuild(db_path: str) -> int:
 
     for building_key in sorted(target_keys):
         items = grouped.get(building_key, [])
+        if items and rental_priority:
+            available_ranks = [
+                rental_priority.get(str(row["source_kind"]))
+                for row in items
+                if rental_priority.get(str(row["source_kind"])) is not None
+            ]
+            if available_ranks:
+                best_rank = min(available_ranks)
+                items = [row for row in items if rental_priority.get(str(row["source_kind"])) == best_rank]
         building = canonical_by_id.get(building_key)
         rents = [r["rent_yen"] for r in items if r["rent_yen"] is not None]
+        maints = [r["maint_yen"] for r in items if r["maint_yen"] is not None]
         areas = [r["area_sqm"] for r in items if r["area_sqm"] is not None]
         layouts = sorted({normalize_text(r["layout"]) for r in items if r["layout"]})
         move_in_dates = sorted({normalize_text(r["move_in_date"]) for r in items if r["move_in_date"]})
@@ -182,6 +209,8 @@ def rebuild(db_path: str) -> int:
 
         availability_label = (_select_availability_label(move_in_dates, items) if items else None) or fallback_availability_label
         vacancy_count = len(items)
+        has_rental = vacancy_count > 0
+        has_sale = bool((sale_listing_count or 0) > 0)
         if fallback_property_kind == "bunjo" or vacancy_count <= 0:
             availability_label = None
 
@@ -211,11 +240,90 @@ def rebuild(db_path: str) -> int:
                 "building_built_age_years": resolved_built_age_years,
                 "building_structure": listing_building_structure or fallback_structure,
                 "building_availability_label": availability_label,
+                "has_rental": has_rental,
+                "has_sale": has_sale,
                 "vacancy_count": vacancy_count,
                 "sale_listing_count": sale_listing_count,
                 "last_updated": latest,
             },
         )
+        if has_rental:
+            conn.execute(
+                """
+                INSERT INTO building_rental_summaries(
+                    building_key, vacancy_count, rent_yen_min, rent_yen_max, maint_yen_min, maint_yen_max,
+                    layout_types_json, area_sqm_min, area_sqm_max, move_in_summary, built_year_month,
+                    built_age_years, structure, fetched_date, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'), ?)
+                ON CONFLICT(building_key) DO UPDATE SET
+                    vacancy_count=excluded.vacancy_count,
+                    rent_yen_min=excluded.rent_yen_min,
+                    rent_yen_max=excluded.rent_yen_max,
+                    maint_yen_min=excluded.maint_yen_min,
+                    maint_yen_max=excluded.maint_yen_max,
+                    layout_types_json=excluded.layout_types_json,
+                    area_sqm_min=excluded.area_sqm_min,
+                    area_sqm_max=excluded.area_sqm_max,
+                    move_in_summary=excluded.move_in_summary,
+                    built_year_month=excluded.built_year_month,
+                    built_age_years=excluded.built_age_years,
+                    structure=excluded.structure,
+                    fetched_date=excluded.fetched_date,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    building_key,
+                    vacancy_count,
+                    min(rents) if rents else None,
+                    max(rents) if rents else None,
+                    min(maints) if maints else None,
+                    max(maints) if maints else None,
+                    json.dumps(layouts, ensure_ascii=False),
+                    min(areas) if areas else None,
+                    max(areas) if areas else None,
+                    availability_label,
+                    listing_built_year_month or fallback_built_year_month,
+                    resolved_built_age_years,
+                    listing_building_structure or fallback_structure,
+                    latest,
+                ),
+            )
+        if has_sale:
+            conn.execute(
+                """
+                INSERT INTO building_sale_summaries(
+                    building_key, sale_listing_count, price_yen_min, price_yen_max, area_sqm_min, area_sqm_max,
+                    layout_types_json, floor_summary, management_fee_yen_min, management_fee_yen_max,
+                    repair_fund_yen_min, repair_fund_yen_max, management_style, built_year_month, built_age_years,
+                    structure, floor_count_text, total_units, fetched_date, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, NULL, NULL, DATE('now'), ?)
+                ON CONFLICT(building_key) DO UPDATE SET
+                    sale_listing_count=excluded.sale_listing_count,
+                    price_yen_min=excluded.price_yen_min,
+                    price_yen_max=excluded.price_yen_max,
+                    area_sqm_min=excluded.area_sqm_min,
+                    area_sqm_max=excluded.area_sqm_max,
+                    layout_types_json=excluded.layout_types_json,
+                    built_year_month=excluded.built_year_month,
+                    built_age_years=excluded.built_age_years,
+                    structure=excluded.structure,
+                    fetched_date=excluded.fetched_date,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    building_key,
+                    sale_listing_count,
+                    sale_price_min,
+                    sale_price_max,
+                    sale_area_min,
+                    sale_area_max,
+                    sale_layout_types_json or "[]",
+                    listing_built_year_month or fallback_built_year_month,
+                    resolved_built_age_years,
+                    listing_building_structure or fallback_structure,
+                    latest,
+                ),
+            )
 
     total = conn.execute("SELECT COUNT(*) AS c FROM building_summaries").fetchone()["c"]
     print(
