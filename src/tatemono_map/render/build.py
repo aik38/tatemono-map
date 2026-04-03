@@ -129,16 +129,34 @@ def _normalize_structure_label(value: object) -> str | None:
     text = str(value or "").strip()
     if not text:
         return None
-    ascii_text = unicodedata.normalize("NFKC", text).upper()
-    if ascii_text == "RC":
-        return "RC造"
-    if ascii_text == "SRC":
-        return "SRC造"
-    if text == "鉄骨":
-        return "鉄骨造"
-    if text == "木":
+    normalized = unicodedata.normalize("NFKC", text)
+    ascii_text = normalized.upper()
+    if ascii_text in {"RC", "RC造"}:
+        return "RC"
+    if ascii_text in {"SRC", "SRC造"}:
+        return "SRC"
+    if normalized in {"軽量鉄骨", "軽量鉄骨造"}:
+        return "軽量鉄骨"
+    if normalized in {"鉄骨", "鉄骨造"}:
+        return "鉄骨"
+    if normalized in {"木", "木造"}:
         return "木造"
     return text
+
+
+def _format_layout_label(layout_types: list[str]) -> str | None:
+    labels = []
+    for item in layout_types:
+        text = str(item or "").strip()
+        if text and text not in labels:
+            labels.append(text)
+    if not labels:
+        return None
+    if len(labels) == 1:
+        return labels[0]
+    if len(labels) <= 3:
+        return "、".join(labels)
+    return f"{labels[0]}〜{labels[-1]}"
 
 
 def _sanitize_text(value: str) -> str:
@@ -1067,9 +1085,9 @@ def _build_dist_version(
             rental_summary.get("maint_yen_max"),
             suffix="円",
         ) if rental_summary else None
-        b["rental_layout_label"] = " / ".join((json.loads(rental_summary.get("layout_types_json") or "[]")[:3])) if rental_summary else (
-            " / ".join((b.get("layout_types") or [])[:3]) if b.get("layout_types") else None
-        )
+        b["rental_layout_label"] = _format_layout_label(
+            json.loads(rental_summary.get("layout_types_json") or "[]")
+        ) if rental_summary else _format_layout_label(b.get("layout_types") or [])
         b["rental_area_label"] = _format_range(
             rental_summary.get("area_sqm_min") if rental_summary else b.get("area_sqm_min"),
             rental_summary.get("area_sqm_max") if rental_summary else b.get("area_sqm_max"),
@@ -1089,9 +1107,9 @@ def _build_dist_version(
             sale_summary.get("area_sqm_max") if sale_summary else b.get("sale_area_sqm_max"),
             suffix="㎡",
         )
-        b["sale_layout_label"] = " / ".join((json.loads(sale_summary.get("layout_types_json") or "[]")[:3])) if sale_summary else (
-            " / ".join((json.loads(b.get("sale_layout_types_json") or "[]")[:3])) if b.get("sale_layout_types_json") else None
-        )
+        b["sale_layout_label"] = _format_layout_label(
+            json.loads(sale_summary.get("layout_types_json") or "[]")
+        ) if sale_summary else _format_layout_label(json.loads(b.get("sale_layout_types_json") or "[]"))
         seo = _build_building_seo(b, site_origin=site_origin, base_path=base_path)
         detail_path = f"{base_path}/b/{b['detail_filename']}"
         area_hub = None
