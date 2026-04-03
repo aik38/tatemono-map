@@ -1075,9 +1075,11 @@ def _build_dist_version(
         b["rental_vacancy_label"] = (
             f"{int(b.get('vacancy_count') or 0)}件" if (b.get("vacancy_count") or 0) > 0 else "現在、募集中はありません。"
         )
+        rent_min = rental_summary.get("rent_yen_min") if rental_summary else b.get("rent_yen_min")
+        rent_max = rental_summary.get("rent_yen_max") if rental_summary else b.get("rent_yen_max")
         b["rental_rent_label"] = _format_range(
-            rental_summary.get("rent_yen_min") if rental_summary else b.get("rent_yen_min"),
-            rental_summary.get("rent_yen_max") if rental_summary else b.get("rent_yen_max"),
+            _format_yen(rent_min) if rent_min is not None else None,
+            _format_yen(rent_max) if rent_max is not None else None,
             suffix="円",
         )
         b["rental_maint_label"] = _format_range(
