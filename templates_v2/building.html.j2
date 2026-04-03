@@ -159,8 +159,7 @@
     </dl>
   </section>
 
-  {% if is_both_mode %}
-  <section class="info card mode-panel" aria-label="建物概要" data-mode-panel="rental">
+  <section class="info card{% if is_both_mode %} mode-panel{% endif %}" aria-label="建物概要" {% if is_both_mode %}data-mode-panel="rental"{% endif %}>
     <h2>建物概要</h2>
     <dl class="facts">
       {% if building.built_label %}<div class="fact"><dt>築年月</dt><dd>{{ building.built_label }}</dd></div>{% endif %}
@@ -169,7 +168,6 @@
       {% if building.sale_summary and building.sale_summary.total_units %}<div class="fact"><dt>総戸数</dt><dd>{{ building.sale_summary.total_units }}</dd></div>{% endif %}
     </dl>
   </section>
-  {% endif %}
   <section class="line-cta card{% if is_both_mode %} mode-panel{% endif %}" aria-label="賃貸のお問い合わせ" {% if is_both_mode %}data-mode-panel="rental"{% endif %}>
     <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener" data-line-universal-url="{{ line_cta_url }}" data-line-deep-link="{{ line_deep_link_url }}" onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)">LINEで空室確認・相談する</a>
   </section>
