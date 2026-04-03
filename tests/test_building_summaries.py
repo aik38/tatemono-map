@@ -389,3 +389,69 @@ def test_non_current_source_run_does_not_replace_other_sources_current_snapshot(
     assert a["rent_yen_min"] == 65000
     assert a["rent_yen_max"] == 65000
     assert b["vacancy_count"] == 1
+
+
+def test_rental_source_priority_prefers_ulucks_over_mansion_review_chintai(tmp_path):
+    db = tmp_path / "test_source_priority.sqlite3"
+    conn = connect(db)
+    conn.execute("INSERT INTO buildings(building_id, canonical_name, canonical_address) VALUES ('b1','Aマンション','東京都A')")
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (10, 'ulucks', 'u-current', 'completed')")
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (20, 'mansion_review_chintai', 'mr-current', 'completed')")
+    conn.execute("INSERT INTO current_ingest_snapshots(source, ingest_run_id) VALUES ('ulucks', 10)")
+    conn.execute("INSERT INTO current_ingest_snapshots(source, ingest_run_id) VALUES ('mansion_review_chintai', 20)")
+    conn.executemany(
+        """
+        INSERT INTO listings(
+            listing_key, building_key, name, address, room_label,
+            rent_yen, maint_yen, layout, area_sqm, move_in_date,
+            updated_at, source_kind, source_url, ingest_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("u-1", "b1", "Aマンション", "東京都A", "101", 70000, 0, "1K", 22.0, None, "2026-01-03", "ulucks", "u", 10),
+            ("mr-1", "b1", "Aマンション", "東京都A", "102", 50000, 0, "1K", 22.0, None, "2026-01-02", "mansion_review_chintai", "mr", 20),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    row = conn.execute("SELECT vacancy_count, rent_yen_min, rent_yen_max FROM building_summaries WHERE building_key='b1'").fetchone()
+    conn.close()
+
+    assert row["vacancy_count"] == 1
+    assert row["rent_yen_min"] == 70000
+    assert row["rent_yen_max"] == 70000
+
+
+def test_sale_summary_generated_from_bunjo_facts_without_sale_listing_count(tmp_path):
+    db = tmp_path / "test_sale_summary_without_count.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(
+            building_id, canonical_name, canonical_address, property_kind,
+            sale_price_yen_min, sale_price_yen_max, sale_area_sqm_min, sale_area_sqm_max,
+            sale_layout_types_json, sale_listing_count
+        ) VALUES ('b-sale','分譲マンション','福岡県北九州市小倉北区X','bunjo',35000000,39000000,65.0,72.0,'["2LDK"]',NULL)
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    summary = conn.execute("SELECT has_sale, sale_listing_count FROM building_summaries WHERE building_key='b-sale'").fetchone()
+    sale_summary = conn.execute(
+        "SELECT sale_listing_count, price_yen_min, price_yen_max FROM building_sale_summaries WHERE building_key='b-sale'"
+    ).fetchone()
+    conn.close()
+
+    assert summary["has_sale"] == 1
+    assert summary["sale_listing_count"] is None
+    assert sale_summary["sale_listing_count"] == 0
+    assert sale_summary["price_yen_min"] == 35000000
+    assert sale_summary["price_yen_max"] == 39000000

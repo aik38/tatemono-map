@@ -154,12 +154,9 @@ def rebuild(db_path: str) -> int:
     for building_key in sorted(target_keys):
         items = grouped.get(building_key, [])
         if items and rental_priority:
-            available_ranks = [
-                rental_priority.get(str(row["source_kind"]))
-                for row in items
-                if rental_priority.get(str(row["source_kind"])) is not None
-            ]
-            if available_ranks:
+            ranked_items = [row for row in items if rental_priority.get(str(row["source_kind"])) is not None]
+            available_ranks = [rental_priority.get(str(row["source_kind"])) for row in ranked_items]
+            if available_ranks and len(ranked_items) == len(items):
                 best_rank = min(available_ranks)
                 items = [row for row in items if rental_priority.get(str(row["source_kind"])) == best_rank]
         building = canonical_by_id.get(building_key)
@@ -210,7 +207,18 @@ def rebuild(db_path: str) -> int:
         availability_label = (_select_availability_label(move_in_dates, items) if items else None) or fallback_availability_label
         vacancy_count = len(items)
         has_rental = vacancy_count > 0
-        has_sale = bool((sale_listing_count or 0) > 0)
+        has_sale_payload = any(
+            value is not None and value != ""
+            for value in (
+                sale_price_min,
+                sale_price_max,
+                sale_price_avg,
+                sale_area_min,
+                sale_area_max,
+                sale_layout_types_json,
+            )
+        )
+        has_sale = bool((sale_listing_count or 0) > 0 or has_sale_payload or fallback_property_kind == "bunjo")
         if fallback_property_kind == "bunjo" or vacancy_count <= 0:
             availability_label = None
 
@@ -312,7 +320,7 @@ def rebuild(db_path: str) -> int:
                 """,
                 (
                     building_key,
-                    sale_listing_count,
+                    sale_listing_count or 0,
                     sale_price_min,
                     sale_price_max,
                     sale_area_min,

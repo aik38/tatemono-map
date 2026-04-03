@@ -57,7 +57,7 @@ public_db.parent.mkdir(parents=True, exist_ok=True)
 
 with sqlite3.connect(main_db) as src:
     required = ["buildings", "building_summaries"]
-    optional = ["building_key_aliases"]
+    optional = ["building_key_aliases", "building_rental_summaries", "building_sale_summaries"]
     table_rows = src.execute(
         "SELECT name FROM sqlite_master WHERE type='table'"
     ).fetchall()
