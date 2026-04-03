@@ -608,13 +608,17 @@ def _sort_area_buildings(buildings: list[dict]) -> list[dict]:
 def _format_range(min_value: object, max_value: object, suffix: str) -> str | None:
     if min_value is None and max_value is None:
         return None
+    def _label(value: object) -> str:
+        if suffix == "万円":
+            return _format_man_value(value)
+        return str(value)
     if min_value is not None and max_value is not None:
         if min_value == max_value:
-            return f"{min_value}{suffix}"
-        return f"{min_value}{suffix}〜{max_value}{suffix}"
+            return f"{_label(min_value)}{suffix}"
+        return f"{_label(min_value)}{suffix}〜{_label(max_value)}{suffix}"
     if min_value is not None:
-        return f"{min_value}{suffix}〜"
-    return f"〜{max_value}{suffix}"
+        return f"{_label(min_value)}{suffix}〜"
+    return f"〜{_label(max_value)}{suffix}"
 
 
 def _build_building_seo(building: dict, *, site_origin: str, base_path: str) -> dict[str, str]:
