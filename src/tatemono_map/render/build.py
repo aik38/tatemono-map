@@ -843,6 +843,7 @@ def _build_buildings_payload(buildings: list[dict]) -> list[dict]:
                 "room_types": b.get("layout_types") or [],
                 "sale_layout_types": json.loads(b.get("sale_layout_types_json")) if b.get("sale_layout_types_json") else [],
                 "property_kind": b.get("property_kind") or "",
+                "listing_mode": b.get("listing_mode") or "rental",
                 "sale_listing_count": b.get("sale_listing_count"),
                 "structure": b.get("structure"),
                 "built_year": b.get("age_years"),
@@ -880,6 +881,7 @@ def _build_buildings_v2_min_payload(buildings: list[dict]) -> list[dict]:
                 "updated_at": b.get("last_updated") or b.get("updated_at"),
                 "updated_epoch": b.get("updated_epoch"),
                 "property_kind": b.get("property_kind") or "",
+                "listing_mode": b.get("listing_mode") or "rental",
                 "sale_listing_count": b.get("sale_listing_count"),
                 "building_structure": b.get("building_structure") or b.get("structure"),
                 "building_availability_label": b.get("building_availability_label"),
@@ -987,6 +989,17 @@ def _build_dist_version(
         b["address_full"] = b.get("address")
         b["display_address"] = _build_display_address(b.get("address"))
         b["render_address"] = b.get("display_address") if selected_mode == "short" else b.get("address_full")
+        has_sale = bool(b.get("has_sale")) or bool((b.get("sale_listing_count") or 0) > 0)
+        has_rental = bool(b.get("has_rental")) or bool((b.get("vacancy_count") or 0) > 0)
+        if has_sale and has_rental:
+            listing_mode = "both"
+        elif has_sale:
+            listing_mode = "sale"
+        else:
+            listing_mode = "rental"
+        b["has_sale_final"] = has_sale
+        b["has_rental_final"] = has_rental
+        b["listing_mode"] = listing_mode
     total_vacant = sum((b.get("vacancy_count") or 0) for b in buildings)
     parsed_dates = [parsed for parsed in (_build_summary_date(b) for b in buildings) if parsed is not None]
     latest_data_date = max(parsed_dates, default=None)
@@ -1068,9 +1081,7 @@ def _build_dist_version(
         maps_embed_url = _build_google_maps_embed_url(b.get("address"), google_maps_embed_api_key)
         rental_summary = b.get("rental_summary") or {}
         sale_summary = b.get("sale_summary") or {}
-        has_sale = bool(b.get("has_sale")) or bool((b.get("sale_listing_count") or 0) > 0)
-        has_rental = bool(b.get("has_rental")) or bool((b.get("vacancy_count") or 0) > 0)
-        b["detail_mode"] = "sale" if has_sale and not has_rental else "rental"
+        b["detail_mode"] = b.get("listing_mode") or "rental"
         b["built_label"] = _format_built_label(b)
         b["rental_vacancy_label"] = (
             f"{int(b.get('vacancy_count') or 0)}件" if (b.get("vacancy_count") or 0) > 0 else "現在、募集中はありません。"
