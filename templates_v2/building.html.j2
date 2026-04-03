@@ -88,9 +88,9 @@
       <div class="fact"><dt>価格</dt><dd>{{ building.sale_price_label or "販売中" }}</dd></div>
       <div class="fact"><dt>間取り</dt><dd>{{ building.sale_layout_label or "要確認" }}</dd></div>
       <div class="fact"><dt>面積</dt><dd>{{ building.sale_area_label or "要確認" }}</dd></div>
-      <div class="fact"><dt>管理費</dt><dd>{% if building.sale_summary and (building.sale_summary.management_fee_yen_min or building.sale_summary.management_fee_yen_max) %}{{ (building.sale_summary.management_fee_yen_min|yen ~ "円/月") if building.sale_summary.management_fee_yen_min == building.sale_summary.management_fee_yen_max else (building.sale_summary.management_fee_yen_min|yen ~ "円/月〜" ~ building.sale_summary.management_fee_yen_max|yen ~ "円/月") }}{% endif %}</dd></div>
-      <div class="fact"><dt>修繕積立金</dt><dd>{% if building.sale_summary and (building.sale_summary.repair_fund_yen_min or building.sale_summary.repair_fund_yen_max) %}{{ (building.sale_summary.repair_fund_yen_min|yen ~ "円/月") if building.sale_summary.repair_fund_yen_min == building.sale_summary.repair_fund_yen_max else (building.sale_summary.repair_fund_yen_min|yen ~ "円/月〜" ~ building.sale_summary.repair_fund_yen_max|yen ~ "円/月") }}{% endif %}</dd></div>
-      <div class="fact"><dt>所在階</dt><dd>{{ building.sale_summary.floor_summary if building.sale_summary else "" }}</dd></div>
+      {% if building.sale_summary and (building.sale_summary.management_fee_yen_min or building.sale_summary.management_fee_yen_max) %}<div class="fact"><dt>管理費</dt><dd>{{ (building.sale_summary.management_fee_yen_min|yen ~ "円/月") if building.sale_summary.management_fee_yen_min == building.sale_summary.management_fee_yen_max else (building.sale_summary.management_fee_yen_min|yen ~ "円/月〜" ~ building.sale_summary.management_fee_yen_max|yen ~ "円/月") }}</dd></div>{% endif %}
+      {% if building.sale_summary and (building.sale_summary.repair_fund_yen_min or building.sale_summary.repair_fund_yen_max) %}<div class="fact"><dt>修繕積立金</dt><dd>{{ (building.sale_summary.repair_fund_yen_min|yen ~ "円/月") if building.sale_summary.repair_fund_yen_min == building.sale_summary.repair_fund_yen_max else (building.sale_summary.repair_fund_yen_min|yen ~ "円/月〜" ~ building.sale_summary.repair_fund_yen_max|yen ~ "円/月") }}</dd></div>{% endif %}
+      {% if building.sale_summary and building.sale_summary.floor_summary %}<div class="fact"><dt>所在階</dt><dd>{{ building.sale_summary.floor_summary }}</dd></div>{% endif %}
       {% endif %}
     </dl>
   </section>
@@ -99,10 +99,10 @@
     <h2>建物概要</h2>
     <dl class="facts">
       <div class="fact"><dt>築年月</dt><dd>{{ building.built_label or "要確認" }}</dd></div>
-      {% if building.building_structure or building.structure %}<div class="fact"><dt>構造</dt><dd>{{ building.building_structure or building.structure }}</dd></div>{% endif %}
+      {% if building.display_structure %}<div class="fact"><dt>構造</dt><dd>{{ building.display_structure }}</dd></div>{% endif %}
       <div class="fact"><dt>階建て</dt><dd>{{ building.sale_summary.floor_count_text if building.sale_summary else "" }}</dd></div>
       <div class="fact"><dt>総戸数</dt><dd>{{ building.sale_summary.total_units if building.sale_summary and building.sale_summary.total_units else "" }}</dd></div>
-      <div class="fact"><dt>管理方式</dt><dd>{{ building.sale_summary.management_style if building.sale_summary else "" }}</dd></div>
+      {% if building.sale_summary and building.sale_summary.management_style %}<div class="fact"><dt>管理方式</dt><dd>{{ building.sale_summary.management_style }}</dd></div>{% endif %}
     </dl>
   </section>
   {% else %}
@@ -120,7 +120,7 @@
       <div class="fact"><dt>補足</dt><dd>現在、この建物の募集は確認できていません。ご希望に近いお部屋もご案内可能です。</dd></div>
       {% endif %}
       {% if building.built_label %}<div class="fact"><dt>築年月</dt><dd>{{ building.built_label }}</dd></div>{% endif %}
-      {% if building.building_structure or building.structure %}<div class="fact"><dt>構造</dt><dd>{{ building.building_structure or building.structure }}</dd></div>{% endif %}
+      {% if building.display_structure %}<div class="fact"><dt>構造</dt><dd>{{ building.display_structure }}</dd></div>{% endif %}
     </dl>
   </section>
   {% endif %}
