@@ -151,12 +151,20 @@
     {% for b in static_building_links %}
       <li class="card building-card">
         <a class="building-link" href="{{ base_path }}/b/{{ b.detail_filename }}">
-          <h2>{{ b.name or "名称未設定" }}</h2>{% if b.listing_mode in ["sale", "both"] %}<span class="kpi">分譲マンション</span>{% endif %}
+          <h2>{{ b.name or "名称未設定" }}</h2>{% if b.listing_mode == "sale" %}<span class="kpi">分譲マンション</span>{% elif b.listing_mode == "both" %}<span class="kpi">賃貸/分譲</span>{% endif %}
         </a>
         <p class="address">{{ b.render_address or "住所情報なし" }}</p>
         <ul class="kpis" aria-label="建物の主要情報">
-          {% if b.listing_mode in ["sale", "both"] %}<li class="kpi"><span>販売情報</span>{% if b.sale_listing_count is not none and b.sale_listing_count > 0 %}{{ b.sale_listing_count }}件{% else %}なし{% endif %}</li>{% else %}<li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>{% endif %}
-          <li class="kpi"><span>{% if b.listing_mode in ["sale", "both"] %}販売価格{% else %}家賃{% endif %}</span>{% if b.listing_mode in ["sale", "both"] %}{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}{% else %}{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円{% endif %}</li>
+          {% if b.listing_mode == "both" %}
+            <li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>
+            <li class="kpi"><span>販売情報</span>{% if b.sale_listing_count is not none and b.sale_listing_count > 0 %}{{ b.sale_listing_count }}件{% else %}なし{% endif %}</li>
+          {% elif b.listing_mode == "sale" %}
+            <li class="kpi"><span>販売情報</span>{% if b.sale_listing_count is not none and b.sale_listing_count > 0 %}{{ b.sale_listing_count }}件{% else %}なし{% endif %}</li>
+            <li class="kpi"><span>販売価格</span>{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}</li>
+          {% else %}
+            <li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>
+            <li class="kpi"><span>家賃</span>{{ b.rent_yen_min|yen }}円 〜 {{ b.rent_yen_max|yen }}円</li>
+          {% endif %}
         </ul>
       </li>
     {% endfor %}
@@ -310,15 +318,22 @@
 
     const kpis = document.createElement('ul');
     kpis.className = 'kpis';
-    const isSaleLike = item.listingMode === 'sale' || item.listingMode === 'both';
+    const isSale = item.listingMode === 'sale';
+    const isBoth = item.listingMode === 'both';
     const vacancyKpi = document.createElement('li');
     vacancyKpi.className = 'kpi';
-    vacancyKpi.innerHTML = isSaleLike
-      ? `<span>販売情報</span>${Number.isFinite(Number(item.saleListingCount)) && Number(item.saleListingCount) > 0 ? `${Number(item.saleListingCount)}件` : 'なし'}`
-      : `<span>空室</span>${Number.isFinite(Number(item.vacancyCount)) ? Number(item.vacancyCount) : '—'}件`;
     const rentKpi = document.createElement('li');
     rentKpi.className = 'kpi';
-    rentKpi.innerHTML = isSaleLike ? `<span>販売価格</span>${Number.isFinite(Number(item.salePriceAvg)) ? `${formatCount(Math.floor(Number(item.salePriceAvg) / 10000))}万円` : '—'}` : `<span>家賃</span>${formatYen(item.rentMin)}〜${formatYen(item.rentMax)}`;
+    if (isBoth) {
+      vacancyKpi.innerHTML = `<span>空室</span>${Number.isFinite(Number(item.vacancyCount)) ? Number(item.vacancyCount) : '—'}件`;
+      rentKpi.innerHTML = `<span>販売情報</span>${Number.isFinite(Number(item.saleListingCount)) && Number(item.saleListingCount) > 0 ? `${Number(item.saleListingCount)}件` : 'なし'}`;
+    } else if (isSale) {
+      vacancyKpi.innerHTML = `<span>販売情報</span>${Number.isFinite(Number(item.saleListingCount)) && Number(item.saleListingCount) > 0 ? `${Number(item.saleListingCount)}件` : 'なし'}`;
+      rentKpi.innerHTML = `<span>販売価格</span>${Number.isFinite(Number(item.salePriceAvg)) ? `${formatCount(Math.floor(Number(item.salePriceAvg) / 10000))}万円` : '—'}`;
+    } else {
+      vacancyKpi.innerHTML = `<span>空室</span>${Number.isFinite(Number(item.vacancyCount)) ? Number(item.vacancyCount) : '—'}件`;
+      rentKpi.innerHTML = `<span>家賃</span>${formatYen(item.rentMin)}〜${formatYen(item.rentMax)}`;
+    }
     kpis.append(vacancyKpi, rentKpi);
 
     const meta = document.createElement('dl');
@@ -331,7 +346,7 @@
     updatedRow.innerHTML = `<dt>建物構造</dt><dd>${item.buildingStructure || '—'}</dd>`;
     meta.append(areaRow, updatedRow);
 
-    if (isSaleLike) { const badge=document.createElement('span'); badge.className='kpi'; badge.textContent='分譲マンション'; link.appendChild(badge);} li.append(link, address, kpis, meta);
+    if (isSale || isBoth) { const badge=document.createElement('span'); badge.className='kpi'; badge.textContent=isBoth?'賃貸/分譲':'分譲マンション'; link.appendChild(badge);} li.append(link, address, kpis, meta);
     return li;
   }
 
