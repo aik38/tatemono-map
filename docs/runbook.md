@@ -278,7 +278,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_mansion_review_
 ---
 
 
-## マンションレビュー（一覧ページのみ）で分譲データ更新
+## マンションレビュー（listfacts + list/detail）で明細データ更新
 
 > 必ず先にリポジトリへ移動してから実行してください（相対パス事故防止）。
 
@@ -299,13 +299,16 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
 ```
 
 - 取得は listfacts（city 一覧）主体です。通常は一覧ページのみを使い、address 欠損時のみ detail 補完が入ります。
+- `run_mansion_review_listfacts_to_db.ps1` は、`building_facts_*.csv` を `ingest_building_facts` するだけでなく、一覧 CSV を `scripts/mansion_review_list_to_master_import.py` で `mansion_review_master_import.csv` に変換し、`ingest_master_import --source mansion_review_list` まで実行します。
 - 対象 city_id は 15 エリア（`1616,1619,1614,1618,1620,1677,1676,1675,1681,1678,1639,1683,1641,1632,1651`）です。
-- 分譲は「価格レンジ（平均価格）」と「販売情報件数」を public DB / dist に反映します。
+- facts 経路は建物属性補完、list/detail 経路は明細補完です（役割分離）。
+- 分譲は Mansion Review 明細を `sale_listings` 側で扱い、「価格レンジ（平均価格）」と「販売情報件数」を public DB / dist に反映します。
 - 入居可能日は `vacancy_count > 0` のときのみ表示対象です（分譲/空室0件は `—`）。
-- 賃貸は Ulucks/RealPro 優先を維持し、マンションレビュー賃貸は建物facts補完として扱います。
+- 賃貸は Ulucks/RealPro > Mansion Review（`mansion_review_chintai`）優先を維持します。
 - Batch 2（`1639,1683,1641,1632,1651`）の `created=0` は、住所抽出の汎用化・facts selector 見直し・address 欠損時 detail 補完・address coverage stats 追加で修正済みです。
 - 高確信 auto-seed を有効にする場合のみ `-AutoSeedHighConfidence` を付けます（既定 OFF）。  
   ON の場合も保守的に、通常マッチで未一致のうち「建物名+住所が揃っており、正規化後も非空、既存 canonical/alias/同一正規化住所と衝突なし」のみ新規作成し、曖昧ケースは `unmatched_*` / `auto_seed_skipped_*` に残します。
+- 公開確認は DB更新のみでは反映されません。`publish_public` 後に `python -m tatemono_map.render.build --db-path data/public/public.sqlite3 --output-dir dist --version all` を実行して静的 `dist` を再生成してください。
 
 ---
 
