@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from difflib import SequenceMatcher
@@ -13,7 +14,7 @@ from pathlib import Path
 from tatemono_map.cli.master_import import _clean_text, _fallback_updated_at, _parse_area, _parse_man_to_yen
 from tatemono_map.db.repo import connect
 
-from .common import insert_unmatched_queue, normalize_source_name
+from .common import insert_unmatched_queue, normalize_source_name, source_domain
 from .keys import make_alias_key, make_legacy_alias_key
 from .matcher import match_building
 from .normalization import normalize_address_for_matching, normalize_building_input
@@ -345,6 +346,39 @@ def _parse_built_year(value: str | None) -> int | None:
     return None
 
 
+def _parse_first_int(value: str | None) -> int | None:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return None
+    matched = re.search(r"(\d+)", cleaned)
+    if not matched:
+        return None
+    return int(matched.group(1))
+
+
+def _extract_money_yen(raw_text: str, label: str) -> int | None:
+    if not raw_text:
+        return None
+    pattern = re.compile(rf"{re.escape(label)}\s*[:：]?\s*([\d,]+)\s*円")
+    matched = pattern.search(raw_text)
+    if not matched:
+        return None
+    return int(matched.group(1).replace(",", ""))
+
+
+def _extract_text_field(raw_text: str, labels: tuple[str, ...]) -> str | None:
+    if not raw_text:
+        return None
+    for label in labels:
+        pattern = re.compile(rf"{re.escape(label)}\s*[:：]?\s*([^\s|｜]+)")
+        matched = pattern.search(raw_text)
+        if matched:
+            value = _clean_text(matched.group(1))
+            if value:
+                return value
+    return None
+
+
 def ingest_master_import_csv(
     db_path: str,
     csv_path: str,
@@ -411,6 +445,7 @@ def ingest_master_import_csv(
                 if category == "seed":
                     continue
                 normalized_source = normalize_source_name(source, category=category)
+                domain = source_domain(normalized_source)
 
                 normalized = normalize_building_input(_clean_text(row.get("building_name")), _clean_text(row.get("address")))
                 evidence_id = _row_evidence_id(row, source_url)
@@ -620,6 +655,20 @@ def ingest_master_import_csv(
                 availability_raw = _clean_text(row.get("availability_raw"))
                 built_raw = _clean_text(row.get("built_raw"))
                 structure_raw = _clean_text(row.get("structure_raw")) or structure
+                raw_block = _clean_text(row.get("raw_block"))
+                floor_text = _clean_text(row.get("floor")) or _extract_text_field(raw_block, ("所在階",))
+                direction_text = _extract_text_field(raw_block, ("向き", "主要採光面"))
+                deposit_text = _extract_text_field(raw_block, ("敷金",))
+                key_money_text = _extract_text_field(raw_block, ("礼金",))
+                management_fee_yen = _extract_money_yen(raw_block, "管理費")
+                if management_fee_yen is None:
+                    management_fee_yen = _extract_money_yen(raw_block, "共益費")
+                repair_fund_yen = _extract_money_yen(raw_block, "修繕積立金")
+                access_info = _extract_text_field(raw_block, ("交通",))
+                floor_count_text = _extract_text_field(raw_block, ("階建", "建物階数"))
+                total_units_text = _extract_text_field(raw_block, ("総戸数",))
+                total_units = _parse_first_int(total_units_text)
+                management_style = _extract_text_field(raw_block, ("管理方式",))
 
                 parsed_built_year_month, parsed_built_age_years = normalize_built(built_raw)
                 built_year_month = _clean_text(row.get("built_year_month")) or parsed_built_year_month
@@ -644,6 +693,10 @@ def ingest_master_import_csv(
                         SET canonical_name=COALESCE(NULLIF(canonical_name, ''), ?),
                             canonical_address=COALESCE(NULLIF(canonical_address, ''), ?),
                             structure=COALESCE(NULLIF(?, ''), structure),
+                            access_info=COALESCE(NULLIF(?, ''), access_info),
+                            floor_count_text=COALESCE(NULLIF(?, ''), floor_count_text),
+                            total_units=COALESCE(?, total_units),
+                            management_style=COALESCE(NULLIF(?, ''), management_style),
                             age_years=COALESCE(?, age_years),
                             built_year=COALESCE(?, built_year),
                             availability_raw=COALESCE(NULLIF(?, ''), availability_raw),
@@ -651,7 +704,20 @@ def ingest_master_import_csv(
                             updated_at=CURRENT_TIMESTAMP
                         WHERE building_id=?
                         """,
-                        (normalized.raw_name, normalized.canonical_address, building_structure, building_age_years, built_year, availability_raw, availability_label, building_id),
+                        (
+                            normalized.raw_name,
+                            normalized.canonical_address,
+                            building_structure,
+                            access_info,
+                            floor_count_text,
+                            total_units,
+                            management_style,
+                            building_age_years,
+                            built_year,
+                            availability_raw,
+                            availability_label,
+                            building_id,
+                        ),
                     )
 
                 conn.execute(
@@ -661,64 +727,114 @@ def ingest_master_import_csv(
                     """,
                     (source, "master", source_url, row.get("raw_block") or ""),
                 )
-                conn.execute(
-                    """
-                    INSERT INTO listings(
-                        listing_key, building_key, name, address, room_label,
-                        rent_yen, maint_yen, layout, area_sqm, move_in_date,
-                        age_years, structure, availability_raw, built_raw, structure_raw,
-                        built_year_month, built_age_years, availability_date, availability_flag_immediate,
-                        updated_at, source_kind, source_url, ingest_run_id
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(listing_key) DO UPDATE SET
-                        building_key=excluded.building_key,
-                        name=excluded.name,
-                        address=excluded.address,
-                        room_label=excluded.room_label,
-                        rent_yen=excluded.rent_yen,
-                        maint_yen=excluded.maint_yen,
-                        layout=excluded.layout,
-                        area_sqm=excluded.area_sqm,
-                        age_years=excluded.age_years,
-                        structure=excluded.structure,
-                        availability_raw=excluded.availability_raw,
-                        built_raw=excluded.built_raw,
-                        structure_raw=excluded.structure_raw,
-                        built_year_month=excluded.built_year_month,
-                        built_age_years=excluded.built_age_years,
-                        availability_date=excluded.availability_date,
-                        availability_flag_immediate=excluded.availability_flag_immediate,
-                        updated_at=excluded.updated_at,
-                        source_kind=excluded.source_kind,
-                        source_url=excluded.source_url,
-                        ingest_run_id=excluded.ingest_run_id
-                    """,
-                    (
-                        listing_key,
-                        building_id,
-                        normalized.raw_name,
-                        normalized.raw_address,
-                        _clean_text(row.get("room")),
-                        rent_yen,
-                        maint_yen,
-                        layout,
-                        area_sqm,
-                        move_in_label,
-                        age_years,
-                        structure,
-                        availability_raw,
-                        built_raw,
-                        structure_raw,
-                        built_year_month,
-                        built_age_years,
-                        availability_date,
-                        availability_flag_immediate,
-                        updated_at,
-                        normalized_source,
-                        source_url,
-                        ingest_run_id,
-                    ),
-                )
+                if domain == "sale":
+                    conn.execute(
+                        """
+                        INSERT INTO sale_listings(
+                            sale_listing_key, building_key, source, source_url, evidence_id,
+                            price_yen, management_fee_yen, repair_fund_yen, area_sqm, layout, floor_text, direction_text,
+                            updated_at, ingest_run_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(sale_listing_key) DO UPDATE SET
+                            building_key=excluded.building_key,
+                            source=excluded.source,
+                            source_url=excluded.source_url,
+                            evidence_id=excluded.evidence_id,
+                            price_yen=excluded.price_yen,
+                            management_fee_yen=excluded.management_fee_yen,
+                            repair_fund_yen=excluded.repair_fund_yen,
+                            area_sqm=excluded.area_sqm,
+                            layout=excluded.layout,
+                            floor_text=excluded.floor_text,
+                            direction_text=excluded.direction_text,
+                            updated_at=excluded.updated_at,
+                            ingest_run_id=excluded.ingest_run_id
+                        """,
+                        (
+                            listing_key,
+                            building_id,
+                            normalized_source,
+                            source_url,
+                            evidence_id,
+                            rent_yen,
+                            management_fee_yen if management_fee_yen is not None else maint_yen,
+                            repair_fund_yen,
+                            area_sqm,
+                            layout,
+                            floor_text,
+                            direction_text,
+                            updated_at,
+                            ingest_run_id,
+                        ),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO listings(
+                            listing_key, building_key, name, address, room_label,
+                            rent_yen, maint_yen, layout, area_sqm, move_in_date, deposit_text, key_money_text, floor_text, direction_text,
+                            age_years, structure, availability_raw, built_raw, structure_raw,
+                            built_year_month, built_age_years, availability_date, availability_flag_immediate,
+                            updated_at, source_kind, source_url, ingest_run_id
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(listing_key) DO UPDATE SET
+                            building_key=excluded.building_key,
+                            name=excluded.name,
+                            address=excluded.address,
+                            room_label=excluded.room_label,
+                            rent_yen=excluded.rent_yen,
+                            maint_yen=excluded.maint_yen,
+                            layout=excluded.layout,
+                            area_sqm=excluded.area_sqm,
+                            move_in_date=excluded.move_in_date,
+                            deposit_text=excluded.deposit_text,
+                            key_money_text=excluded.key_money_text,
+                            floor_text=excluded.floor_text,
+                            direction_text=excluded.direction_text,
+                            age_years=excluded.age_years,
+                            structure=excluded.structure,
+                            availability_raw=excluded.availability_raw,
+                            built_raw=excluded.built_raw,
+                            structure_raw=excluded.structure_raw,
+                            built_year_month=excluded.built_year_month,
+                            built_age_years=excluded.built_age_years,
+                            availability_date=excluded.availability_date,
+                            availability_flag_immediate=excluded.availability_flag_immediate,
+                            updated_at=excluded.updated_at,
+                            source_kind=excluded.source_kind,
+                            source_url=excluded.source_url,
+                            ingest_run_id=excluded.ingest_run_id
+                        """,
+                        (
+                            listing_key,
+                            building_id,
+                            normalized.raw_name,
+                            normalized.raw_address,
+                            _clean_text(row.get("room")),
+                            rent_yen,
+                            maint_yen,
+                            layout,
+                            area_sqm,
+                            move_in_label,
+                            deposit_text,
+                            key_money_text,
+                            floor_text,
+                            direction_text,
+                            age_years,
+                            structure,
+                            availability_raw,
+                            built_raw,
+                            structure_raw,
+                            built_year_month,
+                            built_age_years,
+                            availability_date,
+                            availability_flag_immediate,
+                            updated_at,
+                            normalized_source,
+                            source_url,
+                            ingest_run_id,
+                        ),
+                    )
                 report.attached_listings += 1
 
         conn.execute("UPDATE ingest_runs SET status='completed', finished_at=CURRENT_TIMESTAMP WHERE id=?", (ingest_run_id,))

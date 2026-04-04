@@ -57,6 +57,10 @@ class FactsRow:
     building_name: str
     address: str
     structure: str
+    access_info: str
+    floor_count_text: str
+    total_units: int | None
+    management_style: str
     built_year_month: str
     property_kind: str
     sale_price_yen_min: int | None
@@ -468,11 +472,22 @@ def parse_list_card_facts(card: Node, kind: str, detail_url: str, fallback_name:
 
     property_kind = "bunjo" if kind == "mansion" else "chintai"
     structure = "RC" if property_kind == "bunjo" else ""
+    access_info = _find_text_with_pattern(card, [r"(?:JR|地下鉄|バス)[^。]{0,80}"])
+    floor_count_text = _find_text_with_pattern(card, [r"(?:地上)?\d+階(?:建)?"])
+    total_units = None
+    m_units = re.search(r"総戸数\s*[:：]?\s*(\d+)", full_text)
+    if m_units:
+        total_units = int(m_units.group(1))
+    management_style = _find_text_with_pattern(card, [r"管理方式\s*[:：]?\s*[^\s、,]{1,20}"])
 
     return FactsRow(
         building_name=building_name,
         address=address,
         structure=structure,
+        access_info=access_info,
+        floor_count_text=floor_count_text,
+        total_units=total_units,
+        management_style=management_style,
         built_year_month=built_year_month,
         property_kind=property_kind,
         sale_price_yen_min=sale_min if property_kind == "bunjo" else None,
@@ -553,6 +568,10 @@ def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_
         building_name=building_name,
         address=_strip_fukuoka_prefix(address),
         structure=structure,
+        access_info=_find_text_with_pattern(tree.root, [r"(?:JR|地下鉄|バス)[^。]{0,80}"]),
+        floor_count_text=_find_text_with_pattern(tree.root, [r"(?:地上)?\d+階(?:建)?"]),
+        total_units=(int(m.group(1)) if (m := re.search(r"総戸数\s*[:：]?\s*(\d+)", full_text)) else None),
+        management_style=(normalize_space(m.group(1)) if (m := re.search(r"管理方式\s*[:：]?\s*([^\s、,]{1,20})", full_text)) else ""),
         built_year_month=_parse_built_year_month(full_text),
         property_kind="",
         sale_price_yen_min=None,
@@ -848,6 +867,10 @@ def run_crawl(
                     building_name=row.building_name,
                     address=_strip_fukuoka_prefix(row.address),
                     structure="RC" if row.kind == "mansion" else "",
+                    access_info="",
+                    floor_count_text="",
+                    total_units=None,
+                    management_style="",
                     built_year_month="",
                     property_kind="bunjo" if row.kind == "mansion" else "chintai",
                     sale_price_yen_min=None,

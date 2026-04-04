@@ -479,3 +479,50 @@ def test_sale_summary_generated_from_bunjo_facts_without_sale_listing_count(tmp_
     assert sale_summary["sale_listing_count"] == 0
     assert sale_summary["price_yen_min"] == 35000000
     assert sale_summary["price_yen_max"] == 39000000
+
+
+def test_sale_summary_uses_sale_listings_payload(tmp_path):
+    db = tmp_path / "test_sale_listings_summary.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        "INSERT INTO buildings(building_id, canonical_name, canonical_address, property_kind, management_style, floor_count_text, total_units) VALUES ('b-sale','分譲マンション','福岡県北九州市小倉北区X','bunjo','巡回','14階建',120)"
+    )
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (30, 'mansion_review_mansion', 'sale-current', 'completed')")
+    conn.execute("INSERT INTO current_ingest_snapshots(source, ingest_run_id) VALUES ('mansion_review_mansion', 30)")
+    conn.executemany(
+        """
+        INSERT INTO sale_listings(
+            sale_listing_key, building_key, source, source_url, evidence_id,
+            price_yen, management_fee_yen, repair_fund_yen, area_sqm, layout, floor_text, direction_text, updated_at, ingest_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("s1", "b-sale", "mansion_review_mansion", "u1", "e1", 36000000, 9000, 7000, 66.0, "2LDK", "7階", "南", "2026-01-02", 30),
+            ("s2", "b-sale", "mansion_review_mansion", "u2", "e2", 42000000, 12000, 8000, 72.0, "3LDK", "10階", "東", "2026-01-03", 30),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    summary = conn.execute("SELECT sale_price_yen_min, sale_price_yen_max, sale_listing_count, has_sale FROM building_summaries WHERE building_key='b-sale'").fetchone()
+    sale_summary = conn.execute(
+        "SELECT price_yen_min, price_yen_max, management_fee_yen_min, management_fee_yen_max, repair_fund_yen_min, repair_fund_yen_max, floor_summary, floor_count_text, total_units FROM building_sale_summaries WHERE building_key='b-sale'"
+    ).fetchone()
+    conn.close()
+
+    assert summary["has_sale"] == 1
+    assert summary["sale_listing_count"] == 2
+    assert summary["sale_price_yen_min"] == 36000000
+    assert summary["sale_price_yen_max"] == 42000000
+    assert sale_summary["price_yen_min"] == 36000000
+    assert sale_summary["price_yen_max"] == 42000000
+    assert sale_summary["management_fee_yen_min"] == 9000
+    assert sale_summary["management_fee_yen_max"] == 12000
+    assert sale_summary["repair_fund_yen_min"] == 7000
+    assert sale_summary["repair_fund_yen_max"] == 8000
+    assert sale_summary["floor_summary"] == "10階, 7階"
+    assert sale_summary["floor_count_text"] == "14階建"
+    assert sale_summary["total_units"] == 120

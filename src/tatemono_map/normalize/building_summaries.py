@@ -101,6 +101,20 @@ def _load_priority_rank(conn, domain: str) -> dict[str, int]:
         """,
         (domain,),
     ).fetchall()
+    sale_rows = conn.execute(
+        """
+        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
+        FROM sale_listings
+        WHERE (
+            ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
+            OR (
+                ingest_run_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)
+            )
+        )
+        ORDER BY id DESC
+        """
+    ).fetchall()
     return {str(row["source"]): int(row["priority_rank"]) for row in rows}
 
 
@@ -117,7 +131,7 @@ def rebuild(db_path: str) -> int:
                structure, age_years, built_year, built_year_month, availability_raw, availability_label,
                property_kind, sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
                sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json, sale_listing_count,
-               avg_rent_yen, rental_listing_count
+               avg_rent_yen, rental_listing_count, management_style, floor_count_text, total_units
         FROM buildings
         """
     ).fetchall()
@@ -141,18 +155,39 @@ def rebuild(db_path: str) -> int:
         ORDER BY id DESC
         """
     ).fetchall()
+    sale_rows = conn.execute(
+        """
+        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
+        FROM sale_listings
+        WHERE (
+            ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
+            OR (
+                ingest_run_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)
+            )
+        )
+        ORDER BY id DESC
+        """
+    ).fetchall()
     grouped: dict[str, list] = {}
     for row in rows:
         if not row["building_key"]:
             continue
         canonical_key = alias_map.get(row["building_key"], row["building_key"])
         grouped.setdefault(canonical_key, []).append(row)
+    grouped_sale: dict[str, list] = {}
+    for row in sale_rows:
+        if not row["building_key"]:
+            continue
+        canonical_key = alias_map.get(row["building_key"], row["building_key"])
+        grouped_sale.setdefault(canonical_key, []).append(row)
 
     canonical_by_id = {row["building_id"]: row for row in building_rows}
-    target_keys = set(canonical_by_id.keys()) | set(grouped.keys())
+    target_keys = set(canonical_by_id.keys()) | set(grouped.keys()) | set(grouped_sale.keys())
 
     for building_key in sorted(target_keys):
         items = grouped.get(building_key, [])
+        sale_items = grouped_sale.get(building_key, [])
         if items and rental_priority:
             ranked_items = [row for row in items if rental_priority.get(str(row["source_kind"])) is not None]
             available_ranks = [rental_priority.get(str(row["source_kind"])) for row in ranked_items]
@@ -196,13 +231,21 @@ def rebuild(db_path: str) -> int:
         fallback_availability_label = (normalize_text(building["availability_label"]) if building else "") or None
         fallback_property_kind = normalize_text(building["property_kind"]) if building and building["property_kind"] else ""
 
-        sale_price_min = building["sale_price_yen_min"] if building else None
-        sale_price_max = building["sale_price_yen_max"] if building else None
-        sale_price_avg = building["sale_price_yen_avg"] if building else None
-        sale_area_min = building["sale_area_sqm_min"] if building else None
-        sale_area_max = building["sale_area_sqm_max"] if building else None
-        sale_layout_types_json = building["sale_layout_types_json"] if building else None
-        sale_listing_count = building["sale_listing_count"] if building else None
+        sale_prices = [int(r["price_yen"]) for r in sale_items if r["price_yen"] is not None]
+        sale_areas = [float(r["area_sqm"]) for r in sale_items if r["area_sqm"] is not None]
+        sale_layouts = sorted({normalize_text(r["layout"]) for r in sale_items if r["layout"]})
+        sale_mgmt_fees = [int(r["management_fee_yen"]) for r in sale_items if r["management_fee_yen"] is not None]
+        sale_repair_funds = [int(r["repair_fund_yen"]) for r in sale_items if r["repair_fund_yen"] is not None]
+        sale_floors = sorted({normalize_text(r["floor_text"]) for r in sale_items if normalize_text(r["floor_text"])})
+        sale_latest = max((r["updated_at"] for r in sale_items if r["updated_at"]), default=None)
+
+        sale_price_min = min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building else None)
+        sale_price_max = max(sale_prices) if sale_prices else (building["sale_price_yen_max"] if building else None)
+        sale_price_avg = (sum(sale_prices) // len(sale_prices)) if sale_prices else (building["sale_price_yen_avg"] if building else None)
+        sale_area_min = min(sale_areas) if sale_areas else (building["sale_area_sqm_min"] if building else None)
+        sale_area_max = max(sale_areas) if sale_areas else (building["sale_area_sqm_max"] if building else None)
+        sale_layout_types_json = json.dumps(sale_layouts, ensure_ascii=False) if sale_layouts else (building["sale_layout_types_json"] if building else None)
+        sale_listing_count = len(sale_items) if sale_items else (building["sale_listing_count"] if building else None)
 
         availability_label = (_select_availability_label(move_in_dates, items) if items else None) or fallback_availability_label
         vacancy_count = len(items)
@@ -256,7 +299,7 @@ def rebuild(db_path: str) -> int:
                 "has_sale": has_sale,
                 "vacancy_count": vacancy_count,
                 "sale_listing_count": sale_listing_count,
-                "last_updated": latest,
+                "last_updated": max(filter(None, [latest, sale_latest]), default=None),
             },
         )
         if has_rental:
@@ -308,7 +351,7 @@ def rebuild(db_path: str) -> int:
                     layout_types_json, floor_summary, management_fee_yen_min, management_fee_yen_max,
                     repair_fund_yen_min, repair_fund_yen_max, management_style, built_year_month, built_age_years,
                     structure, floor_count_text, total_units, fetched_date, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, NULL, NULL, DATE('now'), ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'), ?)
                 ON CONFLICT(building_key) DO UPDATE SET
                     sale_listing_count=excluded.sale_listing_count,
                     price_yen_min=excluded.price_yen_min,
@@ -316,9 +359,17 @@ def rebuild(db_path: str) -> int:
                     area_sqm_min=excluded.area_sqm_min,
                     area_sqm_max=excluded.area_sqm_max,
                     layout_types_json=excluded.layout_types_json,
+                    floor_summary=excluded.floor_summary,
+                    management_fee_yen_min=excluded.management_fee_yen_min,
+                    management_fee_yen_max=excluded.management_fee_yen_max,
+                    repair_fund_yen_min=excluded.repair_fund_yen_min,
+                    repair_fund_yen_max=excluded.repair_fund_yen_max,
+                    management_style=excluded.management_style,
                     built_year_month=excluded.built_year_month,
                     built_age_years=excluded.built_age_years,
                     structure=excluded.structure,
+                    floor_count_text=excluded.floor_count_text,
+                    total_units=excluded.total_units,
                     fetched_date=excluded.fetched_date,
                     updated_at=excluded.updated_at
                 """,
@@ -330,10 +381,18 @@ def rebuild(db_path: str) -> int:
                     sale_area_min,
                     sale_area_max,
                     sale_layout_types_json or "[]",
+                    ", ".join(sale_floors) if sale_floors else None,
+                    min(sale_mgmt_fees) if sale_mgmt_fees else None,
+                    max(sale_mgmt_fees) if sale_mgmt_fees else None,
+                    min(sale_repair_funds) if sale_repair_funds else None,
+                    max(sale_repair_funds) if sale_repair_funds else None,
+                    (building["management_style"] if building else None),
                     listing_built_year_month or fallback_built_year_month,
                     resolved_built_age_years,
                     listing_building_structure or fallback_structure,
-                    latest,
+                    (building["floor_count_text"] if building else None),
+                    (building["total_units"] if building else None),
+                    max(filter(None, [latest, sale_latest]), default=None),
                 ),
             )
 

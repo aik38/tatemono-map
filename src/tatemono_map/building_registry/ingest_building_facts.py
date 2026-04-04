@@ -350,6 +350,10 @@ def ingest_building_facts_csv(
             sale_listing_count = _parse_int(row.get("sale_listing_count"))
             avg_rent_yen = _parse_int(row.get("avg_rent_yen"))
             rental_listing_count = _parse_int(row.get("rental_listing_count"))
+            access_info = _clean_text(row.get("access_info"))
+            floor_count_text = _clean_text(row.get("floor_count_text"))
+            total_units = _parse_int(row.get("total_units"))
+            management_style = _clean_text(row.get("management_style"))
 
             is_mansion_review = source.startswith("mansion_review")
             is_bunjo = property_kind == "bunjo"
@@ -374,6 +378,10 @@ def ingest_building_facts_csv(
                         sale_listing_count=COALESCE(?, sale_listing_count),
                         avg_rent_yen=COALESCE(?, avg_rent_yen),
                         rental_listing_count=COALESCE(?, rental_listing_count),
+                        access_info=COALESCE(NULLIF(?, ''), access_info),
+                        floor_count_text=COALESCE(NULLIF(?, ''), floor_count_text),
+                        total_units=COALESCE(?, total_units),
+                        management_style=COALESCE(NULLIF(?, ''), management_style),
                         updated_at=CURRENT_TIMESTAMP
                     WHERE building_id=?
                     """,
@@ -382,7 +390,14 @@ def ingest_building_facts_csv(
                         structure, age_years, availability_label, built_year_month, property_kind,
                         sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
                         sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json,
-                        sale_listing_count, avg_rent_yen, rental_listing_count, building_id,
+                        sale_listing_count,
+                        avg_rent_yen,
+                        rental_listing_count,
+                        access_info,
+                        floor_count_text,
+                        total_units,
+                        management_style,
+                        building_id,
                     ),
                 )
             else:
@@ -400,6 +415,10 @@ def ingest_building_facts_csv(
                             END,
                             built_year_month={_fill_only_sql('built_year_month')},
                             property_kind={_fill_only_sql('property_kind')},
+                            access_info={_fill_only_sql('access_info')},
+                            floor_count_text={_fill_only_sql('floor_count_text')},
+                            total_units=CASE WHEN total_units IS NULL THEN ? ELSE total_units END,
+                            management_style={_fill_only_sql('management_style')},
                             updated_at=CURRENT_TIMESTAMP
                         WHERE building_id=?
                         """,
@@ -412,6 +431,10 @@ def ingest_building_facts_csv(
                             age_years,
                             built_year_month,
                             property_kind,
+                            access_info,
+                            floor_count_text,
+                            total_units,
+                            management_style,
                             building_id,
                         ),
                     )
@@ -439,6 +462,10 @@ def ingest_building_facts_csv(
                             sale_listing_count=CASE WHEN sale_listing_count IS NULL THEN ? ELSE sale_listing_count END,
                             avg_rent_yen=CASE WHEN avg_rent_yen IS NULL THEN ? ELSE avg_rent_yen END,
                             rental_listing_count=CASE WHEN rental_listing_count IS NULL THEN ? ELSE rental_listing_count END,
+                            access_info={_fill_only_sql('access_info')},
+                            floor_count_text={_fill_only_sql('floor_count_text')},
+                            total_units=CASE WHEN total_units IS NULL THEN ? ELSE total_units END,
+                            management_style={_fill_only_sql('management_style')},
                             updated_at=CURRENT_TIMESTAMP
                         WHERE building_id=?
                         """,
@@ -447,7 +474,14 @@ def ingest_building_facts_csv(
                             structure, built_age_years, built_age_years, age_years, availability_label, built_year_month, property_kind,
                             sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
                             sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json,
-                            sale_listing_count, avg_rent_yen, rental_listing_count, building_id,
+                            sale_listing_count,
+                            avg_rent_yen,
+                            rental_listing_count,
+                            access_info,
+                            floor_count_text,
+                            total_units,
+                            management_style,
+                            building_id,
                         ),
                     )
 
