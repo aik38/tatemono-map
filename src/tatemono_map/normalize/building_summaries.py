@@ -219,6 +219,10 @@ def rebuild(db_path: str) -> int:
             )
         )
         has_sale = bool((sale_listing_count or 0) > 0 or has_sale_payload or fallback_property_kind == "bunjo")
+        has_rental_evidence = has_rental or bool((building["rental_listing_count"] or 0) > 0 or (building["avg_rent_yen"] or 0) > 0) if building else has_rental
+        resolved_property_kind = fallback_property_kind
+        if fallback_property_kind == "chintai" and not has_rental_evidence:
+            resolved_property_kind = ""
         if fallback_property_kind == "bunjo" or vacancy_count <= 0:
             availability_label = None
 
@@ -229,7 +233,7 @@ def rebuild(db_path: str) -> int:
                 "name": summary_name,
                 "raw_name": summary_raw_name,
                 "address": summary_address,
-                "property_kind": fallback_property_kind,
+                "property_kind": resolved_property_kind,
                 "rent_yen_min": min(rents) if rents else (None if fallback_property_kind == "bunjo" else (building["avg_rent_yen"] if building else None)),
                 "rent_yen_max": max(rents) if rents else (None if fallback_property_kind == "bunjo" else (building["avg_rent_yen"] if building else None)),
                 "sale_price_yen_min": sale_price_min,
