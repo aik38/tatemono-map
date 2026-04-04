@@ -36,11 +36,30 @@ try {
   if (-not $factsCsv) { throw "building_facts CSV not found under tmp/manual/outputs/mansion_review/combined" }
   Write-Host "[OK] facts_csv=$($factsCsv.FullName)"
 
+  $listCsvName = $factsCsv.Name -replace '^building_facts_', 'mansion_review_list_'
+  $runDir = Join-Path (Join-Path $repo "tmp\manual\outputs\mansion_review") ($factsCsv.BaseName -replace '^building_facts_', '')
+  $listCsvPath = Join-Path $runDir $listCsvName
+  if (-not (Test-Path $listCsvPath)) { throw "mansion_review_list CSV not found: $listCsvPath" }
+  Write-Host "[OK] list_csv=$listCsvPath"
+
+  $masterImportCsv = Join-Path $runDir "mansion_review_master_import.csv"
+  & $py (Join-Path $repo "scripts/mansion_review_list_to_master_import.py") --input-csv $listCsvPath --output-csv $masterImportCsv
+  if ($LASTEXITCODE -ne 0) { throw "mansion_review_list_to_master_import.py failed" }
+  Write-Host "[OK] master_import_csv=$masterImportCsv"
+
   $dbPath = Join-Path $repo "data\tatemono_map.sqlite3"
   $enableAutoSeed = $CreateMissingSafe -or $AutoSeedHighConfidence
   & $py -m tatemono_map.building_registry.ingest_building_facts --db $dbPath --csv $factsCsv.FullName --source mansion_review_list_facts --merge $Merge $(if($enableAutoSeed){"--create-missing-safe"})
   if ($LASTEXITCODE -ne 0) { throw "ingest_building_facts failed" }
   Write-Host "[OK] ingest_building_facts db=$dbPath merge=$Merge auto_seed_high_confidence=$enableAutoSeed"
+
+  & $py -m tatemono_map.building_registry.ingest_master_import --db $dbPath --csv $masterImportCsv --source mansion_review_list
+  if ($LASTEXITCODE -ne 0) { throw "ingest_master_import (mansion_review_list) failed" }
+  Write-Host "[OK] ingest_master_import source=mansion_review_list"
+
+  & $py -m tatemono_map.building_registry.ingest_master_import --db $dbPath --source mansion_review_list --set-current-latest-completed
+  if ($LASTEXITCODE -ne 0) { throw "set-current-latest-completed failed for mansion_review_list" }
+  Write-Host "[OK] set current snapshot source=mansion_review_list"
 
   if ($RunPublish) {
     & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\publish_public.ps1") -RepoPath $repo
