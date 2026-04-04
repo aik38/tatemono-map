@@ -694,6 +694,10 @@ ADDITIVE_MIGRATION_COLUMNS: dict[str, dict[str, str]] = {
         "fetched_at": "TEXT DEFAULT CURRENT_TIMESTAMP",
     },
     "listings": {
+        "deposit_text": "TEXT",
+        "key_money_text": "TEXT",
+        "floor_text": "TEXT",
+        "direction_text": "TEXT",
         "age_years": "INTEGER",
         "structure": "TEXT",
         "availability_raw": "TEXT",
