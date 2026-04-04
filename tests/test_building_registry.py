@@ -192,6 +192,42 @@ def test_match_building_ignores_prefecture_on_both_sides(tmp_path: Path) -> None
     conn.close()
 
 
+def test_ingest_master_import_routes_mansion_to_sale_listings(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry_sale.sqlite3"
+    seed_csv = tmp_path / "buildings_seed_ui.csv"
+    seed_csv.write_text(
+        "building_name,address,evidence_url_or_id,merge_to_evidence\n"
+        "分譲テストマンション,福岡県北九州市小倉北区魚町1-1-1,ui:sale,\n",
+        encoding="utf-8",
+    )
+    seed_from_ui_csv(str(db_path), str(seed_csv))
+
+    master_csv = tmp_path / "master_import_sale.csv"
+    master_csv.write_text(
+        "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,availability_raw,built_raw,age_years,structure,built_year_month,built_age_years,availability_date,availability_flag_immediate,structure_raw,raw_block,evidence_id\n"
+        "1,mansion,2026/01/01 10:00,分譲テストマンション,701,福岡県北九州市小倉北区魚町1-1-1,3980,,7階,3LDK,72.5,,,,,2010-01,,,,,\"管理費:12000円 修繕積立金:8000円 向き:南\",e1\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_master_import_csv(str(db_path), str(master_csv), source="mansion_review_list_facts")
+    assert report.attached_listings == 1
+
+    conn = connect(db_path)
+    rental_count = conn.execute("SELECT COUNT(*) AS c FROM listings").fetchone()["c"]
+    sale = conn.execute(
+        "SELECT source, price_yen, management_fee_yen, repair_fund_yen, floor_text, direction_text FROM sale_listings"
+    ).fetchone()
+    conn.close()
+
+    assert rental_count == 0
+    assert sale["source"] == "mansion_review_mansion"
+    assert sale["price_yen"] == 39800000
+    assert sale["management_fee_yen"] == 12000
+    assert sale["repair_fund_yen"] == 8000
+    assert sale["floor_text"] == "7階"
+    assert sale["direction_text"] == "南"
+
+
 def test_ingest_auto_renormalizes_buildings_norm_columns(tmp_path: Path) -> None:
     db_path = tmp_path / "registry.sqlite3"
     conn = connect(db_path)
