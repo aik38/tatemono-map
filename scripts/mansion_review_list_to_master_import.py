@@ -37,6 +37,54 @@ def _clean(value: str | None) -> str:
     return (value or "").strip()
 
 
+_LAYOUT_FORBIDDEN_MARKERS = (
+    "住所",
+    "交通",
+    "築年数",
+    "階建て",
+    "総戸数",
+    "口コミ数",
+    "平均賃料",
+    "アクセス数",
+    "坪賃料",
+    "このマンションの【賃貸】物件情報",
+    "賃料(管理費)",
+    "敷金",
+    "礼金",
+    "専有面積",
+    "間取り",
+    "所在階",
+    "向き",
+    "全 件を表示する",
+    "function",
+    "jQuery",
+    "号室",
+    "<script",
+    "$(function",
+    "recommendTable",
+    "lazyload",
+)
+
+_LAYOUT_ALLOWED_RE = re.compile(
+    r"^(?:ワンルーム|[1-9]\d?(?:R|K|DK|LDK)|[1-9]\d?S(?:R|K|DK|LDK))(?:\+[1-9]\d?[KLD]?|(?:\s*[+＋]\s*S)|(?:\s*(?:和室|洋室)\s*\d+(?:\.\d+)?)|(?:\s*/\s*[1-9]\d?(?:R|K|DK|LDK|S(?:R|K|DK|LDK)))?)*$",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_mansion_review_layout(value: str | None) -> str:
+    layout = _clean(value)
+    if not layout:
+        return ""
+    lowered = layout.lower()
+    if any(marker.lower() in lowered for marker in _LAYOUT_FORBIDDEN_MARKERS):
+        return ""
+    if len(layout) > 40:
+        return ""
+    if not _LAYOUT_ALLOWED_RE.fullmatch(layout):
+        return ""
+    return layout
+
+
 def _parse_updated_at_from_filename(path: Path) -> str:
     m = re.search(r"(\d{8})_(\d{6})", path.name)
     if not m:
@@ -113,7 +161,7 @@ def convert(input_csv: Path, output_csv: Path, updated_at: str | None) -> int:
                     "rent_man": _extract_man_value(src.get("price_or_rent_text") or ""),
                     "fee_man": "",
                     "floor": _clean(src.get("floor_text")),
-                    "layout": _clean(src.get("layout_text")),
+                    "layout": _sanitize_mansion_review_layout(src.get("layout_text")) if kind == "chintai" else _clean(src.get("layout_text")),
                     "area_sqm": _extract_area(src.get("area_text") or ""),
                     "age_years": "",
                     "structure": "",
