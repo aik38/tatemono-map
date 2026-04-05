@@ -227,6 +227,48 @@ def _normalize_header_label(text: str) -> str:
     return normalized
 
 
+def _score_cell_for_header(header: str, cell: str) -> int:
+    header = _normalize_header_label(header)
+    cell = normalize_space(cell)
+    if not cell:
+        return 0
+    if "賃料" in header or header == "価格":
+        return 3 if re.search(r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)", cell) else 0
+    if "敷金" in header or "礼金" in header:
+        return 3 if re.search(r"(?:ヶ月|か月|月|円|万円|なし|無|不要|-)", cell) else 0
+    if "専有面積" in header:
+        return 3 if re.search(r"\d+(?:\.\d+)?\s*(?:㎡|m²|m2)", cell) else 0
+    if "間取り" in header:
+        return 3 if _LAYOUT_RE.fullmatch(cell) else 0
+    if "所在階" in header:
+        return 3 if re.search(r"(?:地上\d+階|地下\d+階|\d+階|\d+F)", cell) else 0
+    if "向き" in header:
+        compact = cell.replace("向き", "")
+        return 3 if re.fullmatch(r"(?:北|南|東|西){1,2}", compact) else 0
+    if "坪単価" in header:
+        return 3 if re.search(r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)", cell) else 0
+    if "価格評価" in header:
+        return 2 if any(token in cell for token in ("高い", "普通", "安い", "評価")) else 1
+    return 1
+
+
+def _align_headers_and_cells(headers: list[str], cells: list[str]) -> tuple[list[str], list[str]]:
+    if len(headers) == len(cells):
+        return headers, cells
+    if len(headers) != len(cells) + 1:
+        return headers, cells
+
+    best_headers = headers
+    best_score = -1
+    for drop_idx in range(len(headers)):
+        candidate_headers = headers[:drop_idx] + headers[drop_idx + 1 :]
+        score = sum(_score_cell_for_header(h, c) for h, c in zip(candidate_headers, cells))
+        if score > best_score:
+            best_score = score
+            best_headers = candidate_headers
+    return best_headers, cells
+
+
 def _extract_list_row_cells(card: Node, kind: str) -> dict[str, str]:
     tables = card.css("table.recommendTable") or card.css("table")
     for table in tables:
@@ -250,20 +292,13 @@ def _extract_list_row_cells(card: Node, kind: str) -> dict[str, str]:
         if not cells:
             continue
 
-        # 一部ページではヘッダに「号室」がある一方、TD側には号室列が無い。
-        aligned_headers = list(headers)
-        if (
-            aligned_headers
-            and "号室" in aligned_headers[0]
-            and len(aligned_headers) == len(cells) + 1
-        ):
-            aligned_headers = aligned_headers[1:]
+        aligned_headers, aligned_cells = _align_headers_and_cells(list(headers), cells)
 
         mapped: dict[str, str] = {}
         for idx, header in enumerate(aligned_headers):
-            if idx >= len(cells):
+            if idx >= len(aligned_cells):
                 continue
-            mapped[header] = cells[idx]
+            mapped[header] = aligned_cells[idx]
         detail_link = first_row.css_first("a[href]")
         if detail_link:
             mapped["__detail_href"] = _normalize_href(detail_link.attributes.get("href", ""))
