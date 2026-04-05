@@ -45,9 +45,12 @@ class ListRow:
     area_text: str
     floor_text: str
     fee_text: str
+    repair_fund_text: str
     deposit_text: str
     key_money_text: str
     direction_text: str
+    total_units_text: str
+    management_style_text: str
     access_text: str
 
 
@@ -272,6 +275,42 @@ def _extract_fee_text(price_or_rent_text: str) -> str:
     return candidate if (("円" in candidate) or ("万円" in candidate)) else ""
 
 
+def _clean_short_text(value: str, *, max_len: int = 30) -> str:
+    text = normalize_space(value)
+    if not text:
+        return ""
+    lowered = text.lower()
+    blocked_markers = ("function", "jquery", "<script", "全 件を表示", "全件を表示")
+    if any(marker in lowered for marker in blocked_markers):
+        return ""
+    if len(text) > max_len:
+        return ""
+    if any(token in text for token in ("|", "｜", "{", "}", ";")):
+        return ""
+    return text
+
+
+def _extract_labeled_token(text: str, labels: tuple[str, ...], *, max_len: int = 30) -> str:
+    normalized = normalize_space(text)
+    if not normalized:
+        return ""
+    for label in labels:
+        matched = re.search(rf"{re.escape(label)}\s*[:：]?\s*([^\s|｜]{{1,{max_len}}})", normalized)
+        if matched:
+            return _clean_short_text(matched.group(1), max_len=max_len)
+    return ""
+
+
+def _extract_total_units_text(text: str) -> str:
+    normalized = normalize_space(text)
+    if not normalized:
+        return ""
+    matched = re.search(r"(\d{1,4}\s*戸)", normalized)
+    if not matched:
+        return ""
+    return _clean_short_text(matched.group(1), max_len=12)
+
+
 def _find_text_with_pattern(card: Node, patterns: list[str]) -> str:
     text = normalize_space(card.text(separator=" "))
     for pattern in patterns:
@@ -395,10 +434,35 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         if not detail_url and row_cells.get("__detail_href"):
             detail_url = urljoin(page_url, row_cells["__detail_href"])
 
-        fee_text = row_cells.get("管理費", "") or row_cells.get("共益費", "") or _extract_fee_text(price_or_rent_text)
-        deposit_text = row_cells.get("敷金", "")
-        key_money_text = row_cells.get("礼金", "")
-        direction_text = row_cells.get("向き", "") or dl_pairs.get("向き", "")
+        card_text = card.text(separator=" ")
+        fee_text = _clean_short_text(
+            row_cells.get("管理費", "") or row_cells.get("共益費", "") or _extract_fee_text(price_or_rent_text),
+            max_len=20,
+        )
+        repair_fund_text = _clean_short_text(
+            row_cells.get("修繕積立金", "") or dl_pairs.get("修繕積立金", "") or _extract_labeled_token(card_text, ("修繕積立金",), max_len=20),
+            max_len=20,
+        )
+        deposit_text = _clean_short_text(
+            row_cells.get("敷金", "") or dl_pairs.get("敷金", "") or _extract_labeled_token(card_text, ("敷金",), max_len=20),
+            max_len=20,
+        )
+        key_money_text = _clean_short_text(
+            row_cells.get("礼金", "") or dl_pairs.get("礼金", "") or _extract_labeled_token(card_text, ("礼金",), max_len=20),
+            max_len=20,
+        )
+        direction_text = _clean_short_text(
+            row_cells.get("向き", "") or dl_pairs.get("向き", "") or _extract_labeled_token(card_text, ("向き", "主要採光面"), max_len=10),
+            max_len=10,
+        )
+        total_units_text = _clean_short_text(
+            row_cells.get("総戸数", "") or dl_pairs.get("総戸数", "") or _extract_total_units_text(card_text),
+            max_len=12,
+        )
+        management_style_text = _clean_short_text(
+            row_cells.get("管理方式", "") or dl_pairs.get("管理方式", "") or _extract_labeled_token(card_text, ("管理方式",), max_len=20),
+            max_len=20,
+        )
         access_text = dl_pairs.get("交通", "")
 
         if not building_name:
@@ -419,9 +483,12 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                 area_text=area_text,
                 floor_text=floor_text,
                 fee_text=fee_text,
+                repair_fund_text=repair_fund_text,
                 deposit_text=deposit_text,
                 key_money_text=key_money_text,
                 direction_text=direction_text,
+                total_units_text=total_units_text,
+                management_style_text=management_style_text,
                 access_text=access_text,
             )
         )
