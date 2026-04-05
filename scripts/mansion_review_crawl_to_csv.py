@@ -44,6 +44,11 @@ class ListRow:
     layout_text: str
     area_text: str
     floor_text: str
+    fee_text: str
+    deposit_text: str
+    key_money_text: str
+    direction_text: str
+    access_text: str
 
 
 @dataclass
@@ -123,21 +128,148 @@ def _pick_first_text(node: Node, selectors: list[str]) -> str:
 
 
 def _find_detail_url(card: Node, base_url: str, kind: str) -> str:
-    candidates = [
-        f'a[href*="/{kind}/"]',
-        'a[href*="/mansion/"]',
-        'a[href*="/chintai/"]',
-        "a[href]",
+    def _href_is_detail_path(href: str) -> bool:
+        if not href:
+            return False
+        return bool(re.search(r"/(?:mansion|chintai)/\d+(?:\.html)?(?:$|[?#])", href))
+
+    def _is_noise_link(anchor: Node, href: str) -> bool:
+        text = normalize_space(anchor.text(separator=" "))
+        if any(token in text for token in ("全 件を表示", "全件を表示", "もっと見る", "口コミ")):
+            return True
+        if any(token in href for token in ("/city/", "/map", "/search", "/reviews", "/review")):
+            return True
+        return False
+
+    title_link_selectors = [
+        "h1 a[href]",
+        "h2 a[href]",
+        "h3 a[href]",
+        ".property-name a[href]",
+        ".mansionName a[href]",
+        "a.property-name[href]",
     ]
-    for selector in candidates:
-        for anchor in card.css(selector):
-            href = _normalize_href(anchor.attributes.get("href", ""))
-            if not href:
-                continue
-            if href.startswith("javascript:"):
-                continue
+    for selector in title_link_selectors:
+        anchor = card.css_first(selector)
+        if not anchor:
+            continue
+        href = _normalize_href(anchor.attributes.get("href", ""))
+        if href.startswith("javascript:") or _is_noise_link(anchor, href):
+            continue
+        if _href_is_detail_path(href):
+            return urljoin(base_url, href)
+
+    for anchor in card.css("a[href]"):
+        href = _normalize_href(anchor.attributes.get("href", ""))
+        if not href or href.startswith("javascript:") or _is_noise_link(anchor, href):
+            continue
+        text = normalize_space(anchor.text(separator=" "))
+        if any(token in text for token in ("詳細", "物件詳細")) and _href_is_detail_path(href):
+            return urljoin(base_url, href)
+
+    for anchor in card.css("a[href]"):
+        href = _normalize_href(anchor.attributes.get("href", ""))
+        if not href or href.startswith("javascript:") or _is_noise_link(anchor, href):
+            continue
+        if _href_is_detail_path(href):
             return urljoin(base_url, href)
     return ""
+
+
+_LAYOUT_RE = re.compile(r"^(?:ワンルーム|[1-9]\d?(?:R|K|DK|LDK)|[1-9]\d?S(?:R|K|DK|LDK))(?:\s*[+＋]\s*S)?$", re.IGNORECASE)
+
+
+def _extract_dl_pairs(card: Node) -> dict[str, str]:
+    pairs: dict[str, str] = {}
+    for dl in card.css("dl"):
+        dts = dl.css("dt")
+        dds = dl.css("dd")
+        for dt, dd in zip(dts, dds):
+            key = normalize_space(dt.text(separator=" "))
+            value = normalize_space(dd.text(separator=" "))
+            if key and value:
+                pairs[key] = value
+    return pairs
+
+
+def _extract_table_row_by_headers(card: Node, wanted: tuple[str, ...]) -> dict[str, str]:
+    for table in card.css("table"):
+        headers = [normalize_space(h.text(separator=" ")) for h in table.css("thead th")]
+        if not headers:
+            continue
+        if not any(any(marker in h for marker in wanted) for h in headers):
+            continue
+        first_row = table.css_first("tbody tr") or table.css_first("tr")
+        if not first_row:
+            continue
+        cells = [normalize_space(c.text(separator=" ")) for c in first_row.css("td")]
+        if not cells:
+            continue
+        mapped: dict[str, str] = {}
+        for idx, header in enumerate(headers):
+            if idx >= len(cells):
+                continue
+            mapped[header] = cells[idx]
+        detail_link = first_row.css_first("a[href]")
+        if detail_link:
+            mapped["__detail_href"] = _normalize_href(detail_link.attributes.get("href", ""))
+        return mapped
+    return {}
+
+
+def _looks_polluted_text(value: str) -> bool:
+    text = normalize_space(value)
+    if not text:
+        return False
+    if len(text) > 40:
+        return True
+    lowered = text.lower()
+    markers = ("function", "jquery", "<script", "全 件を表示", "全件を表示", "賃料(管理費)", "敷金", "礼金", "間取り", "専有面積", "交通")
+    if any(marker.lower() in lowered for marker in markers):
+        return True
+    return any(token in text for token in ("|", "：", ":", "。", "{", "}", ";"))
+
+
+def _clean_layout_text(value: str) -> str:
+    text = normalize_space(value)
+    if not text or _looks_polluted_text(text):
+        return ""
+    if _LAYOUT_RE.fullmatch(text):
+        return text
+    match = re.search(r"\b([1-9]\d?\s*(?:R|K|DK|LDK|S(?:R|K|DK|LDK)))\b", text, re.IGNORECASE)
+    if match:
+        candidate = normalize_space(match.group(1))
+        return candidate if _LAYOUT_RE.fullmatch(candidate) else ""
+    return ""
+
+
+def _clean_area_text(value: str) -> str:
+    text = normalize_space(value)
+    if not text or _looks_polluted_text(text):
+        return ""
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:㎡|m²|m2)", text)
+    if not match:
+        return ""
+    return f"{match.group(1)}㎡"
+
+
+def _clean_floor_text(value: str) -> str:
+    text = normalize_space(value)
+    if not text or _looks_polluted_text(text):
+        return ""
+    match = re.search(r"(?:地上\d+階|地下\d+階|\d+階|\d+F)", text)
+    return normalize_space(match.group(0)) if match else ""
+
+
+def _extract_fee_text(price_or_rent_text: str) -> str:
+    text = normalize_space(price_or_rent_text)
+    if not text:
+        return ""
+    m = re.search(r"\(([^()]{1,20})\)", text)
+    if not m:
+        return ""
+    candidate = normalize_space(m.group(1))
+    return candidate if (("円" in candidate) or ("万円" in candidate)) else ""
 
 
 def _find_text_with_pattern(card: Node, patterns: list[str]) -> str:
@@ -201,6 +333,8 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
     rows: list[ListRow] = []
 
     for card in cards:
+        dl_pairs = _extract_dl_pairs(card)
+        row_cells = _extract_table_row_by_headers(card, ("賃料", "価格", "間取り", "専有面積"))
         building_name = _pick_first_text(
             card,
             [
@@ -214,7 +348,9 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                 "a",
             ],
         )
-        address = _pick_first_text(card, [".address", "dd.address", "dd", "[class*='address']"])
+        address = dl_pairs.get("住所", "")
+        if not address:
+            address = _pick_first_text(card, [".address", "dd.address", "[class*='address']"])
         if not address:
             address = _extract_address_like_text(card.text(separator=" "))
         address = _strip_fukuoka_prefix(address)
@@ -225,27 +361,45 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                 ".price",
                 ".rent",
                 ".money",
-                "td",
-                "dd",
-                "span",
             ],
         )
         if not price_or_rent_text:
+            for key in ("賃料(管理費)", "賃料", "価格"):
+                if key in row_cells:
+                    price_or_rent_text = row_cells[key]
+                    break
+        if not price_or_rent_text:
             price_or_rent_text = _find_text_with_pattern(card, [r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)"])
 
-        layout_text = _pick_first_text(card, [".layout", "[class*='layout']", "td", "dd"])
-        if not re.search(r"\d\s*[SLDKR]", layout_text):
-            layout_text = _find_text_with_pattern(card, [r"\d\s*[SLDKR]+"])
+        layout_text = _clean_layout_text(_pick_first_text(card, [".layout", "[class*='layout']"]))
+        if not layout_text:
+            layout_text = _clean_layout_text(row_cells.get("間取り", ""))
+        if not layout_text:
+            layout_text = _clean_layout_text(_find_text_with_pattern(card, [r"\d\s*[SLDKR]+"]))
 
-        area_text = _pick_first_text(card, [".area", "[class*='area']", "td", "dd"])
-        if not re.search(r"(?:㎡|m²|m2)", area_text):
-            area_text = _find_text_with_pattern(card, [r"\d+(?:\.\d+)?\s*(?:㎡|m²|m2)"])
+        area_text = _clean_area_text(_pick_first_text(card, [".area", "[class*='area']"]))
+        if not area_text:
+            area_text = _clean_area_text(row_cells.get("専有面積", ""))
+        if not area_text:
+            area_text = _clean_area_text(_find_text_with_pattern(card, [r"\d+(?:\.\d+)?\s*(?:㎡|m²|m2)"]))
 
-        floor_text = _pick_first_text(card, [".floor", "[class*='floor']", "td", "dd"])
-        if not re.search(r"(?:階|F)", floor_text):
-            floor_text = _find_text_with_pattern(card, [r"(?:\d+階|\d+F|地上\d+階|地下\d+階)"])
+        floor_text = _clean_floor_text(_pick_first_text(card, [".floor", "[class*='floor']"]))
+        if not floor_text:
+            floor_text = _clean_floor_text(dl_pairs.get("建物階数", ""))
+        if not floor_text:
+            floor_text = _clean_floor_text(row_cells.get("所在階", ""))
+        if not floor_text:
+            floor_text = _clean_floor_text(_find_text_with_pattern(card, [r"(?:\d+階|\d+F|地上\d+階|地下\d+階)"]))
 
         detail_url = _find_detail_url(card, page_url, kind)
+        if not detail_url and row_cells.get("__detail_href"):
+            detail_url = urljoin(page_url, row_cells["__detail_href"])
+
+        fee_text = row_cells.get("管理費", "") or row_cells.get("共益費", "") or _extract_fee_text(price_or_rent_text)
+        deposit_text = row_cells.get("敷金", "")
+        key_money_text = row_cells.get("礼金", "")
+        direction_text = row_cells.get("向き", "") or dl_pairs.get("向き", "")
+        access_text = dl_pairs.get("交通", "")
 
         if not building_name:
             continue
@@ -264,6 +418,11 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                 layout_text=layout_text,
                 area_text=area_text,
                 floor_text=floor_text,
+                fee_text=fee_text,
+                deposit_text=deposit_text,
+                key_money_text=key_money_text,
+                direction_text=direction_text,
+                access_text=access_text,
             )
         )
 
