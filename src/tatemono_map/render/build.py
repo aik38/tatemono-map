@@ -159,6 +159,23 @@ def _format_layout_label(layout_types: list[str]) -> str | None:
     return f"{labels[0]}〜{labels[-1]}"
 
 
+def _format_text_label(values: list[object]) -> str | None:
+    labels: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in {"-", "--", "- -", "なし"}:
+            continue
+        if text not in labels:
+            labels.append(text)
+    if not labels:
+        return None
+    if len(labels) == 1:
+        return labels[0]
+    if len(labels) <= 3:
+        return "、".join(labels)
+    return f"{labels[0]}〜{labels[-1]}"
+
+
 def _sanitize_text(value: str) -> str:
     sanitized = ROOM_SUFFIX_RE.sub("", value)
     return re.sub(r"\s{2,}", " ", sanitized).strip()
@@ -741,6 +758,10 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             COALESCE(s.vacancy_count, 0) AS vacancy_count,
             s.sale_listing_count,
             s.last_updated,
+            b.access_info,
+            b.floor_count_text,
+            b.total_units,
+            b.management_style,
             COALESCE(s.updated_at, b.updated_at) AS updated_at
         FROM building_summaries s
         LEFT JOIN buildings b ON b.building_id = s.building_key
@@ -775,6 +796,10 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             0 AS vacancy_count,
             NULL AS sale_listing_count,
             NULL AS last_updated,
+            b.access_info,
+            b.floor_count_text,
+            b.total_units,
+            b.management_style,
             b.updated_at AS updated_at
         FROM buildings b
         WHERE COALESCE(b.hidden_from_public, 0) = 0
@@ -807,11 +832,38 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         "SELECT * FROM building_sale_summaries"
     ).fetchall()
     sale_summary_map = {str(row["building_key"]): dict(row) for row in sale_summary_rows}
+    alias_rows = conn.execute("SELECT alias_key, canonical_key FROM building_key_aliases").fetchall()
+    alias_map = {str(row["alias_key"]): str(row["canonical_key"]) for row in alias_rows}
+    rental_terms_rows = conn.execute(
+        """
+        SELECT building_key, deposit_text, key_money_text
+        FROM listings
+        WHERE (
+            ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
+            OR (
+                ingest_run_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)
+            )
+        )
+        """
+    ).fetchall()
+    rental_terms_map: dict[str, dict[str, list[object]]] = {}
+    for row in rental_terms_rows:
+        building_key = str(row["building_key"] or "").strip()
+        if not building_key:
+            continue
+        canonical_key = alias_map.get(building_key, building_key)
+        bucket = rental_terms_map.setdefault(canonical_key, {"deposit": [], "key_money": []})
+        bucket["deposit"].append(row["deposit_text"])
+        bucket["key_money"].append(row["key_money_text"])
     conn.close()
     for building in building_list:
         building["sponsor"] = sponsor_map.get(str(building.get("building_key")))
         building["rental_summary"] = rental_summary_map.get(str(building.get("building_key")))
         building["sale_summary"] = sale_summary_map.get(str(building.get("building_key")))
+        rental_terms = rental_terms_map.get(str(building.get("building_key")), {"deposit": [], "key_money": []})
+        building["rental_deposit_label"] = _format_text_label(rental_terms.get("deposit", []))
+        building["rental_key_money_label"] = _format_text_label(rental_terms.get("key_money", []))
     print(
         "render_kpi_counts canonical_buildings_count={} summary_buildings_count={} vacancy_total={}".format(
             canonical_buildings_count,
