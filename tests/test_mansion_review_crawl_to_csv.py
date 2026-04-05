@@ -64,6 +64,40 @@ def test_parse_list_page_extracts_required_fields_and_urljoin() -> None:
     assert row.price_or_rent_text
 
 
+def test_parse_list_page_rejects_polluted_layout_text() -> None:
+    html = """
+    <html><body>
+      <section class="property-card">
+        <h2 class="property-name">汚染テストマンション</h2>
+        <p class="address">福岡県北九州市小倉北区魚町1-2-3</p>
+        <table>
+          <thead><tr><th>賃料(管理費)</th><th>敷金</th><th>礼金</th><th>専有面積</th><th>間取り</th><th>詳細</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>8.2万円(4,000円)</td><td>1ヶ月</td><td>1ヶ月</td><td>40.0㎡</td>
+              <td>住所・交通・築年数・総戸数・賃料表・号室・全 件を表示する・function()</td>
+              <td><a href="/chintai/90099">詳細</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1619.html",
+        kind="chintai",
+        city_id="1619",
+        page_no=1,
+    )
+    assert len(rows) == 1
+    assert rows[0].layout_text == ""
+    assert rows[0].detail_url == "https://www.mansion-review.jp/chintai/90099"
+    assert rows[0].fee_text == "4,000円"
+    assert rows[0].deposit_text == "1ヶ月"
+    assert rows[0].key_money_text == "1ヶ月"
+
+
 def test_parse_max_page_from_fixture() -> None:
     html = _read_fixture("chintai_1619_page1_min.html")
     assert parse_max_page(html, kind="chintai", city_id="1619") == 55
