@@ -44,6 +44,8 @@ def test_convert_flows_fee_man_and_raw_block_labels(tmp_path) -> None:
                 "floor_text",
                 "direction_text",
                 "access_text",
+                "built_text",
+                "building_floor_count_text",
             ],
         )
         writer.writeheader()
@@ -64,6 +66,8 @@ def test_convert_flows_fee_man_and_raw_block_labels(tmp_path) -> None:
                 "floor_text": "3階",
                 "direction_text": "南",
                 "access_text": "JR小倉駅 徒歩5分",
+                "built_text": "築16年",
+                "building_floor_count_text": "10階建て",
             }
         )
         writer.writerow(
@@ -83,6 +87,8 @@ def test_convert_flows_fee_man_and_raw_block_labels(tmp_path) -> None:
                 "floor_text": "10階",
                 "direction_text": "東",
                 "access_text": "JR小倉駅 徒歩7分",
+                "built_text": "築12年",
+                "building_floor_count_text": "14階建て",
             }
         )
 
@@ -97,8 +103,11 @@ def test_convert_flows_fee_man_and_raw_block_labels(tmp_path) -> None:
     assert "敷金:1ヶ月" in rental["raw_block"]
     assert "礼金:2ヶ月" in rental["raw_block"]
     assert "交通:JR小倉駅 徒歩5分" in rental["raw_block"]
+    assert "築年数:築16年" in rental["raw_block"]
+    assert "階建て:10階建て" in rental["raw_block"]
     assert "向き:南" in rental["raw_block"]
     assert "所在階:3階" in rental["raw_block"]
+    assert rental["built_raw"] == "築16年"
 
     sale = rows[1]
     assert sale["layout"] == ""

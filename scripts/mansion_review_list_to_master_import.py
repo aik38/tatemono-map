@@ -140,6 +140,8 @@ def _build_raw_block(row: dict[str, str]) -> str:
         f"総戸数:{_clean(row.get('total_units_text'))}",
         f"管理方式:{_clean(row.get('management_style_text'))}",
         f"交通:{_clean(row.get('access_text'))}",
+        f"築年数:{_clean(row.get('built_text'))}",
+        f"階建て:{_clean(row.get('building_floor_count_text'))}",
         f"詳細URL:{_clean(row.get('detail_url'))}",
         f"一覧URL:{_clean(row.get('page_url'))}",
     ]
@@ -192,7 +194,7 @@ def convert(input_csv: Path, output_csv: Path, updated_at: str | None) -> int:
                     "availability_raw": "",
                     "availability_date": "",
                     "availability_flag_immediate": "",
-                    "built_raw": "",
+                    "built_raw": _clean(src.get("built_text")),
                     "structure_raw": "",
                     "raw_block": _build_raw_block(src),
                     "evidence_id": _evidence_id(src),

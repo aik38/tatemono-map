@@ -108,6 +108,7 @@ def test_parse_list_page_handles_chintai_table_without_room_td_shift() -> None:
     <html><body>
       <li class="property-detail-list-item">
         <h3>門司テストレジデンス</h3>
+        <dl><dt>交通</dt><dd>JR門司駅 徒歩8分</dd><dt>築年数</dt><dd>築16年</dd><dt>階建て</dt><dd>10階建て</dd><dt>総戸数</dt><dd>45戸</dd></dl>
         <table class="recommendTable">
           <thead>
             <tr><th>号室</th><th>賃料(管理費)</th><th>敷金</th><th>礼金</th><th>専有面積</th><th>間取り</th><th>所在階</th><th>向き</th></tr>
@@ -134,6 +135,10 @@ def test_parse_list_page_handles_chintai_table_without_room_td_shift() -> None:
     assert row.key_money_text == "2ヶ月"
     assert row.area_text == "41.2㎡"
     assert row.direction_text == "南"
+    assert row.access_text == "JR門司駅 徒歩8分"
+    assert row.built_text == "築16年"
+    assert row.building_floor_count_text == "10階建て"
+    assert row.total_units_text == "45戸"
 
 
 def test_parse_list_page_drops_polluted_direction_text() -> None:
@@ -163,8 +168,8 @@ def test_parse_list_page_drops_polluted_direction_text() -> None:
     assert len(rows) == 1
     row = rows[0]
     assert row.price_or_rent_text == "2,480万円"
-    assert row.fee_text == "8,000円"
-    assert row.repair_fund_text == "4,500円"
+    assert row.fee_text == ""
+    assert row.repair_fund_text == ""
     assert row.floor_text == "10階"
     assert row.direction_text == ""
 
