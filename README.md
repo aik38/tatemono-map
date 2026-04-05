@@ -535,11 +535,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\dev_dist.ps1" -Repo
   - UI: `building_summaries` を公開DBへコピーし `dist` の建物JSONへ反映。
 - B) Mansion-review（賃貸/分譲）
   - 正規実行ルートは `scripts/run_mansion_review_listfacts_to_db.ps1`（一覧 listfacts の URL ベース運用）です。
-  - 同スクリプトは `building_facts_*.csv` 取り込み（`ingest_building_facts`）に加え、一覧 `mansion_review_list_*.csv` を `scripts/mansion_review_list_to_master_import.py` で `mansion_review_master_import.csv` へ変換し、`ingest_master_import` まで連続実行します。
   - URL ベースで 15 エリア（`1616,1619,1614,1618,1620,1677,1676,1675,1681,1678,1639,1683,1641,1632,1651`）を運用可能です。
-  - `facts` は建物属性（buildings 補完）経路、`list/detail` は明細（`listings` / `sale_listings`）経路として扱います。
-  - 分譲は Mansion Review 明細を `sale_listings` 側で扱い、公開時は `publish_public` + `render.build` を経て `dist` へ反映します（DB直結配信ではありません）。
-  - 賃貸は Ulucks/RealPro > Mansion Review（`mansion_review_chintai`）の優先順を維持し、Mansion Review 賃貸は補完的に使います。
+  - 分譲は Mansion Review listfacts で public DB / `dist` へ反映し、賃貸は Ulucks/RealPro 優先を維持して Mansion Review 賃貸は建物facts補完として扱います。
   - Batch 2（`1639,1683,1641,1632,1651`）の `created=0` 問題は、住所抽出の汎用化・facts selector 見直し・address 欠損時 detail 補完・address coverage stats 追加で解消済みです。
   - high-confidence auto-seed は既定 OFF（必要時のみ ON）で、low-confidence は review CSV / `auto_seed_skipped_*` に残す方針を維持します。
 - C) Orient 建物一覧

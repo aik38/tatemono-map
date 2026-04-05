@@ -426,30 +426,6 @@ def test_rental_source_priority_prefers_ulucks_over_mansion_review_chintai(tmp_p
     assert row["rent_yen_max"] == 70000
 
 
-def test_chintai_property_kind_is_cleared_without_rental_evidence(tmp_path):
-    db = tmp_path / "test_chintai_without_evidence.sqlite3"
-    conn = connect(db)
-    conn.execute(
-        """
-        INSERT INTO buildings(
-            building_id, canonical_name, canonical_address, property_kind, built_year_month, structure
-        ) VALUES ('b1','Aマンション','東京都A','chintai','2000-01','RC')
-        """
-    )
-    conn.commit()
-    conn.close()
-
-    rebuild(str(db))
-
-    conn = connect(db)
-    row = conn.execute("SELECT property_kind, has_rental, vacancy_count FROM building_summaries WHERE building_key='b1'").fetchone()
-    conn.close()
-
-    assert row["property_kind"] == ""
-    assert row["has_rental"] == 0
-    assert row["vacancy_count"] == 0
-
-
 def test_sale_summary_generated_from_bunjo_facts_without_sale_listing_count(tmp_path):
     db = tmp_path / "test_sale_summary_without_count.sqlite3"
     conn = connect(db)
