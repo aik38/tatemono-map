@@ -103,6 +103,72 @@ def test_parse_max_page_from_fixture() -> None:
     assert parse_max_page(html, kind="chintai", city_id="1619") == 55
 
 
+def test_parse_list_page_handles_chintai_table_without_room_td_shift() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>門司テストレジデンス</h3>
+        <table class="recommendTable">
+          <thead>
+            <tr><th>号室</th><th>賃料(管理費)</th><th>敷金</th><th>礼金</th><th>専有面積</th><th>間取り</th><th>所在階</th><th>向き</th></tr>
+          </thead>
+          <tbody class="recommend_row">
+            <tr><td>7.8万円(5,000円)</td><td>1ヶ月</td><td>2ヶ月</td><td>41.2㎡</td><td>1LDK</td><td>3階</td><td>南</td></tr>
+          </tbody>
+        </table>
+        <a href="/chintai/91001">詳細</a>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        kind="chintai",
+        city_id="1616",
+        page_no=1,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.price_or_rent_text == "7.8万円(5,000円)"
+    assert row.deposit_text == "1ヶ月"
+    assert row.key_money_text == "2ヶ月"
+    assert row.area_text == "41.2㎡"
+    assert row.direction_text == "南"
+
+
+def test_parse_list_page_drops_polluted_direction_text() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>門司分譲テスト</h3>
+        <table class="recommendTable">
+          <thead>
+            <tr><th>価格</th><th>管理費</th><th>修繕積立金</th><th>間取り</th><th>専有面積</th><th>所在階</th><th>向き</th></tr>
+          </thead>
+          <tbody class="recommend_row">
+            <tr><td>2,480万円</td><td>8,000円</td><td>4,500円</td><td>2LDK</td><td>63.0㎡</td><td>10階</td><td>価格評価</td></tr>
+          </tbody>
+        </table>
+        <a href="/mansion/81001">詳細</a>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/mansion/city/1616.html",
+        kind="mansion",
+        city_id="1616",
+        page_no=1,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.price_or_rent_text == "2,480万円"
+    assert row.fee_text == "8,000円"
+    assert row.repair_fund_text == "4,500円"
+    assert row.floor_text == "10階"
+    assert row.direction_text == ""
+
+
 @pytest.mark.parametrize(
     ("fixture", "kind", "city_id", "expected"),
     [
