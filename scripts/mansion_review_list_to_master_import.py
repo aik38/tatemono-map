@@ -122,17 +122,23 @@ def _extract_fee_man(row: dict[str, str]) -> str:
 
 
 def _build_raw_block(row: dict[str, str]) -> str:
+    fee_text = _clean(row.get("fee_text"))
     parts = [
         f"種類:{_clean(row.get('kind'))}",
         f"市区:{_clean(row.get('ward'))}",
         f"価格賃料:{_clean(row.get('price_or_rent_text'))}",
-        f"管理費/共益費:{_clean(row.get('fee_text'))}",
+        f"管理費/共益費:{fee_text}",
+        f"管理費:{fee_text}",
+        f"共益費:{fee_text}",
+        f"修繕積立金:{_clean(row.get('repair_fund_text'))}",
         f"敷金:{_clean(row.get('deposit_text'))}",
         f"礼金:{_clean(row.get('key_money_text'))}",
         f"間取り:{_clean(row.get('layout_text'))}",
         f"面積:{_clean(row.get('area_text'))}",
         f"所在階:{_clean(row.get('floor_text'))}",
         f"向き:{_clean(row.get('direction_text'))}",
+        f"総戸数:{_clean(row.get('total_units_text'))}",
+        f"管理方式:{_clean(row.get('management_style_text'))}",
         f"交通:{_clean(row.get('access_text'))}",
         f"詳細URL:{_clean(row.get('detail_url'))}",
         f"一覧URL:{_clean(row.get('page_url'))}",
