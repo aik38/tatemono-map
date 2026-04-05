@@ -106,7 +106,6 @@
       <div class="fact"><dt>面積</dt><dd>{{ building.sale_area_label or "要確認" }}</dd></div>
       {% if building.sale_summary and (building.sale_summary.management_fee_yen_min or building.sale_summary.management_fee_yen_max) %}<div class="fact"><dt>管理費</dt><dd>{{ (building.sale_summary.management_fee_yen_min|yen ~ "円/月") if building.sale_summary.management_fee_yen_min == building.sale_summary.management_fee_yen_max else (building.sale_summary.management_fee_yen_min|yen ~ "円/月〜" ~ building.sale_summary.management_fee_yen_max|yen ~ "円/月") }}</dd></div>{% endif %}
       {% if building.sale_summary and (building.sale_summary.repair_fund_yen_min or building.sale_summary.repair_fund_yen_max) %}<div class="fact"><dt>修繕積立金</dt><dd>{{ (building.sale_summary.repair_fund_yen_min|yen ~ "円/月") if building.sale_summary.repair_fund_yen_min == building.sale_summary.repair_fund_yen_max else (building.sale_summary.repair_fund_yen_min|yen ~ "円/月〜" ~ building.sale_summary.repair_fund_yen_max|yen ~ "円/月") }}</dd></div>{% endif %}
-      {% if building.sale_summary and building.sale_summary.floor_summary %}<div class="fact"><dt>所在階</dt><dd>{{ building.sale_summary.floor_summary }}</dd></div>{% endif %}
       {% endif %}
     </dl>
   </section>
@@ -116,9 +115,13 @@
     <dl class="facts">
       {% if building.built_label %}<div class="fact"><dt>築年月</dt><dd>{{ building.built_label }}</dd></div>{% endif %}
       {% if building.display_structure %}<div class="fact"><dt>構造</dt><dd>{{ building.display_structure }}</dd></div>{% endif %}
-      {% if building.sale_summary and building.sale_summary.floor_count_text %}<div class="fact"><dt>階建て</dt><dd>{{ building.sale_summary.floor_count_text }}</dd></div>{% endif %}
-      {% if building.sale_summary and building.sale_summary.total_units %}<div class="fact"><dt>総戸数</dt><dd>{{ building.sale_summary.total_units }}</dd></div>{% endif %}
-      {% if building.sale_summary and building.sale_summary.management_style %}<div class="fact"><dt>管理方式</dt><dd>{{ building.sale_summary.management_style }}</dd></div>{% endif %}
+      {% set floor_count_text = (building.sale_summary.floor_count_text if building.sale_summary and building.sale_summary.floor_count_text else building.floor_count_text) %}
+      {% if floor_count_text %}<div class="fact"><dt>階建て</dt><dd>{{ floor_count_text }}</dd></div>{% endif %}
+      {% set total_units = (building.sale_summary.total_units if building.sale_summary and building.sale_summary.total_units else building.total_units) %}
+      {% if total_units %}<div class="fact"><dt>総戸数</dt><dd>{{ total_units }}</dd></div>{% endif %}
+      {% if building.access_info %}<div class="fact"><dt>交通</dt><dd>{{ building.access_info }}</dd></div>{% endif %}
+      {% set management_style = (building.sale_summary.management_style if building.sale_summary and building.sale_summary.management_style else building.management_style) %}
+      {% if management_style %}<div class="fact"><dt>管理方式</dt><dd>{{ management_style }}</dd></div>{% endif %}
     </dl>
   </section>
 
@@ -150,6 +153,8 @@
       {% if (building.vacancy_count or 0) > 0 %}
       {% if building.rental_rent_label %}<div class="fact"><dt>賃料</dt><dd>{{ building.rental_rent_label }}</dd></div>{% endif %}
       {% if building.rental_maint_label %}<div class="fact"><dt>管理費 / 共益費</dt><dd>{{ building.rental_maint_label }}</dd></div>{% endif %}
+      {% if building.rental_deposit_label %}<div class="fact"><dt>敷金</dt><dd>{{ building.rental_deposit_label }}</dd></div>{% endif %}
+      {% if building.rental_key_money_label %}<div class="fact"><dt>礼金</dt><dd>{{ building.rental_key_money_label }}</dd></div>{% endif %}
       {% if building.rental_layout_label %}<div class="fact"><dt>間取り</dt><dd>{{ building.rental_layout_label }}</dd></div>{% endif %}
       {% if building.rental_area_label %}<div class="fact"><dt>面積</dt><dd>{{ building.rental_area_label }}</dd></div>{% endif %}
       {% if building.rental_move_in_label %}<div class="fact"><dt>入居可能日</dt><dd>{{ "即入居" if building.rental_move_in_label == "入居" else building.rental_move_in_label }}</dd></div>{% endif %}
@@ -164,8 +169,11 @@
     <dl class="facts">
       {% if building.built_label %}<div class="fact"><dt>築年月</dt><dd>{{ building.built_label }}</dd></div>{% endif %}
       {% if building.display_structure %}<div class="fact"><dt>構造</dt><dd>{{ building.display_structure }}</dd></div>{% endif %}
-      {% if building.sale_summary and building.sale_summary.floor_count_text %}<div class="fact"><dt>階建て</dt><dd>{{ building.sale_summary.floor_count_text }}</dd></div>{% endif %}
-      {% if building.sale_summary and building.sale_summary.total_units %}<div class="fact"><dt>総戸数</dt><dd>{{ building.sale_summary.total_units }}</dd></div>{% endif %}
+      {% set floor_count_text = (building.sale_summary.floor_count_text if building.sale_summary and building.sale_summary.floor_count_text else building.floor_count_text) %}
+      {% if floor_count_text %}<div class="fact"><dt>階建て</dt><dd>{{ floor_count_text }}</dd></div>{% endif %}
+      {% set total_units = (building.sale_summary.total_units if building.sale_summary and building.sale_summary.total_units else building.total_units) %}
+      {% if total_units %}<div class="fact"><dt>総戸数</dt><dd>{{ total_units }}</dd></div>{% endif %}
+      {% if building.access_info %}<div class="fact"><dt>交通</dt><dd>{{ building.access_info }}</dd></div>{% endif %}
     </dl>
   </section>
   <section class="line-cta card{% if is_both_mode %} mode-panel{% endif %}" aria-label="賃貸のお問い合わせ" {% if is_both_mode %}data-mode-panel="rental"{% endif %}>
