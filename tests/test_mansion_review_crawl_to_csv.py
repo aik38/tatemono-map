@@ -169,6 +169,39 @@ def test_parse_list_page_drops_polluted_direction_text() -> None:
     assert row.direction_text == ""
 
 
+def test_parse_list_page_handles_mansion_table_without_room_td_shift() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>小倉北分譲テスト</h3>
+        <table class="recommendTable">
+          <thead>
+            <tr><th>号室</th><th>価格</th><th>坪単価</th><th>専有面積</th><th>間取り</th><th>所在階</th><th>向き</th><th>価格評価</th></tr>
+          </thead>
+          <tbody class="recommend_row">
+            <tr><td>2,980万円</td><td>150万円</td><td>65.4㎡</td><td>3LDK</td><td>12階</td><td>南東</td><td>普通</td></tr>
+          </tbody>
+        </table>
+        <a href="/mansion/81002">詳細</a>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/mansion/city/1619.html",
+        kind="mansion",
+        city_id="1619",
+        page_no=1,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.price_or_rent_text == "2,980万円"
+    assert row.area_text == "65.4㎡"
+    assert row.layout_text == "3LDK"
+    assert row.floor_text == "12階"
+    assert row.direction_text == "南東"
+
+
 @pytest.mark.parametrize(
     ("fixture", "kind", "city_id", "expected"),
     [
