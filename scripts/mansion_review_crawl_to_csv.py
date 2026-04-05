@@ -220,6 +220,57 @@ def _extract_table_row_by_headers(card: Node, wanted: tuple[str, ...]) -> dict[s
     return {}
 
 
+def _normalize_header_label(text: str) -> str:
+    normalized = normalize_space(text)
+    normalized = normalized.replace("（", "(").replace("）", ")")
+    normalized = normalized.replace("　", "")
+    return normalized
+
+
+def _extract_list_row_cells(card: Node, kind: str) -> dict[str, str]:
+    tables = card.css("table.recommendTable") or card.css("table")
+    for table in tables:
+        headers = [_normalize_header_label(h.text(separator=" ")) for h in table.css("thead th")]
+        if not headers:
+            continue
+        has_rent = any("賃料" in h for h in headers)
+        has_price = any("価格" in h for h in headers)
+        has_area = any("専有面積" in h for h in headers)
+        if kind == "chintai":
+            if not has_rent:
+                continue
+        else:
+            if not (has_price and has_area):
+                continue
+
+        first_row = table.css_first("tbody.recommend_row tr") or table.css_first("tbody tr") or table.css_first("tr")
+        if not first_row:
+            continue
+        cells = [normalize_space(c.text(separator=" ")) for c in first_row.css("td")]
+        if not cells:
+            continue
+
+        # 一部ページではヘッダに「号室」がある一方、TD側には号室列が無い。
+        aligned_headers = list(headers)
+        if (
+            aligned_headers
+            and "号室" in aligned_headers[0]
+            and len(aligned_headers) == len(cells) + 1
+        ):
+            aligned_headers = aligned_headers[1:]
+
+        mapped: dict[str, str] = {}
+        for idx, header in enumerate(aligned_headers):
+            if idx >= len(cells):
+                continue
+            mapped[header] = cells[idx]
+        detail_link = first_row.css_first("a[href]")
+        if detail_link:
+            mapped["__detail_href"] = _normalize_href(detail_link.attributes.get("href", ""))
+        return mapped
+    return {}
+
+
 def _looks_polluted_text(value: str) -> bool:
     text = normalize_space(value)
     if not text:
@@ -288,6 +339,25 @@ def _clean_short_text(value: str, *, max_len: int = 30) -> str:
     if any(token in text for token in ("|", "｜", "{", "}", ";")):
         return ""
     return text
+
+
+def _clean_deposit_like_text(value: str) -> str:
+    text = _clean_short_text(value, max_len=20)
+    if not text:
+        return ""
+    if re.search(r"(?:ヶ月|か月|月|円|万円|なし|無|不要|相談|-)", text):
+        return text
+    return ""
+
+
+def _clean_direction_text(value: str) -> str:
+    text = _clean_short_text(value, max_len=10)
+    if not text:
+        return ""
+    compact = text.replace("向き", "")
+    if re.fullmatch(r"(?:北|南|東|西){1,2}", compact):
+        return text
+    return ""
 
 
 def _extract_labeled_token(text: str, labels: tuple[str, ...], *, max_len: int = 30) -> str:
@@ -373,7 +443,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
 
     for card in cards:
         dl_pairs = _extract_dl_pairs(card)
-        row_cells = _extract_table_row_by_headers(card, ("賃料", "価格", "間取り", "専有面積"))
+        row_cells = _extract_list_row_cells(card, kind) or _extract_table_row_by_headers(card, ("賃料", "価格", "間取り", "専有面積"))
         building_name = _pick_first_text(
             card,
             [
@@ -436,31 +506,41 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
 
         card_text = card.text(separator=" ")
         fee_text = _clean_short_text(
-            row_cells.get("管理費", "") or row_cells.get("共益費", "") or _extract_fee_text(price_or_rent_text),
+            row_cells.get("管理費", "")
+            or row_cells.get("管理費等", "")
+            or row_cells.get("管理費(月額)", "")
+            or row_cells.get("管理費・共益費", "")
+            or row_cells.get("管理費/共益費", "")
+            or row_cells.get("共益費", "")
+            or _extract_fee_text(price_or_rent_text),
             max_len=20,
         )
         repair_fund_text = _clean_short_text(
-            row_cells.get("修繕積立金", "") or dl_pairs.get("修繕積立金", "") or _extract_labeled_token(card_text, ("修繕積立金",), max_len=20),
+            row_cells.get("修繕積立金", "")
+            or row_cells.get("修繕積立費", "")
+            or dl_pairs.get("修繕積立金", "")
+            or _extract_labeled_token(card_text, ("修繕積立金",), max_len=20),
             max_len=20,
         )
-        deposit_text = _clean_short_text(
+        deposit_text = _clean_deposit_like_text(
             row_cells.get("敷金", "") or dl_pairs.get("敷金", "") or _extract_labeled_token(card_text, ("敷金",), max_len=20),
-            max_len=20,
         )
-        key_money_text = _clean_short_text(
+        key_money_text = _clean_deposit_like_text(
             row_cells.get("礼金", "") or dl_pairs.get("礼金", "") or _extract_labeled_token(card_text, ("礼金",), max_len=20),
-            max_len=20,
         )
-        direction_text = _clean_short_text(
+        direction_text = _clean_direction_text(
             row_cells.get("向き", "") or dl_pairs.get("向き", "") or _extract_labeled_token(card_text, ("向き", "主要採光面"), max_len=10),
-            max_len=10,
         )
         total_units_text = _clean_short_text(
             row_cells.get("総戸数", "") or dl_pairs.get("総戸数", "") or _extract_total_units_text(card_text),
             max_len=12,
         )
         management_style_text = _clean_short_text(
-            row_cells.get("管理方式", "") or dl_pairs.get("管理方式", "") or _extract_labeled_token(card_text, ("管理方式",), max_len=20),
+            row_cells.get("管理方式", "")
+            or row_cells.get("管理形態", "")
+            or dl_pairs.get("管理方式", "")
+            or dl_pairs.get("管理形態", "")
+            or _extract_labeled_token(card_text, ("管理方式", "管理形態"), max_len=20),
             max_len=20,
         )
         access_text = dl_pairs.get("交通", "")
