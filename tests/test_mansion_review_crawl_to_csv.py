@@ -141,6 +141,47 @@ def test_parse_list_page_handles_chintai_table_without_room_td_shift() -> None:
     assert row.total_units_text == "45戸"
 
 
+def test_parse_list_page_extracts_chintai_fee_deposit_key_money_from_individual_columns() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>門司ラベル別テスト</h3>
+        <dl>
+          <dt>交通</dt><dd>JR門司駅 徒歩6分</dd>
+          <dt>築年月</dt><dd>築9年</dd>
+          <dt>階建て</dt><dd>14階建て</dd>
+          <dt>総戸数</dt><dd>80戸</dd>
+        </dl>
+        <table class="recommendTable">
+          <thead>
+            <tr><th>賃料</th><th>管理費</th><th>敷金</th><th>礼金</th><th>専有面積</th><th>間取り</th></tr>
+          </thead>
+          <tbody class="recommend_row">
+            <tr><td>8.8万円</td><td>6,000円</td><td>1ヶ月</td><td>なし</td><td>42.5㎡</td><td>1LDK</td></tr>
+          </tbody>
+        </table>
+        <a href="/chintai/91999">詳細</a>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        kind="chintai",
+        city_id="1616",
+        page_no=1,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.fee_text == "6,000円"
+    assert row.deposit_text == "1ヶ月"
+    assert row.key_money_text == "なし"
+    assert row.access_text == "JR門司駅 徒歩6分"
+    assert row.built_text == "築9年"
+    assert row.building_floor_count_text == "14階建て"
+    assert row.total_units_text == "80戸"
+
+
 def test_parse_list_page_drops_polluted_direction_text() -> None:
     html = """
     <html><body>
@@ -550,3 +591,35 @@ def test_parse_list_card_facts_bunjo_extracts_required_fields() -> None:
     assert row.sale_listing_count == 2
     assert row.property_kind == 'bunjo'
     assert row.structure == 'RC'
+
+
+def test_parse_list_card_facts_access_info_uses_short_transport_only() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>交通抽出テスト</h3>
+        <dl>
+          <dt>交通</dt><dd>JR小倉駅 徒歩7分</dd>
+          <dt>築年数</dt><dd>築18年</dd>
+          <dt>階建て</dt><dd>11階建て</dd>
+          <dt>総戸数</dt><dd>98戸</dd>
+        </dl>
+        <div>平均賃料 10.2万円</div>
+      </li>
+    </body></html>
+    """
+    tree = crawl.HTMLParser(html)
+    card = tree.css_first("li.property-detail-list-item")
+    assert card is not None
+
+    row = crawl.parse_list_card_facts(
+        card,
+        kind="chintai",
+        detail_url="https://www.mansion-review.jp/chintai/70001",
+        fallback_name="fallback",
+        fallback_address="",
+    )
+
+    assert row.access_info == "JR小倉駅 徒歩7分"
+    assert row.floor_count_text == "11階建て"
+    assert row.total_units == 98

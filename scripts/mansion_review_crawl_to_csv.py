@@ -197,6 +197,28 @@ def _extract_dl_pairs(card: Node) -> dict[str, str]:
     return pairs
 
 
+def _extract_labeled_value(card: Node, labels: tuple[str, ...], *, max_len: int = 60) -> str:
+    dl_pairs = _extract_dl_pairs(card)
+    for label in labels:
+        value = _clean_short_text(dl_pairs.get(label, ""), max_len=max_len)
+        if value:
+            return value
+
+    for row in card.css("tr"):
+        th = row.css_first("th")
+        td = row.css_first("td")
+        if not th or not td:
+            continue
+        key = normalize_space(th.text(separator=" "))
+        if not key:
+            continue
+        if any(label in key for label in labels):
+            value = _clean_short_text(td.text(separator=" "), max_len=max_len)
+            if value:
+                return value
+    return ""
+
+
 def _extract_table_row_by_headers(card: Node, wanted: tuple[str, ...]) -> dict[str, str]:
     for table in card.css("table"):
         headers = [normalize_space(h.text(separator=" ")) for h in table.css("thead th")]
@@ -363,6 +385,15 @@ def _extract_fee_text(price_or_rent_text: str) -> str:
     return candidate if (("円" in candidate) or ("万円" in candidate)) else ""
 
 
+def _clean_fee_text(value: str) -> str:
+    text = _clean_short_text(value, max_len=20)
+    if not text:
+        return ""
+    if re.search(r"\d[\d,]*(?:\.\d+)?\s*(?:円|万円)", text):
+        return text
+    return ""
+
+
 def _clean_short_text(value: str, *, max_len: int = 30) -> str:
     text = normalize_space(value)
     if not text:
@@ -520,16 +551,35 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         if not detail_url and row_cells.get("__detail_href"):
             detail_url = urljoin(page_url, row_cells["__detail_href"])
 
-        fee_text = _clean_short_text(_extract_fee_text(price_or_rent_text), max_len=20) if kind == "chintai" else ""
+        fee_text = ""
+        if kind == "chintai":
+            fee_text = _clean_fee_text(
+                row_cells.get("管理費")
+                or row_cells.get("管理費(共益費)")
+                or row_cells.get("管理費/共益費")
+                or row_cells.get("共益費")
+                or dl_pairs.get("管理費")
+                or dl_pairs.get("共益費")
+            )
+            if not fee_text:
+                fee_text = _clean_fee_text(_extract_fee_text(price_or_rent_text))
         repair_fund_text = ""
-        deposit_text = _clean_deposit_like_text(row_cells.get("敷金", "") or dl_pairs.get("敷金", "")) if kind == "chintai" else ""
-        key_money_text = _clean_deposit_like_text(row_cells.get("礼金", "") or dl_pairs.get("礼金", "")) if kind == "chintai" else ""
+        deposit_text = (
+            _clean_deposit_like_text(row_cells.get("敷金", "") or dl_pairs.get("敷金", "") or dl_pairs.get("保証金", ""))
+            if kind == "chintai"
+            else ""
+        )
+        key_money_text = (
+            _clean_deposit_like_text(row_cells.get("礼金", "") or dl_pairs.get("礼金", "") or dl_pairs.get("敷引", ""))
+            if kind == "chintai"
+            else ""
+        )
         direction_text = _clean_direction_text(row_cells.get("向き", "") or dl_pairs.get("向き", ""))
         total_units_text = _clean_short_text(row_cells.get("総戸数", "") or dl_pairs.get("総戸数", ""), max_len=12)
         management_style_text = ""
-        access_text = _clean_short_text(dl_pairs.get("交通", ""), max_len=100)
-        built_text = _clean_short_text(dl_pairs.get("築年数", "") or dl_pairs.get("築年月", ""), max_len=20)
-        building_floor_count_text = _clean_short_text(dl_pairs.get("階建て", "") or dl_pairs.get("建物階数", ""), max_len=20)
+        access_text = _extract_labeled_value(card, ("交通", "アクセス"), max_len=100)
+        built_text = _extract_labeled_value(card, ("築年数", "築年月", "築"), max_len=20)
+        building_floor_count_text = _extract_labeled_value(card, ("階建て", "建物階数"), max_len=20)
 
         if not building_name:
             continue
@@ -766,10 +816,13 @@ def parse_list_card_facts(card: Node, kind: str, detail_url: str, fallback_name:
 
     property_kind = "bunjo" if kind == "mansion" else "chintai"
     structure = "RC" if property_kind == "bunjo" else ""
-    access_info = _find_text_with_pattern(card, [r"(?:JR|地下鉄|バス)[^。]{0,80}"])
-    floor_count_text = _find_text_with_pattern(card, [r"(?:地上)?\d+階(?:建)?"])
+    access_info = _extract_labeled_value(card, ("交通", "アクセス"), max_len=100)
+    floor_count_text = _extract_labeled_value(card, ("階建て", "建物階数"), max_len=20)
+    if not floor_count_text:
+        floor_count_text = _find_text_with_pattern(card, [r"(?:地上)?\d+階(?:建)?"])
     total_units = None
-    m_units = re.search(r"総戸数\s*[:：]?\s*(\d+)", full_text)
+    total_units_text = _extract_labeled_value(card, ("総戸数",), max_len=20)
+    m_units = re.search(r"(\d+)", total_units_text) if total_units_text else re.search(r"総戸数\s*[:：]?\s*(\d+)", full_text)
     if m_units:
         total_units = int(m_units.group(1))
     management_style = _find_text_with_pattern(card, [r"管理方式\s*[:：]?\s*[^\s、,]{1,20}"])
@@ -862,8 +915,9 @@ def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_
         building_name=building_name,
         address=_strip_fukuoka_prefix(address),
         structure=structure,
-        access_info=_find_text_with_pattern(tree.root, [r"(?:JR|地下鉄|バス)[^。]{0,80}"]),
-        floor_count_text=_find_text_with_pattern(tree.root, [r"(?:地上)?\d+階(?:建)?"]),
+        access_info=_extract_labeled_value(tree.root, ("交通", "アクセス"), max_len=100),
+        floor_count_text=_extract_labeled_value(tree.root, ("階建て", "建物階数"), max_len=20)
+        or _find_text_with_pattern(tree.root, [r"(?:地上)?\d+階(?:建)?"]),
         total_units=(int(m.group(1)) if (m := re.search(r"総戸数\s*[:：]?\s*(\d+)", full_text)) else None),
         management_style=(normalize_space(m.group(1)) if (m := re.search(r"管理方式\s*[:：]?\s*([^\s、,]{1,20})", full_text)) else ""),
         built_year_month=_parse_built_year_month(full_text),
