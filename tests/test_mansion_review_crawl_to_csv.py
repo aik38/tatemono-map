@@ -233,6 +233,52 @@ def test_parse_list_page_uses_recommend_table_rent_not_property_summary() -> Non
     assert row.total_units_text == "100戸"
 
 
+def test_parse_list_page_chintai_ignores_summary_price_when_recommend_exists_and_parses_slash_fee() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>リファレンス門司駅前</h3>
+        <div class="property-detail-content_sub">
+          <p class="price">45,619円</p>
+        </div>
+        <table class="recommendTable">
+          <thead>
+            <tr>
+              <th colspan="3" class="size_title">このマンションの【賃貸】物件情報</th>
+              <th class="size2">賃料(管理費)</th><th class="size2">敷金</th><th class="size2">礼金</th>
+              <th class="size2">専有面積</th><th class="size2">間取り</th><th class="size1">所在階</th><th class="size1">向き</th>
+            </tr>
+          </thead>
+          <tbody class="recommend_row">
+            <tr>
+              <td><img src="/img/common/floorplan-preparing-list.png"></td>
+              <td><a href="/chintai/132825003/7083.html">リファレンス門司駅前</a></td>
+              <td>4.6万円/3,000円</td><td>無</td><td>無</td><td>27.9㎡</td><td>1K</td><td>1階</td><td>西</td>
+            </tr>
+          </tbody>
+        </table>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        kind="chintai",
+        city_id="1616",
+        page_no=1,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.price_or_rent_text == "4.6万円"
+    assert row.fee_text == "3,000円"
+    assert row.deposit_text == "無"
+    assert row.key_money_text == "無"
+    assert row.area_text == "27.9㎡"
+    assert row.layout_text == "1K"
+    assert row.floor_text == "1階"
+    assert row.direction_text == "西"
+
+
 def test_parse_list_page_drops_polluted_direction_text() -> None:
     html = """
     <html><body>

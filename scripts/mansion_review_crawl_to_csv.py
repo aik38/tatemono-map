@@ -273,7 +273,7 @@ def _score_cell_for_header(header: str, cell: str) -> int:
         return 3 if re.search(r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)", cell) else 0
     if "価格評価" in header:
         return 2 if any(token in cell for token in ("高い", "普通", "安い", "評価")) else 1
-    return 1
+    return 0
 
 
 def _align_headers_and_cells(headers: list[str], cells: list[str]) -> tuple[list[str], list[str]]:
@@ -294,6 +294,49 @@ def _align_headers_and_cells(headers: list[str], cells: list[str]) -> tuple[list
 
 
 def _extract_list_row_cells(card: Node, kind: str) -> dict[str, str]:
+    def _first_recommend_cells(table_node: Node) -> list[str]:
+        first_row = table_node.css_first("tbody.recommend_row tr") or table_node.css_first("tbody tr") or table_node.css_first("tr")
+        if not first_row:
+            return []
+        return [normalize_space(c.text(separator=" ")) for c in first_row.css("td")]
+
+    def _extract_chintai_cells_by_position(cells: list[str]) -> dict[str, str]:
+        if len(cells) < 7:
+            return {}
+        rent_idx = -1
+        for idx, cell in enumerate(cells[:5]):
+            if re.search(r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)", cell):
+                rent_idx = idx
+                break
+        if rent_idx < 0:
+            return {}
+        mapped: dict[str, str] = {"賃料(管理費)": cells[rent_idx]}
+        if rent_idx + 1 < len(cells):
+            mapped["敷金"] = cells[rent_idx + 1]
+        if rent_idx + 2 < len(cells):
+            mapped["礼金"] = cells[rent_idx + 2]
+        if rent_idx + 3 < len(cells):
+            mapped["専有面積"] = cells[rent_idx + 3]
+        if rent_idx + 4 < len(cells):
+            mapped["間取り"] = cells[rent_idx + 4]
+        if rent_idx + 5 < len(cells):
+            mapped["所在階"] = cells[rent_idx + 5]
+        if rent_idx + 6 < len(cells):
+            mapped["向き"] = cells[rent_idx + 6]
+        return mapped
+
+    def _is_valid_chintai_mapping(mapped: dict[str, str]) -> bool:
+        rent = normalize_space(mapped.get("賃料(管理費)") or mapped.get("賃料") or "")
+        area = normalize_space(mapped.get("専有面積", ""))
+        layout = normalize_space(mapped.get("間取り", ""))
+        floor = normalize_space(mapped.get("所在階", ""))
+        return bool(
+            re.search(r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)", rent)
+            and re.search(r"\d+(?:\.\d+)?\s*(?:㎡|m²|m2)", area)
+            and _LAYOUT_RE.fullmatch(layout)
+            and re.search(r"(?:地上\d+階|地下\d+階|\d+階|\d+F)", floor)
+        )
+
     tables = card.css("table.recommendTable") or card.css("table")
     for table in tables:
         headers = [_normalize_header_label(h.text(separator=" ")) for h in table.css("thead th")]
@@ -309,10 +352,7 @@ def _extract_list_row_cells(card: Node, kind: str) -> dict[str, str]:
             if not (has_price and has_area):
                 continue
 
-        first_row = table.css_first("tbody.recommend_row tr") or table.css_first("tbody tr") or table.css_first("tr")
-        if not first_row:
-            continue
-        cells = [normalize_space(c.text(separator=" ")) for c in first_row.css("td")]
+        cells = _first_recommend_cells(table)
         if not cells:
             continue
 
@@ -323,7 +363,12 @@ def _extract_list_row_cells(card: Node, kind: str) -> dict[str, str]:
             if idx >= len(aligned_cells):
                 continue
             mapped[header] = aligned_cells[idx]
-        detail_link = first_row.css_first("a[href]")
+        if kind == "chintai" and not _is_valid_chintai_mapping(mapped):
+            positional = _extract_chintai_cells_by_position(cells)
+            if positional:
+                mapped.update(positional)
+        first_row = table.css_first("tbody.recommend_row tr") or table.css_first("tbody tr") or table.css_first("tr")
+        detail_link = first_row.css_first("a[href]") if first_row else None
         if detail_link:
             mapped["__detail_href"] = _normalize_href(detail_link.attributes.get("href", ""))
         return mapped
@@ -398,6 +443,12 @@ def _split_rent_and_fee_from_cell(value: str) -> tuple[str, str]:
     text = normalize_space(value)
     if not text:
         return "", ""
+
+    slash_match = re.search(r"[／/]\s*([0-9][0-9,]*(?:\.\d+)?\s*(?:円|万円))", text)
+    if slash_match:
+        rent_line = normalize_space(re.split(r"[／/]", text, maxsplit=1)[0])
+        fee_text = _clean_fee_text(slash_match.group(1))
+        return rent_line, fee_text
 
     rent_line = normalize_space(re.split(r"[（(]", text, maxsplit=1)[0])
     fee_text = _clean_fee_text(_extract_fee_text(text))
@@ -500,6 +551,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
 
     for card in cards:
         dl_pairs = _extract_dl_pairs(card)
+        has_recommend_rows = bool(card.css("table.recommendTable tbody.recommend_row"))
         row_cells = _extract_list_row_cells(card, kind) or _extract_table_row_by_headers(card, ("賃料", "価格", "間取り", "専有面積"))
         building_name = _pick_first_text(
             card,
@@ -528,7 +580,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         else:
             rent_fee_from_cell = ""
             price_or_rent_text = row_cells.get("価格", "")
-        if not price_or_rent_text:
+        if not price_or_rent_text and not (kind == "chintai" and has_recommend_rows):
             price_or_rent_text = _pick_first_text(
                 card,
                 [
@@ -542,7 +594,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                 if key in row_cells:
                     price_or_rent_text = row_cells[key]
                     break
-        if not price_or_rent_text:
+        if not price_or_rent_text and not (kind == "chintai" and has_recommend_rows):
             price_or_rent_text = _find_text_with_pattern(card, [r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)"])
 
         layout_text = _clean_layout_text(_pick_first_text(card, [".layout", "[class*='layout']"]))
@@ -559,9 +611,9 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
 
         floor_text = _clean_floor_text(_pick_first_text(card, [".floor", "[class*='floor']"]))
         if not floor_text:
-            floor_text = _clean_floor_text(dl_pairs.get("建物階数", ""))
-        if not floor_text:
             floor_text = _clean_floor_text(row_cells.get("所在階", ""))
+        if not floor_text:
+            floor_text = _clean_floor_text(dl_pairs.get("建物階数", ""))
         if not floor_text:
             floor_text = _clean_floor_text(_find_text_with_pattern(card, [r"(?:\d+階|\d+F|地上\d+階|地下\d+階)"]))
 
