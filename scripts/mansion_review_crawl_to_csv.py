@@ -394,6 +394,16 @@ def _clean_fee_text(value: str) -> str:
     return ""
 
 
+def _split_rent_and_fee_from_cell(value: str) -> tuple[str, str]:
+    text = normalize_space(value)
+    if not text:
+        return "", ""
+
+    rent_line = normalize_space(re.split(r"[（(]", text, maxsplit=1)[0])
+    fee_text = _clean_fee_text(_extract_fee_text(text))
+    return rent_line or text, fee_text
+
+
 def _clean_short_text(value: str, *, max_len: int = 30) -> str:
     text = normalize_space(value)
     if not text:
@@ -511,14 +521,22 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
             address = _extract_address_like_text(card.text(separator=" "))
         address = _strip_fukuoka_prefix(address)
 
-        price_or_rent_text = _pick_first_text(
-            card,
-            [
-                ".price",
-                ".rent",
-                ".money",
-            ],
-        )
+        price_or_rent_text = ""
+        if kind == "chintai":
+            rent_cell = row_cells.get("賃料(管理費)", "") or row_cells.get("賃料", "")
+            price_or_rent_text, rent_fee_from_cell = _split_rent_and_fee_from_cell(rent_cell)
+        else:
+            rent_fee_from_cell = ""
+            price_or_rent_text = row_cells.get("価格", "")
+        if not price_or_rent_text:
+            price_or_rent_text = _pick_first_text(
+                card,
+                [
+                    ".price",
+                    ".rent",
+                    ".money",
+                ],
+            )
         if not price_or_rent_text:
             for key in ("賃料(管理費)", "賃料", "価格"):
                 if key in row_cells:
@@ -561,6 +579,8 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                 or dl_pairs.get("管理費")
                 or dl_pairs.get("共益費")
             )
+            if not fee_text:
+                fee_text = rent_fee_from_cell
             if not fee_text:
                 fee_text = _clean_fee_text(_extract_fee_text(price_or_rent_text))
         repair_fund_text = ""
