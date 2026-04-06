@@ -279,6 +279,84 @@ def test_parse_list_page_chintai_ignores_summary_price_when_recommend_exists_and
     assert row.direction_text == "西"
 
 
+def test_parse_list_page_chintai_parses_bracket_fee_from_recommend_row_fixed_td_positions() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>リファレンス門司駅前</h3>
+        <div class="property-detail-content_sub">
+          <p class="price">45,654円</p>
+        </div>
+        <table class="recommendTable">
+          <tbody class="recommend_row">
+            <tr>
+              <td><img src="/img/common/floorplan-preparing-list.png"></td>
+              <td><a href="/chintai/132825003/7083.html">リファレンス門司駅前</a></td>
+              <td>4.6万円<br>(3,000円)</td><td>無</td><td>無</td><td>27.9㎡</td><td>1K</td><td>1階</td><td>西</td>
+              <td class="recommend_update_row">情報取得日:2026年03月22日</td>
+            </tr>
+          </tbody>
+        </table>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        kind="chintai",
+        city_id="1616",
+        page_no=1,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.price_or_rent_text == "4.6万円"
+    assert row.fee_text == "3,000円"
+    assert row.deposit_text == "無"
+    assert row.key_money_text == "無"
+    assert row.area_text == "27.9㎡"
+    assert row.layout_text == "1K"
+    assert row.floor_text == "1階"
+    assert row.direction_text == "西"
+
+
+def test_parse_list_page_chintai_does_not_fallback_to_summary_when_recommend_row_missing_rent(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>賃料欠損テスト</h3>
+        <div class="property-detail-content_sub">
+          <p class="price">45,654円</p>
+        </div>
+        <table class="recommendTable">
+          <tbody class="recommend_row">
+            <tr>
+              <td><img src="/img/common/floorplan-preparing-list.png"></td>
+              <td><a href="/chintai/132825003/7083.html">賃料欠損テスト</a></td>
+              <td>-</td><td>無</td><td>無</td><td>27.9㎡</td><td>1K</td><td>1階</td><td>西</td>
+            </tr>
+          </tbody>
+        </table>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        kind="chintai",
+        city_id="1616",
+        page_no=1,
+    )
+    captured = capsys.readouterr()
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.price_or_rent_text == ""
+    assert row.fee_text == ""
+    assert "[WARN] chintai recommend_row detected but rent not parsed:" in captured.out
+
+
 def test_parse_list_page_drops_polluted_direction_text() -> None:
     html = """
     <html><body>
