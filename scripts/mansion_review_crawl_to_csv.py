@@ -294,6 +294,27 @@ def _align_headers_and_cells(headers: list[str], cells: list[str]) -> tuple[list
 
 
 def _extract_list_row_cells(card: Node, kind: str) -> dict[str, str]:
+    def _extract_chintai_recommend_row_by_position(table_node: Node) -> dict[str, str]:
+        recommend_row = table_node.css_first("tbody.recommend_row tr") or table_node.css_first("tbody.recommend_row")
+        if not recommend_row:
+            return {}
+        cells = [normalize_space(c.text(separator=" ")) for c in recommend_row.css("td")]
+        if len(cells) < 9:
+            return {}
+        mapped: dict[str, str] = {
+            "賃料(管理費)": cells[2],
+            "敷金": cells[3],
+            "礼金": cells[4],
+            "専有面積": cells[5],
+            "間取り": cells[6],
+            "所在階": cells[7],
+            "向き": cells[8],
+        }
+        detail_link = recommend_row.css_first("a[href]")
+        if detail_link:
+            mapped["__detail_href"] = _normalize_href(detail_link.attributes.get("href", ""))
+        return mapped
+
     def _first_recommend_cells(table_node: Node) -> list[str]:
         first_row = table_node.css_first("tbody.recommend_row tr") or table_node.css_first("tbody tr") or table_node.css_first("tr")
         if not first_row:
@@ -339,6 +360,11 @@ def _extract_list_row_cells(card: Node, kind: str) -> dict[str, str]:
 
     tables = card.css("table.recommendTable") or card.css("table")
     for table in tables:
+        if kind == "chintai":
+            mapped_by_position = _extract_chintai_recommend_row_by_position(table)
+            if mapped_by_position.get("賃料(管理費)") or mapped_by_position.get("賃料"):
+                return mapped_by_position
+
         headers = [_normalize_header_label(h.text(separator=" ")) for h in table.css("thead th")]
         if not headers:
             continue
@@ -577,6 +603,8 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         if kind == "chintai":
             rent_cell = row_cells.get("賃料(管理費)", "") or row_cells.get("賃料", "")
             price_or_rent_text, rent_fee_from_cell = _split_rent_and_fee_from_cell(rent_cell)
+            if not re.search(r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)", price_or_rent_text):
+                price_or_rent_text = ""
         else:
             rent_fee_from_cell = ""
             price_or_rent_text = row_cells.get("価格", "")
@@ -589,11 +617,16 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                     ".money",
                 ],
             )
-        if not price_or_rent_text:
+        if not price_or_rent_text and not (kind == "chintai" and has_recommend_rows):
             for key in ("賃料(管理費)", "賃料", "価格"):
                 if key in row_cells:
                     price_or_rent_text = row_cells[key]
                     break
+        if kind == "chintai" and has_recommend_rows and not normalize_space(price_or_rent_text):
+            print(
+                f"[WARN] chintai recommend_row detected but rent not parsed: "
+                f"city_id={city_id} page_no={page_no} page_url={page_url}"
+            )
         if not price_or_rent_text and not (kind == "chintai" and has_recommend_rows):
             price_or_rent_text = _find_text_with_pattern(card, [r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)"])
 
