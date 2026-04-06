@@ -110,7 +110,9 @@ def _extract_area(text: str) -> str:
     return m.group(1) if m else ""
 
 
-def _extract_fee_man(row: dict[str, str]) -> str:
+def _extract_fee_man(row: dict[str, str], *, kind: str) -> str:
+    if kind != "chintai":
+        return ""
     direct = _extract_man_value(_clean(row.get("fee_text")))
     if direct:
         return direct
@@ -121,30 +123,33 @@ def _extract_fee_man(row: dict[str, str]) -> str:
     return _extract_man_value(m.group(1))
 
 
-def _build_raw_block(row: dict[str, str]) -> str:
+def _build_raw_block(row: dict[str, str], *, kind: str) -> str:
     fee_text = _clean(row.get("fee_text"))
     parts = [
         f"種類:{_clean(row.get('kind'))}",
         f"市区:{_clean(row.get('ward'))}",
         f"価格賃料:{_clean(row.get('price_or_rent_text'))}",
-        f"管理費/共益費:{fee_text}",
-        f"管理費:{fee_text}",
-        f"共益費:{fee_text}",
-        f"修繕積立金:{_clean(row.get('repair_fund_text'))}",
-        f"敷金:{_clean(row.get('deposit_text'))}",
-        f"礼金:{_clean(row.get('key_money_text'))}",
         f"間取り:{_clean(row.get('layout_text'))}",
         f"面積:{_clean(row.get('area_text'))}",
         f"所在階:{_clean(row.get('floor_text'))}",
         f"向き:{_clean(row.get('direction_text'))}",
         f"総戸数:{_clean(row.get('total_units_text'))}",
-        f"管理方式:{_clean(row.get('management_style_text'))}",
         f"交通:{_clean(row.get('access_text'))}",
         f"築年数:{_clean(row.get('built_text'))}",
         f"階建て:{_clean(row.get('building_floor_count_text'))}",
         f"詳細URL:{_clean(row.get('detail_url'))}",
         f"一覧URL:{_clean(row.get('page_url'))}",
     ]
+    if kind == "chintai":
+        parts.extend(
+            [
+                f"管理費/共益費:{fee_text}",
+                f"管理費:{fee_text}",
+                f"共益費:{fee_text}",
+                f"敷金:{_clean(row.get('deposit_text'))}",
+                f"礼金:{_clean(row.get('key_money_text'))}",
+            ]
+        )
     return " | ".join(p for p in parts if not p.endswith(":"))
 
 
@@ -183,7 +188,7 @@ def convert(input_csv: Path, output_csv: Path, updated_at: str | None) -> int:
                     "room": "",
                     "address": _clean(src.get("address")),
                     "rent_man": _extract_man_value(src.get("price_or_rent_text") or ""),
-                    "fee_man": _extract_fee_man(src),
+                    "fee_man": _extract_fee_man(src, kind=kind),
                     "floor": _clean(src.get("floor_text")),
                     "layout": _sanitize_mansion_review_layout(src.get("layout_text")),
                     "area_sqm": _extract_area(src.get("area_text") or ""),
@@ -196,7 +201,7 @@ def convert(input_csv: Path, output_csv: Path, updated_at: str | None) -> int:
                     "availability_flag_immediate": "",
                     "built_raw": _clean(src.get("built_text")),
                     "structure_raw": "",
-                    "raw_block": _build_raw_block(src),
+                    "raw_block": _build_raw_block(src, kind=kind),
                     "evidence_id": _evidence_id(src),
                 }
             )
