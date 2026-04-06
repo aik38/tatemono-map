@@ -130,7 +130,7 @@ def test_parse_list_page_handles_chintai_table_without_room_td_shift() -> None:
     )
     assert len(rows) == 1
     row = rows[0]
-    assert row.price_or_rent_text == "7.8万円(5,000円)"
+    assert row.price_or_rent_text == "7.8万円"
     assert row.deposit_text == "1ヶ月"
     assert row.key_money_text == "2ヶ月"
     assert row.area_text == "41.2㎡"
@@ -180,6 +180,57 @@ def test_parse_list_page_extracts_chintai_fee_deposit_key_money_from_individual_
     assert row.built_text == "築9年"
     assert row.building_floor_count_text == "14階建て"
     assert row.total_units_text == "80戸"
+
+
+def test_parse_list_page_uses_recommend_table_rent_not_property_summary() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>小倉北サマリー混在テスト</h3>
+        <div class="property-detail-content_main">
+          <dl>
+            <dt>住所</dt><dd>福岡県北九州市小倉北区魚町2-2-2</dd>
+            <dt>交通</dt><dd>JR小倉駅 徒歩7分</dd>
+            <dt>築年数</dt><dd>築11年</dd>
+            <dt>階建て</dt><dd>15階建て</dd>
+            <dt>総戸数</dt><dd>100戸</dd>
+          </dl>
+        </div>
+        <div class="property-detail-content_sub">
+          <p class="price">平均賃料 13.8086万円</p>
+          <p>坪賃料 0.9万円</p>
+          <p>口コミ数 12件</p>
+          <p>アクセス数 1300</p>
+        </div>
+        <table class="recommendTable">
+          <thead>
+            <tr><th>賃料(管理費)</th><th>敷金</th><th>礼金</th><th>専有面積</th><th>間取り</th><th>所在階</th><th>向き</th></tr>
+          </thead>
+          <tbody class="recommend_row">
+            <tr><td>8.6万円(6,000円)</td><td>1ヶ月</td><td>1ヶ月</td><td>40.5㎡</td><td>1LDK</td><td>4階</td><td>南</td></tr>
+          </tbody>
+        </table>
+        <a href="/chintai/92001">詳細</a>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1619.html",
+        kind="chintai",
+        city_id="1619",
+        page_no=1,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.price_or_rent_text == "8.6万円"
+    assert row.fee_text == "6,000円"
+    assert row.deposit_text == "1ヶ月"
+    assert row.key_money_text == "1ヶ月"
+    assert row.access_text == "JR小倉駅 徒歩7分"
+    assert row.built_text == "築11年"
+    assert row.building_floor_count_text == "15階建て"
+    assert row.total_units_text == "100戸"
 
 
 def test_parse_list_page_drops_polluted_direction_text() -> None:
