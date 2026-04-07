@@ -169,6 +169,16 @@ def _has_minimum_address_granularity(normalized_address: str) -> bool:
     return len(normalized_address) >= 10
 
 
+def _has_minimum_address_for_mansion_review(normalized_address: str) -> bool:
+    if not normalized_address:
+        return False
+    if "、" in normalized_address or "〜" in normalized_address:
+        return False
+    if len(normalized_address) < 6:
+        return False
+    return any(token in normalized_address for token in ("市", "区", "町", "村"))
+
+
 def _is_probably_room_or_unit_name(name: str) -> bool:
     lowered = name.strip().lower()
     if not lowered:
@@ -202,16 +212,26 @@ def _has_close_conflict(conn, normalized_name: str, normalized_address: str) -> 
     return False
 
 
-def _can_auto_seed(conn, normalized_name: str, normalized_address: str, match_reason: str) -> tuple[bool, str]:
+def _can_auto_seed(
+    conn,
+    normalized_name: str,
+    normalized_address: str,
+    match_reason: str,
+    normalized_source: str,
+) -> tuple[bool, str]:
     if not normalized_name:
         return False, "missing_normalized_name"
     if not normalized_address:
         return False, "missing_normalized_address"
     if _is_probably_room_or_unit_name(normalized_name):
         return False, "name_looks_like_unit"
-    if not _has_minimum_address_granularity(normalized_address):
+    allow_relaxed_for_mr = normalized_source == "mansion_review_chintai" and match_reason == "address_without_digits"
+    if allow_relaxed_for_mr:
+        if not _has_minimum_address_for_mansion_review(normalized_address):
+            return False, "address_not_granular"
+    elif not _has_minimum_address_granularity(normalized_address):
         return False, "address_not_granular"
-    if match_reason in AUTO_SEED_BLOCKED_REASONS:
+    if match_reason in AUTO_SEED_BLOCKED_REASONS and not allow_relaxed_for_mr:
         return False, f"blocked_by_match_reason:{match_reason}"
     if _has_close_conflict(conn, normalized_name, normalized_address):
         return False, "close_conflicting_candidate"
@@ -488,12 +508,13 @@ def ingest_master_import_csv(
                 if not building_id:
                     building_id = match.building_id
 
-                if not building_id and match.reason == "unmatched":
+                if not building_id and match.reason in {"unmatched", "address_without_digits"}:
                     can_seed, seed_reason = _can_auto_seed(
                         conn,
                         normalized.normalized_name,
                         normalized.normalized_address,
                         match.reason,
+                        normalized_source,
                     )
                     if auto_seed_high_confidence and can_seed:
                         new_building_id = make_alias_key(normalized.normalized_name, normalized.normalized_address)

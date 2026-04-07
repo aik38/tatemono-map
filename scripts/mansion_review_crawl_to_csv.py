@@ -219,6 +219,57 @@ def _extract_labeled_value(card: Node, labels: tuple[str, ...], *, max_len: int 
     return ""
 
 
+def _clean_transport_text(value: str) -> str:
+    text = _clean_short_text(value, max_len=100)
+    if not text:
+        return ""
+    if re.fullmatch(r"\d+", text):
+        return ""
+    if any(token in text for token in ("アクセス数", "口コミ数")):
+        return ""
+    if not any(token in text for token in ("駅", "徒歩", "バス", "線", "停", "分")):
+        return ""
+    return text
+
+
+def _extract_transport_text(card: Node) -> str:
+    labels = {"交通", "アクセス"}
+    for dl in card.css("dl"):
+        dts = dl.css("dt")
+        dds = dl.css("dd")
+        for dt, dd in zip(dts, dds):
+            key = normalize_space(dt.text(separator=" "))
+            if key not in labels:
+                continue
+            value = _clean_transport_text(dd.text(separator=" "))
+            if value:
+                return value
+
+    for row in card.css("tr"):
+        th = row.css_first("th")
+        td = row.css_first("td")
+        if not th or not td:
+            continue
+        key = normalize_space(th.text(separator=" "))
+        if key not in labels:
+            continue
+        value = _clean_transport_text(td.text(separator=" "))
+        if value:
+            return value
+
+    detail_info = card.css_first(".property-detail-content__info") or card
+    for label_node in detail_info.css("dt, th"):
+        key = normalize_space(label_node.text(separator=" "))
+        if key not in labels:
+            continue
+        value_node = label_node.next
+        if value_node and value_node.tag in {"dd", "td"}:
+            value = _clean_transport_text(value_node.text(separator=" "))
+            if value:
+                return value
+    return ""
+
+
 def _extract_table_row_by_headers(card: Node, wanted: tuple[str, ...]) -> dict[str, str]:
     for table in card.css("table"):
         headers = [normalize_space(h.text(separator=" ")) for h in table.css("thead th")]
@@ -710,7 +761,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         direction_text = _clean_direction_text(row_cells.get("向き", "") or dl_pairs.get("向き", ""))
         total_units_text = _clean_short_text(row_cells.get("総戸数", "") or dl_pairs.get("総戸数", ""), max_len=12)
         management_style_text = ""
-        access_text = _extract_labeled_value(card, ("交通", "アクセス"), max_len=100)
+        access_text = _extract_transport_text(card)
         built_text = _extract_labeled_value(card, ("築年数", "築年月", "築"), max_len=20)
         building_floor_count_text = _extract_labeled_value(card, ("階建て", "建物階数"), max_len=20)
 
@@ -980,7 +1031,7 @@ def parse_list_card_facts(card: Node, kind: str, detail_url: str, fallback_name:
 
     property_kind = "bunjo" if kind == "mansion" else "chintai"
     structure = "RC" if property_kind == "bunjo" else ""
-    access_info = _extract_labeled_value(card, ("交通", "アクセス"), max_len=100)
+    access_info = _extract_transport_text(card)
     floor_count_text = _extract_labeled_value(card, ("階建て", "建物階数"), max_len=20)
     if not floor_count_text:
         floor_count_text = _find_text_with_pattern(card, [r"(?:地上)?\d+階(?:建)?"])
@@ -1079,7 +1130,7 @@ def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_
         building_name=building_name,
         address=_strip_fukuoka_prefix(address),
         structure=structure,
-        access_info=_extract_labeled_value(tree.root, ("交通", "アクセス"), max_len=100),
+        access_info=_extract_transport_text(tree.root),
         floor_count_text=_extract_labeled_value(tree.root, ("階建て", "建物階数"), max_len=20)
         or _find_text_with_pattern(tree.root, [r"(?:地上)?\d+階(?:建)?"]),
         total_units=(int(m.group(1)) if (m := re.search(r"総戸数\s*[:：]?\s*(\d+)", full_text)) else None),
