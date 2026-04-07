@@ -157,6 +157,7 @@
       {% if building.rental_key_money_label %}<div class="fact"><dt>礼金</dt><dd>{{ building.rental_key_money_label }}</dd></div>{% endif %}
       {% if building.rental_layout_label %}<div class="fact"><dt>間取り</dt><dd>{{ building.rental_layout_label }}</dd></div>{% endif %}
       {% if building.rental_area_label %}<div class="fact"><dt>面積</dt><dd>{{ building.rental_area_label }}</dd></div>{% endif %}
+      {% if building.rental_floor_label %}<div class="fact"><dt>所在階</dt><dd>{{ building.rental_floor_label }}</dd></div>{% endif %}
       {% if building.rental_move_in_label %}<div class="fact"><dt>入居可能日</dt><dd>{{ "即入居" if building.rental_move_in_label == "入居" else building.rental_move_in_label }}</dd></div>{% endif %}
       {% else %}
       <div class="fact"><dt>補足</dt><dd>現在、この建物の募集は確認できていません。ご希望に近いお部屋もご案内可能です。</dd></div>
