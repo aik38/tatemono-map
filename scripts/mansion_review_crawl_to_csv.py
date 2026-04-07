@@ -964,6 +964,43 @@ def _parse_area_sqm(text: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
+def _extract_built_text(card: Node, full_text: str) -> str:
+    built_text = _extract_labeled_value(card, ("築年数", "築年月", "築"), max_len=30)
+    if built_text:
+        return built_text
+
+    m_age = re.search(r"(築(?:年数)?\s*[:：]?\s*\d{1,3}\s*年)", full_text)
+    if m_age:
+        return normalize_space(m_age.group(1))
+
+    m_built = re.search(r"(\d{4}\s*年\s*\d{1,2}\s*月)", full_text)
+    if m_built:
+        return normalize_space(m_built.group(1))
+    return ""
+
+
+def _build_facts_raw_block(
+    *,
+    address: str,
+    access_info: str,
+    built_text: str,
+    floor_count_text: str,
+    total_units_text: str,
+) -> str:
+    lines: list[str] = []
+    if address:
+        lines.append(f"住所: {address}")
+    if access_info:
+        lines.append(f"交通: {access_info}")
+    if built_text:
+        lines.append(f"築年数: {built_text}")
+    if floor_count_text:
+        lines.append(f"階建て: {floor_count_text}")
+    if total_units_text:
+        lines.append(f"総戸数: {total_units_text}")
+    return normalize_space("\n".join(lines))[:400]
+
+
 def _extract_recommend_rows(card: Node) -> tuple[list[int], list[float], list[str], int]:
     prices: list[int] = []
     areas: list[float] = []
@@ -1032,6 +1069,7 @@ def parse_list_card_facts(card: Node, kind: str, detail_url: str, fallback_name:
     property_kind = "bunjo" if kind == "mansion" else "chintai"
     structure = "RC" if property_kind == "bunjo" else ""
     access_info = _extract_transport_text(card)
+    built_text = _extract_built_text(card, full_text)
     floor_count_text = _extract_labeled_value(card, ("階建て", "建物階数"), max_len=20)
     if not floor_count_text:
         floor_count_text = _find_text_with_pattern(card, [r"(?:地上)?\d+階(?:建)?"])
@@ -1063,7 +1101,13 @@ def parse_list_card_facts(card: Node, kind: str, detail_url: str, fallback_name:
         rental_listing_count=rec_count if property_kind == "chintai" else None,
         availability_label="",
         evidence_id=evidence_id,
-        raw_block=full_text[:1200],
+        raw_block=_build_facts_raw_block(
+            address=address,
+            access_info=access_info,
+            built_text=built_text,
+            floor_count_text=floor_count_text,
+            total_units_text=total_units_text,
+        ),
     )
 
 def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_address: str) -> FactsRow:
