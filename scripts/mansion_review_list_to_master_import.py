@@ -155,7 +155,21 @@ def _build_raw_block(row: dict[str, str], *, kind: str) -> str:
 
 def _evidence_id(row: dict[str, str]) -> str:
     detail_url = _clean(row.get("detail_url"))
+    listing_material = "|".join(
+        [
+            _clean(row.get("price_or_rent_text")),
+            _clean(row.get("fee_text")),
+            _clean(row.get("layout_text")),
+            _clean(row.get("area_text")),
+            _clean(row.get("floor_text")),
+            _clean(row.get("deposit_text")),
+            _clean(row.get("key_money_text")),
+        ]
+    )
+    listing_digest = hashlib.sha1(listing_material.encode("utf-8")).hexdigest()[:10] if listing_material else ""
     if detail_url:
+        if listing_digest:
+            return f"mansion_review:{detail_url}#l={listing_digest}"
         return f"mansion_review:{detail_url}"
     digest_input = "|".join(_clean(row.get(k)) for k in ("kind", "building_name", "address", "city_page", "price_or_rent_text"))
     digest = hashlib.sha1(digest_input.encode("utf-8")).hexdigest()[:16]

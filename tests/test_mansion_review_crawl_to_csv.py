@@ -319,6 +319,44 @@ def test_parse_list_page_chintai_parses_bracket_fee_from_recommend_row_fixed_td_
     assert row.direction_text == "西"
 
 
+def test_parse_list_page_chintai_keeps_multiple_recommend_rows_as_multiple_listings() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>ウィングス門司駅前</h3>
+        <table class="recommendTable">
+          <tbody class="recommend_row">
+            <tr>
+              <td><img src="/img/common/floorplan-preparing-list.png"></td>
+              <td><a href="/chintai/132825003/7083.html">ウィングス門司駅前</a></td>
+              <td>4.6万円/3,000円</td><td>無</td><td>無</td><td>27.9㎡</td><td>1K</td><td>1階</td><td>西</td>
+            </tr>
+            <tr>
+              <td><img src="/img/common/floorplan-preparing-list.png"></td>
+              <td><a href="/chintai/132825003/7084.html">ウィングス門司駅前</a></td>
+              <td>4.9万円/4,000円</td><td>1ヶ月</td><td>1ヶ月</td><td>30.0㎡</td><td>1DK</td><td>4階</td><td>東</td>
+            </tr>
+          </tbody>
+        </table>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        kind="chintai",
+        city_id="1616",
+        page_no=1,
+    )
+    assert len(rows) == 2
+    assert rows[0].detail_url.endswith("/7083.html")
+    assert rows[0].price_or_rent_text == "4.6万円"
+    assert rows[0].deposit_text == "無"
+    assert rows[1].detail_url.endswith("/7084.html")
+    assert rows[1].price_or_rent_text == "4.9万円"
+    assert rows[1].key_money_text == "1ヶ月"
+
+
 def test_parse_list_page_chintai_does_not_fallback_to_summary_when_recommend_row_missing_rent(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

@@ -401,6 +401,33 @@ def _extract_list_row_cells(card: Node, kind: str) -> dict[str, str]:
     return {}
 
 
+def _extract_chintai_recommend_rows(card: Node) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    tables = card.css("table.recommendTable") or card.css("table")
+    for table in tables:
+        body_rows = table.css("tbody.recommend_row tr") or table.css("tbody.recommend_row")
+        for tr in body_rows:
+            cells = [normalize_space(c.text(separator=" ")) for c in tr.css("td")]
+            if len(cells) < 9:
+                continue
+            mapped: dict[str, str] = {
+                "賃料(管理費)": cells[2],
+                "敷金": cells[3],
+                "礼金": cells[4],
+                "専有面積": cells[5],
+                "間取り": cells[6],
+                "所在階": cells[7],
+                "向き": cells[8],
+            }
+            detail_link = tr.css_first("a[href]")
+            if detail_link:
+                mapped["__detail_href"] = _normalize_href(detail_link.attributes.get("href", ""))
+            rows.append(mapped)
+        if rows:
+            break
+    return rows
+
+
 def _looks_polluted_text(value: str) -> bool:
     text = normalize_space(value)
     if not text:
@@ -579,6 +606,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         dl_pairs = _extract_dl_pairs(card)
         has_recommend_rows = bool(card.css("table.recommendTable tbody.recommend_row"))
         row_cells = _extract_list_row_cells(card, kind) or _extract_table_row_by_headers(card, ("賃料", "価格", "間取り", "専有面積"))
+        recommend_rows = _extract_chintai_recommend_rows(card) if kind == "chintai" else []
         building_name = _pick_first_text(
             card,
             [
@@ -689,32 +717,63 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         if not building_name:
             continue
 
-        rows.append(
-            ListRow(
-                kind=kind,
-                city_id=city_id,
-                ward=CITY_MAP.get(city_id, ""),
-                city_page=f"{city_id}_{page_no}",
-                page_url=page_url,
-                building_name=building_name,
-                address=address,
-                detail_url=detail_url,
-                price_or_rent_text=price_or_rent_text,
-                layout_text=layout_text,
-                area_text=area_text,
-                floor_text=floor_text,
-                fee_text=fee_text,
-                repair_fund_text=repair_fund_text,
-                deposit_text=deposit_text,
-                key_money_text=key_money_text,
-                direction_text=direction_text,
-                total_units_text=total_units_text,
-                management_style_text=management_style_text,
-                access_text=access_text,
-                built_text=built_text,
-                building_floor_count_text=building_floor_count_text,
+        source_rows = recommend_rows if recommend_rows else [row_cells]
+        for source_row in source_rows:
+            row_price_or_rent_text = price_or_rent_text
+            row_fee_text = fee_text
+            if kind == "chintai":
+                source_rent = source_row.get("賃料(管理費)", "") or source_row.get("賃料", "")
+                source_price_or_rent_text, source_rent_fee_from_cell = _split_rent_and_fee_from_cell(source_rent)
+                if source_price_or_rent_text:
+                    row_price_or_rent_text = source_price_or_rent_text
+                if not re.search(r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)", row_price_or_rent_text):
+                    row_price_or_rent_text = ""
+                row_fee_text = _clean_fee_text(
+                    source_row.get("管理費")
+                    or source_row.get("管理費(共益費)")
+                    or source_row.get("管理費/共益費")
+                    or source_row.get("共益費")
+                )
+                if not row_fee_text:
+                    row_fee_text = source_rent_fee_from_cell or fee_text
+                if not row_fee_text and row_price_or_rent_text:
+                    row_fee_text = _clean_fee_text(_extract_fee_text(row_price_or_rent_text))
+            row_layout_text = _clean_layout_text(source_row.get("間取り", "")) or layout_text
+            row_area_text = _clean_area_text(source_row.get("専有面積", "")) or area_text
+            row_floor_text = _clean_floor_text(source_row.get("所在階", "")) or floor_text
+            row_deposit_text = _clean_deposit_like_text(source_row.get("敷金", "") or deposit_text) if kind == "chintai" else ""
+            row_key_money_text = _clean_deposit_like_text(source_row.get("礼金", "") or key_money_text) if kind == "chintai" else ""
+            row_direction_text = _clean_direction_text(source_row.get("向き", "") or direction_text)
+            row_detail_url = detail_url
+            if source_row.get("__detail_href"):
+                row_detail_url = urljoin(page_url, source_row["__detail_href"])
+
+            rows.append(
+                ListRow(
+                    kind=kind,
+                    city_id=city_id,
+                    ward=CITY_MAP.get(city_id, ""),
+                    city_page=f"{city_id}_{page_no}",
+                    page_url=page_url,
+                    building_name=building_name,
+                    address=address,
+                    detail_url=row_detail_url,
+                    price_or_rent_text=row_price_or_rent_text,
+                    layout_text=row_layout_text,
+                    area_text=row_area_text,
+                    floor_text=row_floor_text,
+                    fee_text=row_fee_text,
+                    repair_fund_text=repair_fund_text,
+                    deposit_text=row_deposit_text,
+                    key_money_text=row_key_money_text,
+                    direction_text=row_direction_text,
+                    total_units_text=total_units_text,
+                    management_style_text=management_style_text,
+                    access_text=access_text,
+                    built_text=built_text,
+                    building_floor_count_text=building_floor_count_text,
+                )
             )
-        )
 
     return rows, debug
 
