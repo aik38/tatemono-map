@@ -370,7 +370,7 @@ def _extract_text_field(raw_text: str, labels: tuple[str, ...]) -> str | None:
     if not raw_text:
         return None
     for label in labels:
-        pattern = re.compile(rf"{re.escape(label)}\s*[:：]?\s*([^\s|｜]+)")
+        pattern = re.compile(rf"{re.escape(label)}\s*[:：]?\s*([^|｜]+)")
         matched = pattern.search(raw_text)
         if matched:
             value = _clean_text(matched.group(1))
@@ -665,7 +665,7 @@ def ingest_master_import_csv(
                     management_fee_yen = _extract_money_yen(raw_block, "共益費")
                 repair_fund_yen = _extract_money_yen(raw_block, "修繕積立金")
                 access_info = _extract_text_field(raw_block, ("交通",))
-                floor_count_text = _extract_text_field(raw_block, ("階建", "建物階数"))
+                floor_count_text = _extract_text_field(raw_block, ("階建て", "階建", "建物階数"))
                 total_units_text = _extract_text_field(raw_block, ("総戸数",))
                 total_units = _parse_first_int(total_units_text)
                 management_style = _extract_text_field(raw_block, ("管理方式",))

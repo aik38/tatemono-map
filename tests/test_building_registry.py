@@ -228,6 +228,36 @@ def test_ingest_master_import_routes_mansion_to_sale_listings(tmp_path: Path) ->
     assert sale["direction_text"] == "南"
 
 
+def test_ingest_master_import_keeps_access_and_floor_count_labels_from_raw_block(tmp_path: Path) -> None:
+    db_path = tmp_path / "registry_access.sqlite3"
+    seed_csv = tmp_path / "buildings_seed_ui.csv"
+    seed_csv.write_text(
+        "building_name,address,evidence_url_or_id,merge_to_evidence\n"
+        "アクセステストマンション,福岡県北九州市門司区柳町1-1-1,ui:access,\n",
+        encoding="utf-8",
+    )
+    seed_from_ui_csv(str(db_path), str(seed_csv))
+
+    master_csv = tmp_path / "master_import_access.csv"
+    master_csv.write_text(
+        "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,availability_raw,built_raw,age_years,structure,built_year_month,built_age_years,availability_date,availability_flag_immediate,structure_raw,raw_block,evidence_id\n"
+        "1,chintai,2026/04/01 10:00,アクセステストマンション,101,福岡県北九州市門司区柳町1-1-1,4.6,0.3,1階,1K,27.9,,,,,,,,,,\"交通:JR山陽本線(岩国～門司) 門司駅 徒歩4分 | 階建て:地上14階建\",e1\n",
+        encoding="utf-8",
+    )
+
+    report = ingest_master_import_csv(str(db_path), str(master_csv), source="mansion_review_list")
+    assert report.attached_listings == 1
+
+    conn = connect(db_path)
+    building = conn.execute(
+        "SELECT access_info, floor_count_text FROM buildings WHERE canonical_name='アクセステストマンション'"
+    ).fetchone()
+    conn.close()
+
+    assert building["access_info"] == "JR山陽本線(岩国～門司) 門司駅 徒歩4分"
+    assert building["floor_count_text"] == "地上14階建"
+
+
 def test_ingest_auto_renormalizes_buildings_norm_columns(tmp_path: Path) -> None:
     db_path = tmp_path / "registry.sqlite3"
     conn = connect(db_path)
