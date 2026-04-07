@@ -836,7 +836,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     alias_map = {str(row["alias_key"]): str(row["canonical_key"]) for row in alias_rows}
     rental_terms_rows = conn.execute(
         """
-        SELECT building_key, deposit_text, key_money_text
+        SELECT building_key, rent_yen, maint_yen, area_sqm, layout, deposit_text, key_money_text, floor_text
         FROM listings
         WHERE (
             ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
@@ -848,6 +848,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         """
     ).fetchall()
     rental_terms_map: dict[str, dict[str, list[object]]] = {}
+    rental_current_map: dict[str, dict[str, object]] = {}
     for row in rental_terms_rows:
         building_key = str(row["building_key"] or "").strip()
         if not building_key:
@@ -856,6 +857,25 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         bucket = rental_terms_map.setdefault(canonical_key, {"deposit": [], "key_money": []})
         bucket["deposit"].append(row["deposit_text"])
         bucket["key_money"].append(row["key_money_text"])
+        current = rental_current_map.setdefault(
+            canonical_key,
+            {"rents": [], "maints": [], "areas": [], "layouts": [], "floors": []},
+        )
+        if row["rent_yen"] is not None:
+            current["rents"].append(row["rent_yen"])
+        if row["maint_yen"] is not None:
+            current["maints"].append(row["maint_yen"])
+        if row["area_sqm"] is not None:
+            current["areas"].append(row["area_sqm"])
+        layout = str(row["layout"] or "").strip()
+        if layout and layout not in current["layouts"]:
+            current["layouts"].append(layout)
+        floor_text = str(row["floor_text"] or "").strip()
+        if floor_text and floor_text not in current["floors"]:
+            current["floors"].append(floor_text)
+    for alias_key, canonical_key in alias_map.items():
+        if alias_key in rental_summary_map and canonical_key not in rental_summary_map:
+            rental_summary_map[canonical_key] = rental_summary_map[alias_key]
     conn.close()
     for building in building_list:
         building["sponsor"] = sponsor_map.get(str(building.get("building_key")))
@@ -864,6 +884,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         rental_terms = rental_terms_map.get(str(building.get("building_key")), {"deposit": [], "key_money": []})
         building["rental_deposit_label"] = _format_text_label(rental_terms.get("deposit", []))
         building["rental_key_money_label"] = _format_text_label(rental_terms.get("key_money", []))
+        building["rental_current"] = rental_current_map.get(str(building.get("building_key")), {})
     print(
         "render_kpi_counts canonical_buildings_count={} summary_buildings_count={} vacancy_total={}".format(
             canonical_buildings_count,
@@ -1142,26 +1163,36 @@ def _build_dist_version(
         b["rental_vacancy_label"] = (
             f"{int(b.get('vacancy_count') or 0)}件" if (b.get("vacancy_count") or 0) > 0 else "現在、募集中はありません。"
         )
-        rent_min = rental_summary.get("rent_yen_min") if rental_summary else b.get("rent_yen_min")
-        rent_max = rental_summary.get("rent_yen_max") if rental_summary else b.get("rent_yen_max")
+        rental_current = b.get("rental_current") or {}
+        current_rents = rental_current.get("rents") or []
+        rent_min = min(current_rents) if current_rents else (rental_summary.get("rent_yen_min") if rental_summary else b.get("rent_yen_min"))
+        rent_max = max(current_rents) if current_rents else (rental_summary.get("rent_yen_max") if rental_summary else b.get("rent_yen_max"))
         b["rental_rent_label"] = _format_range(
             _format_yen(rent_min) if rent_min is not None else None,
             _format_yen(rent_max) if rent_max is not None else None,
             suffix="円",
         )
+        current_maints = rental_current.get("maints") or []
+        maint_min = min(current_maints) if current_maints else (rental_summary.get("maint_yen_min") if rental_summary else None)
+        maint_max = max(current_maints) if current_maints else (rental_summary.get("maint_yen_max") if rental_summary else None)
         b["rental_maint_label"] = _format_range(
-            rental_summary.get("maint_yen_min"),
-            rental_summary.get("maint_yen_max"),
+            maint_min,
+            maint_max,
             suffix="円",
-        ) if rental_summary else None
+        )
+        current_layouts = rental_current.get("layouts") or []
         b["rental_layout_label"] = _format_layout_label(
-            json.loads(rental_summary.get("layout_types_json") or "[]")
-        ) if rental_summary else _format_layout_label(b.get("layout_types") or [])
+            current_layouts or (json.loads(rental_summary.get("layout_types_json") or "[]") if rental_summary else b.get("layout_types") or [])
+        )
+        current_areas = rental_current.get("areas") or []
+        area_min = min(current_areas) if current_areas else (rental_summary.get("area_sqm_min") if rental_summary else b.get("area_sqm_min"))
+        area_max = max(current_areas) if current_areas else (rental_summary.get("area_sqm_max") if rental_summary else b.get("area_sqm_max"))
         b["rental_area_label"] = _format_range(
-            rental_summary.get("area_sqm_min") if rental_summary else b.get("area_sqm_min"),
-            rental_summary.get("area_sqm_max") if rental_summary else b.get("area_sqm_max"),
+            area_min,
+            area_max,
             suffix="㎡",
         )
+        b["rental_floor_label"] = _format_text_label(rental_current.get("floors", []))
         b["rental_move_in_label"] = rental_summary.get("move_in_summary") if rental_summary else b.get("building_availability_label")
         b["display_structure"] = _normalize_structure_label(b.get("building_structure") or b.get("structure"))
         sale_count = sale_summary.get("sale_listing_count") if sale_summary else b.get("sale_listing_count")
