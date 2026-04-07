@@ -836,3 +836,50 @@ def test_parse_list_card_facts_access_info_uses_short_transport_only() -> None:
     assert row.access_info == "JR小倉駅 徒歩7分"
     assert row.floor_count_text == "11階建て"
     assert row.total_units == 98
+
+
+def test_parse_list_card_facts_raw_block_keeps_only_building_facts() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>関門スカイプラザビル</h3>
+        <dl>
+          <dt>住所</dt><dd>福岡県北九州市門司区港町1-2-3</dd>
+          <dt>築年数</dt><dd>築18年</dd>
+          <dt>階建て</dt><dd>12階建て</dd>
+          <dt>総戸数</dt><dd>90戸</dd>
+        </dl>
+        <div class="property-detail-content_sub">
+          <p>アクセス数 1253</p>
+          <p>平均賃料 58,451円</p>
+          <p>坪賃料 0.8万円</p>
+          <p>口コミ数 12件</p>
+        </div>
+        <table class="recommendTable"><tbody class="recommend_row"><tr><td>全件を表示する</td></tr></tbody></table>
+        <script>function ($) { $('.recommendTable').show(); }</script>
+      </li>
+    </body></html>
+    """
+    tree = crawl.HTMLParser(html)
+    card = tree.css_first("li.property-detail-list-item")
+    assert card is not None
+
+    row = crawl.parse_list_card_facts(
+        card,
+        kind="chintai",
+        detail_url="https://www.mansion-review.jp/chintai/70002",
+        fallback_name="関門スカイプラザビル",
+        fallback_address="",
+    )
+
+    assert "住所:" in row.raw_block
+    assert "築年数:" in row.raw_block
+    assert "階建て:" in row.raw_block
+    assert "総戸数:" in row.raw_block
+    assert "アクセス数" not in row.raw_block
+    assert "平均賃料" not in row.raw_block
+    assert "坪賃料" not in row.raw_block
+    assert "口コミ数" not in row.raw_block
+    assert "function ($)" not in row.raw_block
+    assert "recommendTable" not in row.raw_block
+    assert "全件を表示する" not in row.raw_block
