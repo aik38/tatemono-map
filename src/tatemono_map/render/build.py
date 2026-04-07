@@ -27,6 +27,7 @@ FORBIDDEN_PATTERNS = (
 )
 
 ROOM_SUFFIX_RE = re.compile(r"(?:\s|　)*(?:\d+|[0-9０-９]+)\s*号室")
+ACCESS_NUMERIC_ONLY_RE = re.compile(r"^[\d０-９\s　.,，・/／\-〜~分分]+$")
 DEFAULT_LINE_UNIVERSAL_URL = "https://lin.ee/Y0NvwKe"
 DEFAULT_LINE_DEEP_LINK = "line://ti/p/@055wdvuq"
 DEFAULT_BASE_PATH = "/tatemono-map"
@@ -142,6 +143,44 @@ def _normalize_structure_label(value: object) -> str | None:
     if normalized in {"木", "木造"}:
         return "木造"
     return text
+
+
+def _normalize_access_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", text.replace("　", " ")).strip()
+
+
+def _is_numeric_only_access(value: str) -> bool:
+    text = _normalize_access_text(value)
+    if not text:
+        return True
+    return bool(ACCESS_NUMERIC_ONLY_RE.fullmatch(text))
+
+
+def _format_access_info_for_display(value: object) -> str | None:
+    raw = _normalize_access_text(value)
+    if not raw:
+        return None
+
+    candidates: list[str] = []
+    for match in re.finditer(r"([^\s　、,()/（）]+駅)([^、,\n]*)", raw):
+        station = _normalize_access_text(match.group(1))
+        tail = _normalize_access_text(match.group(2))
+        behavior = re.search(r"(徒歩|バス|下車|車)", tail)
+        if behavior:
+            tail = tail[behavior.start():].strip()
+        candidate = _normalize_access_text(f"{station} {tail}".strip())
+        if not candidate or _is_numeric_only_access(candidate):
+            continue
+        candidates.append(candidate)
+
+    if candidates:
+        return " / ".join(dict.fromkeys(candidates))
+    if _is_numeric_only_access(raw):
+        return None
+    return raw
 
 
 def _format_layout_label(layout_types: list[str]) -> str | None:
@@ -748,10 +787,10 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             s.property_kind,
             s.move_in_dates_json,
             s.age_years,
-            s.structure,
+            COALESCE(NULLIF(s.structure, ''), b.structure) AS structure,
             s.building_built_year_month,
             s.building_built_age_years,
-            s.building_structure,
+            COALESCE(NULLIF(s.building_structure, ''), NULLIF(s.structure, ''), b.structure) AS building_structure,
             s.building_availability_label,
             COALESCE(s.has_rental, 0) AS has_rental,
             COALESCE(s.has_sale, 0) AS has_sale,
@@ -786,10 +825,10 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             '' AS property_kind,
             NULL AS move_in_dates_json,
             NULL AS age_years,
-            NULL AS structure,
+            b.structure AS structure,
             NULL AS building_built_year_month,
             NULL AS building_built_age_years,
-            NULL AS building_structure,
+            b.structure AS building_structure,
             NULL AS building_availability_label,
             0 AS has_rental,
             0 AS has_sale,
@@ -1194,6 +1233,7 @@ def _build_dist_version(
         )
         b["rental_floor_label"] = _format_text_label(rental_current.get("floors", []))
         b["rental_move_in_label"] = rental_summary.get("move_in_summary") if rental_summary else b.get("building_availability_label")
+        b["access_info"] = _format_access_info_for_display(b.get("access_info"))
         b["display_structure"] = _normalize_structure_label(b.get("building_structure") or b.get("structure"))
         sale_count = sale_summary.get("sale_listing_count") if sale_summary else b.get("sale_listing_count")
         b["sale_status_label"] = f"{int(sale_count)}件" if (sale_count or 0) > 0 else "現在、販売中の住戸はありません。"

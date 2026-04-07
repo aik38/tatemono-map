@@ -201,10 +201,18 @@ def rebuild(db_path: str) -> int:
         layouts = sorted({normalize_text(r["layout"]) for r in items if r["layout"]})
         move_in_dates = sorted({normalize_text(r["move_in_date"]) for r in items if r["move_in_date"]})
         age_values = [int(r["age_years"]) for r in items if r["age_years"] is not None]
-        structure_values = [r["structure"] for r in items if r["structure"]]
+        structure_values = [
+            r["structure"]
+            for r in items
+            if r["structure"] and str(r["source_kind"] or "") != "mansion_review_chintai"
+        ]
         built_year_month_values = [r["built_year_month"] for r in items if r["built_year_month"]]
         built_age_values = [int(r["built_age_years"]) for r in items if r["built_age_years"] is not None]
-        building_structure_values = [r["structure_raw"] for r in items if r["structure_raw"]]
+        building_structure_values = [
+            r["structure_raw"]
+            for r in items
+            if r["structure_raw"] and str(r["source_kind"] or "") != "mansion_review_chintai"
+        ]
         latest = max((r["updated_at"] for r in items if r["updated_at"]), default=None)
         summary_name = building["canonical_name"] if building else (items[0]["name"] if items else None)
         summary_address = building["canonical_address"] if building else (items[0]["address"] if items else None)
