@@ -1320,6 +1320,46 @@ def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_
     )
 
 
+
+
+def _merge_facts_row(base: FactsRow, incoming: FactsRow) -> FactsRow:
+    merged = FactsRow(**asdict(base))
+
+    def _pick_text(current: str, candidate: str) -> str:
+        return current if normalize_space(current) else normalize_space(candidate)
+
+    merged.building_name = _pick_text(merged.building_name, incoming.building_name)
+    merged.address = _pick_text(merged.address, incoming.address)
+    merged.structure = _pick_text(merged.structure, incoming.structure)
+    merged.access_info = _pick_text(merged.access_info, incoming.access_info)
+    merged.floor_count_text = _pick_text(merged.floor_count_text, incoming.floor_count_text)
+    merged.management_style = _pick_text(merged.management_style, incoming.management_style)
+    merged.built_year_month = _pick_text(merged.built_year_month, incoming.built_year_month)
+    merged.property_kind = _pick_text(merged.property_kind, incoming.property_kind)
+    merged.sale_layout_types_json = _pick_text(merged.sale_layout_types_json, incoming.sale_layout_types_json)
+    merged.availability_label = _pick_text(merged.availability_label, incoming.availability_label)
+    merged.evidence_id = _pick_text(merged.evidence_id, incoming.evidence_id)
+    merged.raw_block = _pick_text(merged.raw_block, incoming.raw_block)
+
+    merged.total_units = merged.total_units if merged.total_units is not None else incoming.total_units
+    merged.sale_price_yen_min = merged.sale_price_yen_min if merged.sale_price_yen_min is not None else incoming.sale_price_yen_min
+    merged.sale_price_yen_max = merged.sale_price_yen_max if merged.sale_price_yen_max is not None else incoming.sale_price_yen_max
+    merged.sale_price_yen_avg = merged.sale_price_yen_avg if merged.sale_price_yen_avg is not None else incoming.sale_price_yen_avg
+    merged.sale_area_sqm_min = merged.sale_area_sqm_min if merged.sale_area_sqm_min is not None else incoming.sale_area_sqm_min
+    merged.sale_area_sqm_max = merged.sale_area_sqm_max if merged.sale_area_sqm_max is not None else incoming.sale_area_sqm_max
+    merged.sale_listing_count = merged.sale_listing_count if merged.sale_listing_count is not None else incoming.sale_listing_count
+    merged.avg_rent_yen = merged.avg_rent_yen if merged.avg_rent_yen is not None else incoming.avg_rent_yen
+    merged.rental_listing_count = merged.rental_listing_count if merged.rental_listing_count is not None else incoming.rental_listing_count
+    return merged
+
+
+def _facts_merge_key(fact: FactsRow) -> str:
+    property_kind = normalize_space(fact.property_kind)
+    address = normalize_space(fact.address)
+    if address:
+        return f"{property_kind}|addr|{address}"
+    return f"{property_kind}|name|{normalize_space(fact.building_name)}"
+
 def write_facts_csv(rows: list[FactsRow], out_csv: Path) -> None:
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     with out_csv.open("w", encoding="utf-8-sig", newline="") as fp:
@@ -1596,10 +1636,9 @@ def run_crawl(
     if mode == "facts":
         facts_map: dict[str, FactsRow] = {}
         for fact in all_facts_rows:
-            key = f"{fact.property_kind}|{normalize_space(fact.building_name)}|{normalize_space(fact.address)}"
-            if key in facts_map:
-                continue
-            facts_map[key] = fact
+            key = _facts_merge_key(fact)
+            existing = facts_map.get(key)
+            facts_map[key] = _merge_facts_row(existing, fact) if existing else fact
 
         if not facts_map:
             for row in all_rows:

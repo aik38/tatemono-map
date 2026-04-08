@@ -295,7 +295,7 @@ def test_ingest_building_facts_repairs_invalid_floor_count_text_for_mansion_revi
     assert row["floor_count_text"] == "地上11階建"
 
 
-def test_ingest_building_facts_keeps_valid_existing_access_info_for_mansion_review_list_facts(tmp_path: Path) -> None:
+def test_ingest_building_facts_mansion_review_list_prefers_source_access_info_even_if_existing_valid(tmp_path: Path) -> None:
     db = tmp_path / "facts7.sqlite3"
     conn = connect(db)
     conn.execute(
@@ -326,4 +326,76 @@ def test_ingest_building_facts_keeps_valid_existing_access_info_for_mansion_revi
     conn = connect(db)
     row = conn.execute("SELECT access_info FROM buildings WHERE building_id='b7'").fetchone()
     conn.close()
-    assert row["access_info"] == "JR日豊本線(門司港～佐伯) 南小倉駅 徒歩 32 分"
+    assert row["access_info"] == "南小倉駅 徒歩 32 分"
+
+
+def test_ingest_building_facts_mansion_review_list_overwrites_existing_access_and_floor(tmp_path: Path) -> None:
+    db = tmp_path / "facts8.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address, access_info, floor_count_text)
+        VALUES ('b8','Gマンション','福岡県北九州市小倉北区浅野2-2-2','gまんしょん','北九州市小倉北区浅野2-2-2',
+        'JR日豊本線(門司港～佐伯) 城野駅 徒歩 12 分', '地上7階建')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    csv_path = tmp_path / "facts8.csv"
+    _write_facts_csv(
+        csv_path,
+        [
+            {
+                "building_name": "Gマンション",
+                "address": "福岡県北九州市小倉北区浅野2-2-2",
+                "access_info": "北九州モノレール 旦過駅 徒歩 9 分",
+                "floor_count_text": "地上15階建",
+                "evidence_id": "mr:8",
+            }
+        ],
+    )
+
+    ingest_building_facts_csv(str(db), str(csv_path), source="mansion_review_list_facts", merge="fill_only")
+
+    conn = connect(db)
+    row = conn.execute("SELECT access_info, floor_count_text FROM buildings WHERE building_id='b8'").fetchone()
+    conn.close()
+    assert row["access_info"] == "北九州モノレール 旦過駅 徒歩 9 分"
+    assert row["floor_count_text"] == "地上15階建"
+
+
+def test_ingest_building_facts_mansion_review_list_clears_stale_invalid_when_source_empty(tmp_path: Path) -> None:
+    db = tmp_path / "facts9.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address, access_info, floor_count_text)
+        VALUES ('b9','Hマンション','福岡県北九州市門司区社ノ木1-1-1','hまんしょん','北九州市門司区社ノ木1-1-1',
+        '築年数 2007年2月 口コミ数 2 平均賃料 44', 'て')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    csv_path = tmp_path / "facts9.csv"
+    _write_facts_csv(
+        csv_path,
+        [
+            {
+                "building_name": "Hマンション",
+                "address": "福岡県北九州市門司区社ノ木1-1-1",
+                "access_info": "",
+                "floor_count_text": "",
+                "evidence_id": "mr:9",
+            }
+        ],
+    )
+
+    ingest_building_facts_csv(str(db), str(csv_path), source="mansion_review_list_facts", merge="fill_only")
+
+    conn = connect(db)
+    row = conn.execute("SELECT access_info, floor_count_text FROM buildings WHERE building_id='b9'").fetchone()
+    conn.close()
+    assert row["access_info"] in {None, ""}
+    assert row["floor_count_text"] in {None, ""}
