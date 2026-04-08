@@ -76,15 +76,15 @@ def _format_built_label(building: dict) -> str | None:
     built = str(building.get("building_built_year_month") or "").strip()
     age = building.get("derived_built_age_years")
     if built:
-        parts = built.split("-")
-        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
-            ym = f"{int(parts[0])}/{int(parts[1])}"
+        match = re.match(r"^\s*(\d{4})[-/](\d{1,2})\s*$", built)
+        if match:
+            ym = f"{int(match.group(1))}年{int(match.group(2))}月"
             if isinstance(age, int):
                 if age <= 0:
                     return "新築"
                 if age <= 3:
                     return "築浅"
-                return f"{ym}（築{age}年）"
+                return f"{ym}［築{age}年］"
             return ym
     if isinstance(age, int):
         if age <= 0:
@@ -664,10 +664,14 @@ def _sort_area_buildings(buildings: list[dict]) -> list[dict]:
 def _format_range(min_value: object, max_value: object, suffix: str) -> str | None:
     if min_value is None and max_value is None:
         return None
+
     def _label(value: object) -> str:
+        if suffix == "円":
+            return _format_yen(value)
         if suffix == "万円":
             return _format_man_value(value)
         return str(value)
+
     if min_value is not None and max_value is not None:
         if min_value == max_value:
             return f"{_label(min_value)}{suffix}"
