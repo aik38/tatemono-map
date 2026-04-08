@@ -9,7 +9,7 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urljoin
 
 import requests
@@ -197,6 +197,49 @@ def _extract_dl_pairs(card: Node) -> dict[str, str]:
     return pairs
 
 
+def _normalize_fact_label(text: str) -> str:
+    return normalize_space(text).replace("：", "").replace(":", "")
+
+
+def _extract_building_fact_pairs(card: Node) -> dict[str, str]:
+    building_labels = {"住所", "所在地", "交通", "アクセス", "築年数", "築年月", "築", "階建て", "建物階数", "総戸数"}
+    blocks: list[dict[str, str]] = []
+
+    for dl in card.css("dl"):
+        block: dict[str, str] = {}
+        dts = dl.css("dt")
+        dds = dl.css("dd")
+        for dt, dd in zip(dts, dds):
+            key = _normalize_fact_label(dt.text(separator=" "))
+            value = normalize_space(dd.text(separator=" "))
+            if key and value:
+                block[key] = value
+        if block:
+            blocks.append(block)
+
+    for table in card.css("table"):
+        block = {}
+        for row in table.css("tr"):
+            th = row.css_first("th")
+            td = row.css_first("td")
+            if not th or not td:
+                continue
+            key = _normalize_fact_label(th.text(separator=" "))
+            value = normalize_space(td.text(separator=" "))
+            if key and value:
+                block[key] = value
+        if block:
+            blocks.append(block)
+
+    if not blocks:
+        return _extract_dl_pairs(card)
+
+    def _score(block: dict[str, str]) -> int:
+        return sum(1 for key, value in block.items() if key in building_labels and normalize_space(value))
+
+    return max(blocks, key=_score)
+
+
 def _extract_labeled_value(card: Node, labels: tuple[str, ...], *, max_len: int = 60) -> str:
     dl_pairs = _extract_dl_pairs(card)
     for label in labels:
@@ -216,6 +259,24 @@ def _extract_labeled_value(card: Node, labels: tuple[str, ...], *, max_len: int 
             value = _clean_short_text(td.text(separator=" "), max_len=max_len)
             if value:
                 return value
+    return ""
+
+
+def _extract_labeled_value_from_pairs(
+    pairs: dict[str, str],
+    labels: tuple[str, ...],
+    *,
+    max_len: int = 60,
+    cleaner: Callable[[str], str] | None = None,
+) -> str:
+    for label in labels:
+        value = pairs.get(label, "")
+        if cleaner is not None:
+            value = cleaner(value)
+        else:
+            value = _clean_short_text(value, max_len=max_len)
+        if value:
+            return value
     return ""
 
 
@@ -1043,7 +1104,12 @@ def _extract_recommend_rows(card: Node) -> tuple[list[int], list[float], list[st
 def parse_list_card_facts(card: Node, kind: str, detail_url: str, fallback_name: str, fallback_address: str) -> FactsRow:
     full_text = normalize_space(card.text(separator=" "))
     building_name = _pick_first_text(card, ["h1", "h2", "h3", ".mansionName", ".property-name", "a[title]", "a"]) or normalize_space(fallback_name)
-    address = _pick_first_text(card, [".address", "dd.address", "dd", "[class*='address']"])
+    building_pairs = _extract_building_fact_pairs(card)
+    address = _extract_labeled_value_from_pairs(building_pairs, ("住所", "所在地"), max_len=120)
+    if "選択してください" in address:
+        address = ""
+    if not address:
+        address = _pick_first_text(card, [".address", "dd.address", "[class*='address']"])
     if not address:
         address = _extract_address_like_text(full_text)
     address = _strip_fukuoka_prefix(address or fallback_address)
@@ -1068,14 +1134,12 @@ def parse_list_card_facts(card: Node, kind: str, detail_url: str, fallback_name:
 
     property_kind = "bunjo" if kind == "mansion" else "chintai"
     structure = "RC" if property_kind == "bunjo" else ""
-    access_info = _extract_transport_text(card)
-    built_text = _extract_built_text(card, full_text)
-    floor_count_text = _extract_labeled_value(card, ("階建て", "建物階数"), max_len=20)
-    if not floor_count_text:
-        floor_count_text = _find_text_with_pattern(card, [r"(?:地上)?\d+階(?:建)?"])
+    access_info = _extract_labeled_value_from_pairs(building_pairs, ("交通", "アクセス"), cleaner=_clean_transport_text, max_len=100)
+    built_text = _extract_labeled_value_from_pairs(building_pairs, ("築年数", "築年月", "築"), max_len=30)
+    floor_count_text = _extract_labeled_value_from_pairs(building_pairs, ("階建て", "建物階数"), max_len=20)
     total_units = None
-    total_units_text = _extract_labeled_value(card, ("総戸数",), max_len=20)
-    m_units = re.search(r"(\d+)", total_units_text) if total_units_text else re.search(r"総戸数\s*[:：]?\s*(\d+)", full_text)
+    total_units_text = _extract_labeled_value_from_pairs(building_pairs, ("総戸数",), max_len=20)
+    m_units = re.search(r"(\d+)", total_units_text) if total_units_text else None
     if m_units:
         total_units = int(m_units.group(1))
     management_style = _find_text_with_pattern(card, [r"管理方式\s*[:：]?\s*[^\s、,]{1,20}"])
