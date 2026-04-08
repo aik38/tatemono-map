@@ -30,6 +30,10 @@ def _write_facts_csv(path: Path, rows: list[dict[str, str]]) -> None:
                 "avg_rent_yen",
                 "rental_listing_count",
                 "availability_label",
+                "access_info",
+                "floor_count_text",
+                "total_units",
+                "management_style",
                 "evidence_id",
                 "raw_block",
             ],
@@ -222,3 +226,104 @@ def test_ingest_building_facts_recalculates_age_from_built_year_month_for_existi
     assert building_row["age_years"] == expected_age
     assert summary_row["age_years"] == expected_age
     assert summary_row["building_built_age_years"] == expected_age
+
+
+def test_ingest_building_facts_repairs_invalid_access_info_for_mansion_review_list_facts(tmp_path: Path) -> None:
+    db = tmp_path / "facts5.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address, access_info)
+        VALUES ('b5','Dマンション','福岡県行橋市中央1-1-1','dまんしょん','行橋市中央1-1-1',
+        '行橋駅 バス 25 分 築年数 2007年2月 階建て 地上2階建 口コミ数 2 平均賃料 44')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    csv_path = tmp_path / "facts5.csv"
+    _write_facts_csv(
+        csv_path,
+        [
+            {
+                "building_name": "Dマンション",
+                "address": "福岡県行橋市中央1-1-1",
+                "access_info": "JR日豊本線(門司港～佐伯) 行橋駅 バス 25 分",
+                "evidence_id": "mr:5",
+            }
+        ],
+    )
+
+    ingest_building_facts_csv(str(db), str(csv_path), source="mansion_review_list_facts", merge="fill_only")
+
+    conn = connect(db)
+    row = conn.execute("SELECT access_info FROM buildings WHERE building_id='b5'").fetchone()
+    conn.close()
+    assert row["access_info"] == "JR日豊本線(門司港～佐伯) 行橋駅 バス 25 分"
+
+
+def test_ingest_building_facts_repairs_invalid_floor_count_text_for_mansion_review_list_facts(tmp_path: Path) -> None:
+    db = tmp_path / "facts6.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address, floor_count_text)
+        VALUES ('b6','Eマンション','福岡県北九州市小倉北区浅野1-1-1','eまんしょん','北九州市小倉北区浅野1-1-1','て:地上11階建')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    csv_path = tmp_path / "facts6.csv"
+    _write_facts_csv(
+        csv_path,
+        [
+            {
+                "building_name": "Eマンション",
+                "address": "福岡県北九州市小倉北区浅野1-1-1",
+                "floor_count_text": "地上11階建",
+                "evidence_id": "mr:6",
+            }
+        ],
+    )
+
+    ingest_building_facts_csv(str(db), str(csv_path), source="mansion_review_list_facts", merge="fill_only")
+
+    conn = connect(db)
+    row = conn.execute("SELECT floor_count_text FROM buildings WHERE building_id='b6'").fetchone()
+    conn.close()
+    assert row["floor_count_text"] == "地上11階建"
+
+
+def test_ingest_building_facts_keeps_valid_existing_access_info_for_mansion_review_list_facts(tmp_path: Path) -> None:
+    db = tmp_path / "facts7.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address, access_info)
+        VALUES ('b7','Fマンション','福岡県北九州市小倉北区中島1-1-1','fまんしょん','北九州市小倉北区中島1-1-1',
+        'JR日豊本線(門司港～佐伯) 南小倉駅 徒歩 32 分')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    csv_path = tmp_path / "facts7.csv"
+    _write_facts_csv(
+        csv_path,
+        [
+            {
+                "building_name": "Fマンション",
+                "address": "福岡県北九州市小倉北区中島1-1-1",
+                "access_info": "南小倉駅 徒歩 32 分",
+                "evidence_id": "mr:7",
+            }
+        ],
+    )
+
+    ingest_building_facts_csv(str(db), str(csv_path), source="mansion_review_list_facts", merge="fill_only")
+
+    conn = connect(db)
+    row = conn.execute("SELECT access_info FROM buildings WHERE building_id='b7'").fetchone()
+    conn.close()
+    assert row["access_info"] == "JR日豊本線(門司港～佐伯) 南小倉駅 徒歩 32 分"
