@@ -924,3 +924,84 @@ def test_parse_list_card_facts_uses_card_building_fact_block_not_search_form_cop
     assert "13階建て" in row.raw_block
     assert "総戸数: 88戸" in row.raw_block
     assert "市区町村もしくは駅を1つ以上選択してください" not in row.raw_block
+
+
+def test_parse_list_card_facts_does_not_revive_invalid_fallback_address() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <div class="property-detail-content_main">
+          <dl>
+            <dt>住所</dt><dd>福岡県北九州市門司区下二十町</dd>
+            <dt>交通</dt><dd>JR門司駅 徒歩10分</dd>
+            <dt>築年数</dt><dd>築30年</dd>
+            <dt>階建て</dt><dd>11階建て</dd>
+          </dl>
+        </div>
+      </li>
+    </body></html>
+    """
+    tree = crawl.HTMLParser(html)
+    card = tree.css_first("li.property-detail-list-item")
+    assert card is not None
+
+    row = crawl.parse_list_card_facts(
+        card,
+        kind="chintai",
+        detail_url="https://www.mansion-review.jp/chintai/70004",
+        fallback_name="fallback",
+        fallback_address="市区町村もしくは駅を1つ以上選択してください",
+    )
+
+    assert row.address == "北九州市門司区下二十町"
+    assert row.address != "市区町村もしくは駅を1つ以上選択してください"
+
+
+def test_run_crawl_facts_replaces_invalid_non_empty_address_with_detail_ward_only_address(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    class FakeSession:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+
+    list_page = """
+    <html><body>
+      <section class="property-card">
+        <h2>関門スカイプラザビル</h2>
+        <a href="/chintai/50002">detail</a>
+        <dd class="address">市区町村もしくは駅を1つ以上選択してください</dd>
+      </section>
+    </body></html>
+    """
+    detail_page = """
+    <html><body>
+      <h1>関門スカイプラザビル</h1>
+      <div class="address">福岡県北九州市門司区下二十町</div>
+    </body></html>
+    """
+
+    def fake_fetch_html(_session, url: str, *_args, **_kwargs):
+        if url.endswith("/chintai/city/1616.html"):
+            return list_page, False
+        if url.endswith("/chintai/50002"):
+            return detail_page, False
+        raise AssertionError(f"unexpected fetch: {url}")
+
+    monkeypatch.setattr(crawl.requests, "Session", FakeSession)
+    monkeypatch.setattr(crawl, "fetch_html", fake_fetch_html)
+
+    _out_dir, facts_csv, _stats = crawl.run_crawl(
+        city_ids=["1616"],
+        kinds=["chintai"],
+        mode="facts",
+        out_root=tmp_path / "out",
+        cache_dir=tmp_path / "cache",
+        sleep_sec=0,
+        max_pages=1,
+        retry_count=0,
+        user_agent="ua",
+    )
+
+    csv_text = facts_csv.read_text(encoding="utf-8-sig")
+    assert "市区町村もしくは駅を1つ以上選択してください" not in csv_text
+    assert "北九州市門司区下二十町" in csv_text

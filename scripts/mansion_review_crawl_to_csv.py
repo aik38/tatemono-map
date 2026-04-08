@@ -682,6 +682,30 @@ def _address_has_digits(address: str) -> bool:
     return bool(re.search(r"\d", normalize_space(address)))
 
 
+def _is_invalid_building_address(text: str) -> bool:
+    normalized = normalize_space(text)
+    if not normalized:
+        return True
+    lowered = normalized.lower()
+    blocked_substrings = (
+        "選択してください",
+        "市区町村もしくは駅を1つ以上選択してください",
+        "入力してください",
+        "候補から選択",
+        "検索",
+        "autocomplete",
+        "validation",
+    )
+    return any(token in normalized or token in lowered for token in blocked_substrings)
+
+
+def _clean_building_address(text: str) -> str:
+    cleaned = _strip_fukuoka_prefix(text)
+    if _is_invalid_building_address(cleaned):
+        return ""
+    return cleaned
+
+
 def detect_card_nodes(tree: HTMLParser) -> tuple[list[Node], ParseDebug]:
     selectors = [
         "li.property-detail-list-item",
@@ -1105,14 +1129,13 @@ def parse_list_card_facts(card: Node, kind: str, detail_url: str, fallback_name:
     full_text = normalize_space(card.text(separator=" "))
     building_name = _pick_first_text(card, ["h1", "h2", "h3", ".mansionName", ".property-name", "a[title]", "a"]) or normalize_space(fallback_name)
     building_pairs = _extract_building_fact_pairs(card)
-    address = _extract_labeled_value_from_pairs(building_pairs, ("住所", "所在地"), max_len=120)
-    if "選択してください" in address:
-        address = ""
+    address = _clean_building_address(_extract_labeled_value_from_pairs(building_pairs, ("住所", "所在地"), max_len=120))
     if not address:
-        address = _pick_first_text(card, [".address", "dd.address", "[class*='address']"])
+        address = _clean_building_address(fallback_address)
     if not address:
-        address = _extract_address_like_text(full_text)
-    address = _strip_fukuoka_prefix(address or fallback_address)
+        address = _clean_building_address(_pick_first_text(card, [".address", "dd.address"]))
+    if not address:
+        address = _clean_building_address(_extract_address_like_text(full_text))
 
     built_year_month = _parse_built_year_month(full_text)
     evidence_id = f"mansion_review:{detail_url or building_name}"
@@ -1198,6 +1221,7 @@ def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_
         address = _extract_address_like_text(full_text)
     if not address:
         address = normalize_space(fallback_address)
+    address = _clean_building_address(address)
 
     structure = ""
     m_structure = re.search(r"(?:構造|建物構造)\s*[:：]?\s*([^\s、,]{1,20})", full_text)
@@ -1236,7 +1260,7 @@ def parse_detail_facts(html: str, detail_url: str, fallback_name: str, fallback_
     raw_block = full_text[:1200]
     return FactsRow(
         building_name=building_name,
-        address=_strip_fukuoka_prefix(address),
+        address=address,
         structure=structure,
         access_info=_extract_transport_text(tree.root),
         floor_count_text=_extract_labeled_value(tree.root, ("階建て", "建物階数"), max_len=20)
@@ -1390,10 +1414,14 @@ def run_crawl(
                     for card in facts_cards:
                         detail_url = _find_detail_url(card, page_url, kind)
                         fallback_name = _pick_first_text(card, ["h1", "h2", "h3", ".mansionName", ".property-name", "a"])
-                        fallback_address = _pick_first_text(card, [".address", "dd.address", "dd", "[class*='address']"])
+                        fallback_address = _pick_first_text(card, [".address", "dd.address"])
                         facts_row = parse_list_card_facts(card, kind, detail_url, fallback_name, fallback_address)
 
-                        if (not facts_row.address or not _address_has_digits(facts_row.address)) and detail_url:
+                        if (
+                            not facts_row.address
+                            or _is_invalid_building_address(facts_row.address)
+                            or not _address_has_digits(facts_row.address)
+                        ) and detail_url:
                             try:
                                 detail_html, from_cache_detail = fetch_html(
                                     session,
@@ -1410,9 +1438,17 @@ def run_crawl(
                                     fallback_name=facts_row.building_name,
                                     fallback_address=facts_row.address,
                                 )
-                                if detail_facts.address and _address_has_digits(detail_facts.address):
-                                    facts_row.address = detail_facts.address
-                                elif not facts_row.address and detail_facts.address:
+                                if (
+                                    detail_facts.address
+                                    and (
+                                        not facts_row.address
+                                        or _is_invalid_building_address(facts_row.address)
+                                        or (
+                                            not _address_has_digits(facts_row.address)
+                                            and _address_has_digits(detail_facts.address)
+                                        )
+                                    )
+                                ):
                                     facts_row.address = detail_facts.address
                             except Exception as err:  # noqa: BLE001
                                 stats["errors"].append(
