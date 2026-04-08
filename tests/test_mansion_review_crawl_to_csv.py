@@ -319,6 +319,47 @@ def test_parse_list_page_chintai_parses_bracket_fee_from_recommend_row_fixed_td_
     assert row.direction_text == "西"
 
 
+def test_parse_list_page_chintai_recommend_row_keeps_cell_values_without_campaign_pollution() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>門司セル境界テスト</h3>
+        <table class="recommendTable">
+          <thead>
+            <tr><th>号室</th><th>賃料(管理費)</th><th>敷金</th><th>礼金</th><th>専有面積</th><th>間取り</th><th>所在階</th><th>向き</th></tr>
+          </thead>
+          <tbody class="recommend_row">
+            <tr>
+              <td>101</td>
+              <td>6.8万円(3,000円)</td><td>1ヶ月</td><td>なし</td><td>31.2㎡</td><td>1K</td><td>2階</td><td>南</td>
+              <td class="recommend_update_row">礼金ゼロ!小型犬相談可</td>
+            </tr>
+          </tbody>
+        </table>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        kind="chintai",
+        city_id="1616",
+        page_no=1,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.price_or_rent_text == "6.8万円"
+    assert row.fee_text == "3,000円"
+    assert row.deposit_text == "1ヶ月"
+    assert row.key_money_text == "なし"
+    assert row.area_text == "31.2㎡"
+    assert row.layout_text == "1K"
+    assert row.floor_text == "2階"
+    assert row.direction_text == "南"
+    assert "礼金ゼロ" not in row.deposit_text
+    assert "礼金ゼロ" not in row.key_money_text
+
+
 def test_parse_list_page_chintai_keeps_multiple_recommend_rows_as_multiple_listings() -> None:
     html = """
     <html><body>
@@ -355,6 +396,56 @@ def test_parse_list_page_chintai_keeps_multiple_recommend_rows_as_multiple_listi
     assert rows[1].detail_url.endswith("/7084.html")
     assert rows[1].price_or_rent_text == "4.9万円"
     assert rows[1].key_money_text == "1ヶ月"
+
+
+def test_parse_list_page_building_facts_use_property_detail_content_main_only() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>小倉北メイン情報優先テスト</h3>
+        <div class="property-detail-content_main">
+          <table>
+            <tr><th>住所</th><td>福岡県北九州市小倉北区京町1-1-1</td></tr>
+            <tr><th>交通</th><td>JR小倉駅 徒歩4分</td></tr>
+            <tr><th>築年数</th><td>築5年</td></tr>
+            <tr><th>階建て</th><td>20階建て</td></tr>
+            <tr><th>総戸数</th><td>120戸</td></tr>
+          </table>
+        </div>
+        <div class="property-detail-content_sub">
+          <table>
+            <tr><th>交通</th><td>アクセス数 9999</td></tr>
+            <tr><th>築年数</th><td>口コミ数 500</td></tr>
+            <tr><th>階建て</th><td>坪賃料 0.9万円</td></tr>
+            <tr><th>総戸数</th><td>平均賃料 13.8万円</td></tr>
+          </table>
+        </div>
+        <table class="recommendTable">
+          <tbody class="recommend_row">
+            <tr>
+              <td><img src="/img/common/floorplan-preparing-list.png"></td>
+              <td><a href="/chintai/10001">小倉北メイン情報優先テスト</a></td>
+              <td>7.2万円(4,000円)</td><td>1ヶ月</td><td>1ヶ月</td><td>35.2㎡</td><td>1DK</td><td>7階</td><td>東</td>
+            </tr>
+          </tbody>
+        </table>
+      </li>
+    </body></html>
+    """
+    rows, _debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1619.html",
+        kind="chintai",
+        city_id="1619",
+        page_no=1,
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.address == "北九州市小倉北区京町1-1-1"
+    assert row.access_text == "JR小倉駅 徒歩4分"
+    assert row.built_text == "築5年"
+    assert row.building_floor_count_text == "20階建て"
+    assert row.total_units_text == "120戸"
 
 
 def test_parse_list_page_chintai_does_not_fallback_to_summary_when_recommend_row_missing_rent(

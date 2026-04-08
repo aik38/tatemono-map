@@ -240,6 +240,20 @@ def _extract_building_fact_pairs(card: Node) -> dict[str, str]:
     return max(blocks, key=_score)
 
 
+def _extract_card_building_fact_pairs(card: Node) -> dict[str, str]:
+    main_root = card.css_first(".property-detail-content_main")
+    if main_root:
+        pairs = _extract_building_fact_pairs(main_root)
+        if pairs:
+            return pairs
+    main_table = card.css_first("table.property-detail-content_main")
+    if main_table:
+        pairs = _extract_building_fact_pairs(main_table)
+        if pairs:
+            return pairs
+    return _extract_building_fact_pairs(card)
+
+
 def _extract_labeled_value(card: Node, labels: tuple[str, ...], *, max_len: int = 60) -> str:
     dl_pairs = _extract_dl_pairs(card)
     for label in labels:
@@ -517,20 +531,33 @@ def _extract_chintai_recommend_rows(card: Node) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     tables = card.css("table.recommendTable") or card.css("table")
     for table in tables:
+        headers = [_normalize_header_label(h.text(separator=" ")) for h in table.css("thead th")]
         body_rows = table.css("tbody.recommend_row tr") or table.css("tbody.recommend_row")
         for tr in body_rows:
-            cells = [normalize_space(c.text(separator=" ")) for c in tr.css("td")]
-            if len(cells) < 9:
+            row_cells = []
+            for c in tr.css("td"):
+                class_name = normalize_space(c.attributes.get("class", ""))
+                if "recommend_update_row" in class_name:
+                    continue
+                row_cells.append(normalize_space(c.text(separator=" ")))
+            if not row_cells:
                 continue
-            mapped: dict[str, str] = {
-                "賃料(管理費)": cells[2],
-                "敷金": cells[3],
-                "礼金": cells[4],
-                "専有面積": cells[5],
-                "間取り": cells[6],
-                "所在階": cells[7],
-                "向き": cells[8],
-            }
+            aligned_headers, aligned_cells = _align_headers_and_cells(list(headers), row_cells)
+            mapped: dict[str, str] = {}
+            for idx, header in enumerate(aligned_headers):
+                if idx >= len(aligned_cells):
+                    continue
+                mapped[header] = aligned_cells[idx]
+            mapped_rent = mapped.get("賃料(管理費)", "") or mapped.get("賃料", "")
+            if (not re.search(r"\d[\d,]*(?:\.\d+)?\s*(?:万円|円)", normalize_space(mapped_rent))) and len(row_cells) >= 7:
+                tail = row_cells[-7:]
+                mapped["賃料(管理費)"] = tail[0]
+                mapped["敷金"] = tail[1]
+                mapped["礼金"] = tail[2]
+                mapped["専有面積"] = tail[3]
+                mapped["間取り"] = tail[4]
+                mapped["所在階"] = tail[5]
+                mapped["向き"] = tail[6]
             detail_link = tr.css_first("a[href]")
             if detail_link:
                 mapped["__detail_href"] = _normalize_href(detail_link.attributes.get("href", ""))
@@ -739,6 +766,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
     rows: list[ListRow] = []
 
     for card in cards:
+        building_pairs = _extract_card_building_fact_pairs(card)
         dl_pairs = _extract_dl_pairs(card)
         has_recommend_rows = bool(card.css("table.recommendTable tbody.recommend_row"))
         row_cells = _extract_list_row_cells(card, kind) or _extract_table_row_by_headers(card, ("賃料", "価格", "間取り", "専有面積"))
@@ -756,7 +784,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                 "a",
             ],
         )
-        address = dl_pairs.get("住所", "")
+        address = _clean_building_address(_extract_labeled_value_from_pairs(building_pairs, ("住所", "所在地"), max_len=120))
         if not address:
             address = _pick_first_text(card, [".address", "dd.address", "[class*='address']"])
         if not address:
@@ -844,11 +872,11 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
             else ""
         )
         direction_text = _clean_direction_text(row_cells.get("向き", "") or dl_pairs.get("向き", ""))
-        total_units_text = _clean_short_text(row_cells.get("総戸数", "") or dl_pairs.get("総戸数", ""), max_len=12)
+        total_units_text = _extract_labeled_value_from_pairs(building_pairs, ("総戸数",), max_len=20)
         management_style_text = ""
-        access_text = _extract_transport_text(card)
-        built_text = _extract_labeled_value(card, ("築年数", "築年月", "築"), max_len=20)
-        building_floor_count_text = _extract_labeled_value(card, ("階建て", "建物階数"), max_len=20)
+        access_text = _extract_labeled_value_from_pairs(building_pairs, ("交通", "アクセス"), cleaner=_clean_transport_text, max_len=100)
+        built_text = _extract_labeled_value_from_pairs(building_pairs, ("築年数", "築年月", "築"), max_len=30)
+        building_floor_count_text = _extract_labeled_value_from_pairs(building_pairs, ("階建て", "建物階数"), max_len=20)
 
         if not building_name:
             continue
@@ -874,12 +902,20 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                     row_fee_text = source_rent_fee_from_cell or fee_text
                 if not row_fee_text and row_price_or_rent_text:
                     row_fee_text = _clean_fee_text(_extract_fee_text(row_price_or_rent_text))
-            row_layout_text = _clean_layout_text(source_row.get("間取り", "")) or layout_text
-            row_area_text = _clean_area_text(source_row.get("専有面積", "")) or area_text
-            row_floor_text = _clean_floor_text(source_row.get("所在階", "")) or floor_text
-            row_deposit_text = _clean_deposit_like_text(source_row.get("敷金", "") or deposit_text) if kind == "chintai" else ""
-            row_key_money_text = _clean_deposit_like_text(source_row.get("礼金", "") or key_money_text) if kind == "chintai" else ""
-            row_direction_text = _clean_direction_text(source_row.get("向き", "") or direction_text)
+            if kind == "chintai" and recommend_rows:
+                row_layout_text = _clean_layout_text(source_row.get("間取り", ""))
+                row_area_text = _clean_area_text(source_row.get("専有面積", ""))
+                row_floor_text = _clean_floor_text(source_row.get("所在階", ""))
+                row_deposit_text = _clean_deposit_like_text(source_row.get("敷金", ""))
+                row_key_money_text = _clean_deposit_like_text(source_row.get("礼金", ""))
+                row_direction_text = _clean_direction_text(source_row.get("向き", ""))
+            else:
+                row_layout_text = _clean_layout_text(source_row.get("間取り", "")) or layout_text
+                row_area_text = _clean_area_text(source_row.get("専有面積", "")) or area_text
+                row_floor_text = _clean_floor_text(source_row.get("所在階", "")) or floor_text
+                row_deposit_text = _clean_deposit_like_text(source_row.get("敷金", "") or deposit_text) if kind == "chintai" else ""
+                row_key_money_text = _clean_deposit_like_text(source_row.get("礼金", "") or key_money_text) if kind == "chintai" else ""
+                row_direction_text = _clean_direction_text(source_row.get("向き", "") or direction_text)
             row_detail_url = detail_url
             if source_row.get("__detail_href"):
                 row_detail_url = urljoin(page_url, source_row["__detail_href"])
