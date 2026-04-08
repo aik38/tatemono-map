@@ -131,6 +131,15 @@ def _is_valid_floor_count_text(value: str | None) -> bool:
     return False
 
 
+def _normalize_authoritative_mansion_review_value(value: str | None, *, field: str) -> str:
+    cleaned = _clean_text(value)
+    if field == "access_info":
+        return "" if _is_invalid_access_info(cleaned) else cleaned
+    if field == "floor_count_text":
+        return cleaned if _is_valid_floor_count_text(cleaned) else ""
+    return cleaned
+
+
 def _should_repair_field(existing_value: str | None, new_value: str | None, *, field: str) -> bool:
     existing = _clean_text(existing_value)
     new = _clean_text(new_value)
@@ -430,21 +439,28 @@ def ingest_building_facts_csv(
             is_bunjo = property_kind == "bunjo"
             should_repair_access_info = False
             should_repair_floor_count = False
+            should_overwrite_access_info = False
+            should_overwrite_floor_count = False
+            should_clear_stale_access_info = False
+            should_clear_stale_floor_count = False
             if merge == "fill_only" and source == "mansion_review_list_facts":
                 existing_building = conn.execute(
                     "SELECT access_info, floor_count_text FROM buildings WHERE building_id=?",
                     (building_id,),
                 ).fetchone()
-                should_repair_access_info = _should_repair_field(
-                    existing_building["access_info"] if existing_building else None,
-                    access_info,
-                    field="access_info",
-                )
-                should_repair_floor_count = _should_repair_field(
-                    existing_building["floor_count_text"] if existing_building else None,
-                    floor_count_text,
-                    field="floor_count_text",
-                )
+                existing_access = existing_building["access_info"] if existing_building else None
+                existing_floor = existing_building["floor_count_text"] if existing_building else None
+
+                access_info = _normalize_authoritative_mansion_review_value(access_info, field="access_info")
+                floor_count_text = _normalize_authoritative_mansion_review_value(floor_count_text, field="floor_count_text")
+
+                should_repair_access_info = _should_repair_field(existing_access, access_info, field="access_info")
+                should_repair_floor_count = _should_repair_field(existing_floor, floor_count_text, field="floor_count_text")
+
+                should_overwrite_access_info = bool(access_info)
+                should_overwrite_floor_count = bool(floor_count_text)
+                should_clear_stale_access_info = (not access_info) and _is_invalid_access_info(existing_access)
+                should_clear_stale_floor_count = (not floor_count_text) and (not _is_valid_floor_count_text(existing_floor))
 
             if merge == "overwrite" and not is_mansion_review:
                 conn.execute(
@@ -504,10 +520,14 @@ def ingest_building_facts_csv(
                             built_year_month={_fill_only_sql('built_year_month')},
                             property_kind={_fill_only_sql('property_kind')},
                             access_info=CASE
+                                WHEN ? THEN NULL
+                                WHEN ? THEN ?
                                 WHEN access_info IS NULL OR access_info = '' OR ? THEN ?
                                 ELSE access_info
                             END,
                             floor_count_text=CASE
+                                WHEN ? THEN NULL
+                                WHEN ? THEN ?
                                 WHEN floor_count_text IS NULL OR floor_count_text = '' OR ? THEN ?
                                 ELSE floor_count_text
                             END,
@@ -525,8 +545,14 @@ def ingest_building_facts_csv(
                             age_years,
                             built_year_month,
                             property_kind,
+                            should_clear_stale_access_info,
+                            should_overwrite_access_info,
+                            access_info,
                             should_repair_access_info,
                             access_info,
+                            should_clear_stale_floor_count,
+                            should_overwrite_floor_count,
+                            floor_count_text,
                             should_repair_floor_count,
                             floor_count_text,
                             total_units,
@@ -559,10 +585,14 @@ def ingest_building_facts_csv(
                             avg_rent_yen=CASE WHEN avg_rent_yen IS NULL THEN ? ELSE avg_rent_yen END,
                             rental_listing_count=CASE WHEN rental_listing_count IS NULL THEN ? ELSE rental_listing_count END,
                             access_info=CASE
+                                WHEN ? THEN NULL
+                                WHEN ? THEN ?
                                 WHEN access_info IS NULL OR access_info = '' OR ? THEN ?
                                 ELSE access_info
                             END,
                             floor_count_text=CASE
+                                WHEN ? THEN NULL
+                                WHEN ? THEN ?
                                 WHEN floor_count_text IS NULL OR floor_count_text = '' OR ? THEN ?
                                 ELSE floor_count_text
                             END,
@@ -579,8 +609,14 @@ def ingest_building_facts_csv(
                             sale_listing_count,
                             avg_rent_yen,
                             rental_listing_count,
+                            should_clear_stale_access_info,
+                            should_overwrite_access_info,
+                            access_info,
                             should_repair_access_info,
                             access_info,
+                            should_clear_stale_floor_count,
+                            should_overwrite_floor_count,
+                            floor_count_text,
                             should_repair_floor_count,
                             floor_count_text,
                             total_units,

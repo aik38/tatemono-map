@@ -1096,3 +1096,60 @@ def test_run_crawl_facts_replaces_invalid_non_empty_address_with_detail_ward_onl
     csv_text = facts_csv.read_text(encoding="utf-8-sig")
     assert "市区町村もしくは駅を1つ以上選択してください" not in csv_text
     assert "北九州市門司区下二十町" in csv_text
+
+
+def test_merge_facts_row_uses_address_key_and_complements_fields() -> None:
+    left = crawl.FactsRow(
+        building_name="ドミール小倉",
+        address="北九州市小倉北区紺屋町1-2-3",
+        structure="",
+        access_info="",
+        floor_count_text="地上11階建",
+        total_units=None,
+        management_style="",
+        built_year_month="",
+        property_kind="chintai",
+        sale_price_yen_min=None,
+        sale_price_yen_max=None,
+        sale_price_yen_avg=None,
+        sale_area_sqm_min=None,
+        sale_area_sqm_max=None,
+        sale_layout_types_json="",
+        sale_listing_count=None,
+        avg_rent_yen=None,
+        rental_listing_count=None,
+        availability_label="",
+        evidence_id="mr:left",
+        raw_block="階建て: 地上11階建",
+    )
+    right = crawl.FactsRow(
+        building_name="レオパレスドミール小倉",
+        address="北九州市小倉北区紺屋町1-2-3",
+        structure="",
+        access_info="JR日豊本線(門司港～佐伯) 南小倉駅 徒歩 32 分",
+        floor_count_text="",
+        total_units=None,
+        management_style="",
+        built_year_month="",
+        property_kind="chintai",
+        sale_price_yen_min=None,
+        sale_price_yen_max=None,
+        sale_price_yen_avg=None,
+        sale_area_sqm_min=None,
+        sale_area_sqm_max=None,
+        sale_layout_types_json="",
+        sale_listing_count=None,
+        avg_rent_yen=None,
+        rental_listing_count=None,
+        availability_label="",
+        evidence_id="mr:right",
+        raw_block="交通: JR日豊本線(門司港～佐伯) 南小倉駅 徒歩 32 分",
+    )
+
+    key_left = crawl._facts_merge_key(left)
+    key_right = crawl._facts_merge_key(right)
+    assert key_left == key_right
+
+    merged = crawl._merge_facts_row(left, right)
+    assert merged.access_info == "JR日豊本線(門司港～佐伯) 南小倉駅 徒歩 32 分"
+    assert merged.floor_count_text == "地上11階建"
