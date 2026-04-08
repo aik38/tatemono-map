@@ -883,3 +883,44 @@ def test_parse_list_card_facts_raw_block_keeps_only_building_facts() -> None:
     assert "function ($)" not in row.raw_block
     assert "recommendTable" not in row.raw_block
     assert "全件を表示する" not in row.raw_block
+
+
+def test_parse_list_card_facts_uses_card_building_fact_block_not_search_form_copy() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <div class="search-form-copy">
+          <dl>
+            <dt>住所</dt><dd>市区町村もしくは駅を1つ以上選択してください</dd>
+          </dl>
+        </div>
+        <div class="property-detail-content_main">
+          <dl>
+            <dt>住所</dt><dd>福岡県北九州市小倉北区魚町1-2-3</dd>
+            <dt>交通</dt><dd>JR小倉駅 徒歩6分</dd>
+            <dt>築年数</dt><dd>築14年</dd>
+            <dt>階建て</dt><dd>13階建て</dd>
+            <dt>総戸数</dt><dd>88戸</dd>
+          </dl>
+        </div>
+      </li>
+    </body></html>
+    """
+    tree = crawl.HTMLParser(html)
+    card = tree.css_first("li.property-detail-list-item")
+    assert card is not None
+
+    row = crawl.parse_list_card_facts(
+        card,
+        kind="chintai",
+        detail_url="https://www.mansion-review.jp/chintai/70003",
+        fallback_name="fallback",
+        fallback_address="",
+    )
+
+    assert row.address == "北九州市小倉北区魚町1-2-3"
+    assert row.access_info == "JR小倉駅 徒歩6分"
+    assert "築14年" in row.raw_block
+    assert "13階建て" in row.raw_block
+    assert "総戸数: 88戸" in row.raw_block
+    assert "市区町村もしくは駅を1つ以上選択してください" not in row.raw_block
