@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -72,6 +73,76 @@ def _fill_only_sql(column: str, value: str = "?") -> str:
 
 def _contains_digit(value: str) -> bool:
     return any(ch.isdigit() for ch in value)
+
+
+_ACCESS_INFO_NOISE_KEYWORDS = (
+    "築年数",
+    "階建て",
+    "口コミ数",
+    "平均賃料",
+    "アクセス数",
+    "坪賃料",
+    "総戸数",
+    "管理費",
+    "修繕積立金",
+)
+
+_FLOOR_LABEL_NOISE_KEYWORDS = (
+    "口コミ数",
+    "平均賃料",
+    "アクセス数",
+    "坪賃料",
+    "総戸数",
+    "築年数",
+)
+
+
+def _is_invalid_access_info(value: str | None) -> bool:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return True
+    if any(keyword in cleaned for keyword in _ACCESS_INFO_NOISE_KEYWORDS):
+        return True
+    if "線" in cleaned and "駅" not in cleaned:
+        return True
+    if not any(token in cleaned for token in ("駅", "徒歩", "バス")):
+        return True
+    if not re.search(r"[一-龥ぁ-んァ-ン]", cleaned):
+        return True
+    return False
+
+
+def _is_valid_floor_count_text(value: str | None) -> bool:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return False
+    if cleaned in {"て", "階"}:
+        return False
+    if "階建て:" in cleaned or "て:" in cleaned:
+        return False
+    if any(keyword in cleaned for keyword in _FLOOR_LABEL_NOISE_KEYWORDS):
+        return False
+    if re.fullmatch(r"地上\d+階建", cleaned):
+        return True
+    if re.fullmatch(r"地上\d+階建\s*地下\d+階", cleaned):
+        return True
+    if re.fullmatch(r"地下\d+階\s*地上\d+階建", cleaned):
+        return True
+    return False
+
+
+def _should_repair_field(existing_value: str | None, new_value: str | None, *, field: str) -> bool:
+    existing = _clean_text(existing_value)
+    new = _clean_text(new_value)
+    if not new:
+        return False
+    if not existing:
+        return True
+    if field == "access_info":
+        return _is_invalid_access_info(existing) and not _is_invalid_access_info(new)
+    if field == "floor_count_text":
+        return (not _is_valid_floor_count_text(existing)) and _is_valid_floor_count_text(new)
+    return False
 
 
 def _simplify_for_create(address: str) -> tuple[str, bool]:
@@ -357,6 +428,23 @@ def ingest_building_facts_csv(
 
             is_mansion_review = source.startswith("mansion_review")
             is_bunjo = property_kind == "bunjo"
+            should_repair_access_info = False
+            should_repair_floor_count = False
+            if merge == "fill_only" and source == "mansion_review_list_facts":
+                existing_building = conn.execute(
+                    "SELECT access_info, floor_count_text FROM buildings WHERE building_id=?",
+                    (building_id,),
+                ).fetchone()
+                should_repair_access_info = _should_repair_field(
+                    existing_building["access_info"] if existing_building else None,
+                    access_info,
+                    field="access_info",
+                )
+                should_repair_floor_count = _should_repair_field(
+                    existing_building["floor_count_text"] if existing_building else None,
+                    floor_count_text,
+                    field="floor_count_text",
+                )
 
             if merge == "overwrite" and not is_mansion_review:
                 conn.execute(
@@ -415,8 +503,14 @@ def ingest_building_facts_csv(
                             END,
                             built_year_month={_fill_only_sql('built_year_month')},
                             property_kind={_fill_only_sql('property_kind')},
-                            access_info={_fill_only_sql('access_info')},
-                            floor_count_text={_fill_only_sql('floor_count_text')},
+                            access_info=CASE
+                                WHEN access_info IS NULL OR access_info = '' OR ? THEN ?
+                                ELSE access_info
+                            END,
+                            floor_count_text=CASE
+                                WHEN floor_count_text IS NULL OR floor_count_text = '' OR ? THEN ?
+                                ELSE floor_count_text
+                            END,
                             total_units=CASE WHEN total_units IS NULL THEN ? ELSE total_units END,
                             management_style={_fill_only_sql('management_style')},
                             updated_at=CURRENT_TIMESTAMP
@@ -431,7 +525,9 @@ def ingest_building_facts_csv(
                             age_years,
                             built_year_month,
                             property_kind,
+                            should_repair_access_info,
                             access_info,
+                            should_repair_floor_count,
                             floor_count_text,
                             total_units,
                             management_style,
@@ -462,8 +558,14 @@ def ingest_building_facts_csv(
                             sale_listing_count=CASE WHEN sale_listing_count IS NULL THEN ? ELSE sale_listing_count END,
                             avg_rent_yen=CASE WHEN avg_rent_yen IS NULL THEN ? ELSE avg_rent_yen END,
                             rental_listing_count=CASE WHEN rental_listing_count IS NULL THEN ? ELSE rental_listing_count END,
-                            access_info={_fill_only_sql('access_info')},
-                            floor_count_text={_fill_only_sql('floor_count_text')},
+                            access_info=CASE
+                                WHEN access_info IS NULL OR access_info = '' OR ? THEN ?
+                                ELSE access_info
+                            END,
+                            floor_count_text=CASE
+                                WHEN floor_count_text IS NULL OR floor_count_text = '' OR ? THEN ?
+                                ELSE floor_count_text
+                            END,
                             total_units=CASE WHEN total_units IS NULL THEN ? ELSE total_units END,
                             management_style={_fill_only_sql('management_style')},
                             updated_at=CURRENT_TIMESTAMP
@@ -477,7 +579,9 @@ def ingest_building_facts_csv(
                             sale_listing_count,
                             avg_rent_yen,
                             rental_listing_count,
+                            should_repair_access_info,
                             access_info,
+                            should_repair_floor_count,
                             floor_count_text,
                             total_units,
                             management_style,
