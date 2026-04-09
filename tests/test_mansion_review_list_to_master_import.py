@@ -13,7 +13,7 @@ SPEC.loader.exec_module(module)
 convert = module.convert
 
 
-def test_convert_maps_chintai_and_mansion_rows_without_shared_changes(tmp_path) -> None:
+def test_convert_maps_chintai_and_mansion_rows_from_listing_columns(tmp_path) -> None:
     input_csv = tmp_path / "mansion_review_list_20260405_120000.csv"
     output_csv = tmp_path / "mansion_review_master_import.csv"
 
@@ -29,7 +29,7 @@ def test_convert_maps_chintai_and_mansion_rows_without_shared_changes(tmp_path) 
                 "address",
                 "price_or_rent_text",
                 "fee_text",
-                "repair_fund_text",
+                "tsubo_unit_price_text",
                 "deposit_text",
                 "key_money_text",
                 "layout_text",
@@ -53,13 +53,13 @@ def test_convert_maps_chintai_and_mansion_rows_without_shared_changes(tmp_path) 
                 "address": "北九州市小倉北区魚町1-2-3",
                 "price_or_rent_text": "7.8万円",
                 "fee_text": "5,000円",
-                "repair_fund_text": "",
+                "tsubo_unit_price_text": "",
                 "deposit_text": "1ヶ月",
                 "key_money_text": "2ヶ月",
                 "layout_text": "1LDK",
                 "area_text": "41.2㎡",
-                "floor_text": "3階",
-                "direction_text": "南",
+                "floor_text": "",
+                "direction_text": "",
                 "access_text": "JR小倉駅 徒歩5分",
                 "built_text": "築16年",
                 "building_floor_count_text": "10階建て",
@@ -75,8 +75,8 @@ def test_convert_maps_chintai_and_mansion_rows_without_shared_changes(tmp_path) 
                 "building_name": "分譲サンプル",
                 "address": "北九州市小倉北区浅野2-1-1",
                 "price_or_rent_text": "3,180万円",
-                "fee_text": "9,000円",
-                "repair_fund_text": "7,000円",
+                "fee_text": "",
+                "tsubo_unit_price_text": "147万円/坪",
                 "deposit_text": "",
                 "key_money_text": "",
                 "layout_text": "3LDK",
@@ -107,6 +107,6 @@ def test_convert_maps_chintai_and_mansion_rows_without_shared_changes(tmp_path) 
     sale = rows[1]
     assert sale["category"] == "mansion"
     assert sale["rent_man"] == "3180"
-    assert sale["fee_man"] == "0.9"
-    assert "管理費:9,000円" in sale["raw_block"]
-    assert "修繕積立金:7,000円" in sale["raw_block"]
+    assert sale["fee_man"] == ""
+    assert "坪単価:147万円/坪" in sale["raw_block"]
+    assert "修繕積立金:" not in sale["raw_block"]

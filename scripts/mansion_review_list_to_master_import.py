@@ -80,6 +80,7 @@ def _build_raw_block(row: dict[str, str], *, kind: str) -> str:
         f"面積:{_clean(row.get('area_text'))}",
         f"所在階:{_clean(row.get('floor_text'))}",
         f"向き:{_clean(row.get('direction_text'))}",
+        f"坪単価:{_clean(row.get('tsubo_unit_price_text'))}",
         f"交通:{_clean(row.get('access_text'))}",
         f"築年数:{_clean(row.get('built_text'))}",
         f"階建て:{_clean(row.get('building_floor_count_text'))}",
@@ -89,9 +90,7 @@ def _build_raw_block(row: dict[str, str], *, kind: str) -> str:
     ]
     if kind == "chintai":
         fee = _clean(row.get("fee_text"))
-        parts.extend([f"管理費:{fee}", f"共益費:{fee}", f"敷金:{_clean(row.get('deposit_text'))}", f"礼金:{_clean(row.get('key_money_text'))}"])
-    else:
-        parts.extend([f"管理費:{_clean(row.get('fee_text'))}", f"修繕積立金:{_clean(row.get('repair_fund_text'))}"])
+        parts.extend([f"管理費:{fee}", f"敷金:{_clean(row.get('deposit_text'))}", f"礼金:{_clean(row.get('key_money_text'))}"])
     return " | ".join(part for part in parts if not part.endswith(":"))
 
 
@@ -102,7 +101,7 @@ def _evidence_id(row: dict[str, str]) -> str:
         for key in (
             "price_or_rent_text",
             "fee_text",
-            "repair_fund_text",
+            "tsubo_unit_price_text",
             "deposit_text",
             "key_money_text",
             "area_text",
@@ -144,7 +143,7 @@ def convert(input_csv: Path, output_csv: Path, updated_at: str | None) -> int:
                     "room": "",
                     "address": _clean(src.get("address")),
                     "rent_man": _extract_man_value(src.get("price_or_rent_text") or ""),
-                    "fee_man": _extract_man_value(src.get("fee_text") or ""),
+                    "fee_man": _extract_man_value(src.get("fee_text") or "") if kind == "chintai" else "",
                     "floor": _clean(src.get("floor_text")),
                     "layout": _simple_layout(src.get("layout_text")),
                     "area_sqm": _extract_area(src.get("area_text") or ""),

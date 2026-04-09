@@ -44,7 +44,7 @@ LIST_COLUMNS = (
     "total_units_text",
     "price_or_rent_text",
     "fee_text",
-    "repair_fund_text",
+    "tsubo_unit_price_text",
     "deposit_text",
     "key_money_text",
     "area_text",
@@ -80,7 +80,7 @@ class ListRow:
     total_units_text: str
     price_or_rent_text: str
     fee_text: str
-    repair_fund_text: str
+    tsubo_unit_price_text: str
     deposit_text: str
     key_money_text: str
     area_text: str
@@ -200,11 +200,6 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
     cards = tree.css("li.property-detail-list-item, section.property-detail-list-item, article.property-detail-list-item")
     selector_trace = ["li/section/article.property-detail-list-item"]
 
-    if not cards:
-        # 最小限の互換: 古い fixture 用。
-        cards = tree.css("section.property-card, article.property-card")
-        selector_trace.append("section/article.property-card")
-
     rows: list[ListRow] = []
     for card in cards:
         facts = _extract_building_facts(card)
@@ -231,7 +226,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
             columns = {headers[idx]: cells[idx] for idx in range(min(len(headers), len(cells)))} if headers else {}
 
             if kind == "chintai":
-                rent_or_combined = _value_from_columns(columns, "賃料(管理費)", "賃料", "賃料/管理費") or (cells[0] if cells else "")
+                rent_or_combined = _value_from_columns(columns, "賃料", "賃料(管理費)", "賃料/管理費")
                 rent_text, fee_inline = _split_rent_and_fee(rent_or_combined)
                 fee_text = _value_from_columns(columns, "管理費", "共益費") or fee_inline
                 row = ListRow(
@@ -249,13 +244,13 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                     total_units_text=total_units_text,
                     price_or_rent_text=rent_text,
                     fee_text=fee_text,
-                    repair_fund_text="",
+                    tsubo_unit_price_text="",
                     deposit_text=_value_from_columns(columns, "敷金"),
                     key_money_text=_value_from_columns(columns, "礼金"),
                     area_text=_value_from_columns(columns, "専有面積", "面積"),
                     layout_text=_value_from_columns(columns, "間取り"),
-                    floor_text=_value_from_columns(columns, "所在階", "階"),
-                    direction_text=_value_from_columns(columns, "向き", "主要採光面"),
+                    floor_text="",
+                    direction_text="",
                 )
             else:
                 row = ListRow(
@@ -271,9 +266,9 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                     built_text=built_text,
                     building_floor_count_text=building_floor_count_text,
                     total_units_text=total_units_text,
-                    price_or_rent_text=_value_from_columns(columns, "価格", "販売価格") or (cells[0] if cells else ""),
-                    fee_text=_value_from_columns(columns, "管理費"),
-                    repair_fund_text=_value_from_columns(columns, "修繕積立金"),
+                    price_or_rent_text=_value_from_columns(columns, "価格", "販売価格"),
+                    fee_text="",
+                    tsubo_unit_price_text=_value_from_columns(columns, "坪単価"),
                     deposit_text="",
                     key_money_text="",
                     area_text=_value_from_columns(columns, "専有面積", "面積"),
