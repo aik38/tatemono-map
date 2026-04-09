@@ -14,7 +14,7 @@ parse_list_page = crawl.parse_list_page
 parse_max_page = crawl.parse_max_page
 
 
-def test_parse_list_page_chintai_uses_fixed_selectors_and_row_unit() -> None:
+def test_parse_list_page_chintai_uses_recommend_row_and_splits_rent_fee() -> None:
     html = """
     <html><body>
       <li class="property-detail-list-item">
@@ -30,11 +30,11 @@ def test_parse_list_page_chintai_uses_fixed_selectors_and_row_unit() -> None:
         </div>
         <table class="recommendTable">
           <thead>
-            <tr><th>賃料(管理費)</th><th>敷金</th><th>礼金</th><th>専有面積</th><th>間取り</th><th>所在階</th><th>向き</th></tr>
+            <tr><th>賃料</th><th>管理費</th><th>敷金</th><th>礼金</th><th>専有面積</th><th>間取り</th></tr>
           </thead>
           <tbody class="recommend_row">
-            <tr><td>7.8万円(5,000円)</td><td>1ヶ月</td><td>2ヶ月</td><td>41.2㎡</td><td>1LDK</td><td>3階</td><td>南</td></tr>
-            <tr><td>8.4万円(6,000円)</td><td>1ヶ月</td><td>2ヶ月</td><td>44.2㎡</td><td>2LDK</td><td>7階</td><td>東</td></tr>
+            <tr><td>7.8万円</td><td>5,000円</td><td>1ヶ月</td><td>2ヶ月</td><td>41.2㎡</td><td>1LDK</td></tr>
+            <tr><td>8.4万円</td><td>6,000円</td><td>1ヶ月</td><td>2ヶ月</td><td>44.2㎡</td><td>2LDK</td></tr>
           </tbody>
         </table>
         <a href="/chintai/91001">詳細</a>
@@ -65,7 +65,7 @@ def test_parse_list_page_chintai_uses_fixed_selectors_and_row_unit() -> None:
     assert first.layout_text == "1LDK"
 
 
-def test_parse_list_page_mansion_uses_recommend_row_columns() -> None:
+def test_parse_list_page_mansion_uses_price_tsubo_area_layout_floor_direction() -> None:
     html = """
     <html><body>
       <article class="property-detail-list-item">
@@ -81,11 +81,11 @@ def test_parse_list_page_mansion_uses_recommend_row_columns() -> None:
         </div>
         <table class="recommendTable">
           <thead>
-            <tr><th>価格</th><th>管理費</th><th>修繕積立金</th><th>専有面積</th><th>間取り</th><th>所在階</th><th>向き</th></tr>
+            <tr><th>価格</th><th>坪単価</th><th>専有面積</th><th>間取り</th><th>所在階</th><th>向き</th></tr>
           </thead>
           <tbody class="recommend_row">
-            <tr><td>3,180万円</td><td>9,000円</td><td>7,000円</td><td>66.0㎡</td><td>2LDK</td><td>7階</td><td>南</td></tr>
-            <tr><td>4,200万円</td><td>12,000円</td><td>8,000円</td><td>72.0㎡</td><td>3LDK</td><td>10階</td><td>東</td></tr>
+            <tr><td>3,180万円</td><td>159万円/坪</td><td>66.0㎡</td><td>2LDK</td><td>7階</td><td>南</td></tr>
+            <tr><td>4,200万円</td><td>192万円/坪</td><td>72.0㎡</td><td>3LDK</td><td>10階</td><td>東</td></tr>
           </tbody>
         </table>
         <a href="/mansion/80011">物件詳細</a>
@@ -101,10 +101,32 @@ def test_parse_list_page_mansion_uses_recommend_row_columns() -> None:
     )
     assert len(rows) == 2
     assert rows[0].price_or_rent_text == "3,180万円"
-    assert rows[0].fee_text == "9,000円"
-    assert rows[0].repair_fund_text == "7,000円"
-    assert rows[1].price_or_rent_text == "4,200万円"
-    assert rows[1].layout_text == "3LDK"
+    assert rows[0].tsubo_unit_price_text == "159万円/坪"
+    assert rows[0].area_text == "66.0㎡"
+    assert rows[0].layout_text == "2LDK"
+    assert rows[0].floor_text == "7階"
+    assert rows[0].direction_text == "南"
+    assert rows[0].fee_text == ""
+
+
+def test_parse_list_page_does_not_use_property_card_fallback() -> None:
+    html = """
+    <html><body>
+      <section class="property-card">
+        <h2 class="property-name">旧形式カード</h2>
+        <table class="recommendTable"><tbody class="recommend_row"><tr><td>1</td></tr></tbody></table>
+      </section>
+    </body></html>
+    """
+    rows, debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1619.html",
+        kind="chintai",
+        city_id="1619",
+        page_no=1,
+    )
+    assert rows == []
+    assert debug.selector_hits["cards"] == 0
 
 
 def test_parse_max_page_from_links() -> None:
