@@ -171,6 +171,8 @@ def _extract_detail_url(card: Node, page_url: str, kind: str) -> str:
 def _headers_for_table(table: Node) -> list[str]:
     head_cells = table.css("thead th")
     if not head_cells:
+        head_cells = table.css("tr.recommend_head th, tr.recommendHead th")
+    if not head_cells:
         return []
     return [normalize_space(cell.text(separator=" ")).replace(" ", "") for cell in head_cells]
 
@@ -193,6 +195,34 @@ def _value_from_columns(columns: dict[str, str], *keys: str) -> str:
         if key in columns:
             return columns[key]
     return ""
+
+
+def _columns_from_row(tr: Node, headers: list[str], *, kind: str) -> dict[str, str]:
+    cells = [normalize_space(td.text(separator=" ")) for td in tr.css("td")]
+    if not cells:
+        return {}
+
+    if headers:
+        return {headers[idx]: cells[idx] for idx in range(min(len(headers), len(cells)))}
+
+    inferred: dict[str, str] = {}
+    td_nodes = tr.css("td")
+    for idx, td in enumerate(td_nodes):
+        label = normalize_space(
+            td.attributes.get("data-th")
+            or td.attributes.get("data-title")
+            or td.attributes.get("data-label")
+        ).replace(" ", "")
+        if label:
+            inferred[label] = cells[idx]
+    if inferred:
+        return inferred
+
+    if kind == "chintai":
+        ordered_keys = ["賃料", "管理費", "敷金", "礼金", "専有面積", "間取り"]
+    else:
+        ordered_keys = ["価格", "坪単価", "専有面積", "間取り", "所在階", "向き"]
+    return {ordered_keys[idx]: cells[idx] for idx in range(min(len(ordered_keys), len(cells)))}
 
 
 def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: int) -> tuple[list[ListRow], ParseDebug]:
@@ -220,10 +250,9 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         headers = _headers_for_table(recommend_table)
         recommend_rows = recommend_table.css("tbody.recommend_row tr")
         for tr in recommend_rows:
-            cells = [normalize_space(td.text(separator=" ")) for td in tr.css("td")]
-            if not cells:
+            columns = _columns_from_row(tr, headers, kind=kind)
+            if not columns:
                 continue
-            columns = {headers[idx]: cells[idx] for idx in range(min(len(headers), len(cells)))} if headers else {}
 
             if kind == "chintai":
                 rent_or_combined = _value_from_columns(columns, "賃料", "賃料(管理費)", "賃料/管理費")
@@ -373,7 +402,13 @@ def run_crawl(
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     run_dir = out_root / timestamp
     all_rows: list[ListRow] = []
-    stats: dict[str, object] = {"pages_total": 0, "rows_total": 0, "errors": []}
+    stats: dict[str, object] = {
+        "pages_total": 0,
+        "rows_total": 0,
+        "errors": [],
+        "rows_by_kind": {},
+        "unique_detail_url_by_kind": {},
+    }
 
     session = requests.Session()
     session.headers.update({"User-Agent": user_agent})
@@ -419,6 +454,15 @@ def run_crawl(
     list_csv = run_dir / f"mansion_review_list_{timestamp}.csv"
     _write_list_csv(all_rows, list_csv)
     stats["rows_total"] = len(all_rows)
+    rows_by_kind: dict[str, int] = {}
+    detail_by_kind: dict[str, set[str]] = {}
+    for row in all_rows:
+        rows_by_kind[row.kind] = rows_by_kind.get(row.kind, 0) + 1
+        detail_by_kind.setdefault(row.kind, set())
+        if row.detail_url:
+            detail_by_kind[row.kind].add(row.detail_url)
+    stats["rows_by_kind"] = rows_by_kind
+    stats["unique_detail_url_by_kind"] = {k: len(v) for k, v in detail_by_kind.items()}
 
     if mode == "facts":
         facts_rows = _facts_rows_from_list_rows(all_rows)
@@ -467,6 +511,12 @@ def main() -> int:
         f"[OK] pages_total={stats['pages_total']} rows_total={stats['rows_total']} "
         f"errors={len(stats['errors'])} out_csv={out_csv}"
     )
+    for kind in kinds:
+        print(f"[OK] kind={kind} rows={stats.get('rows_by_kind', {}).get(kind, 0)}")
+        print(
+            f"[OK] kind={kind} unique_detail_url="
+            f"{stats.get('unique_detail_url_by_kind', {}).get(kind, 0)}"
+        )
     print(f"[OK] stats={out_dir / 'stats.json'}")
     return 0
 
