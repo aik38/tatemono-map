@@ -9,7 +9,6 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
 from urllib.parse import urljoin
 
 import requests
@@ -63,6 +62,9 @@ FACTS_COLUMNS = (
     "raw_block",
 )
 
+CHINTAI_ORDER = ["賃料", "管理費", "敷金", "礼金", "専有面積", "間取り"]
+MANSION_ORDER = ["価格", "坪単価", "専有面積", "間取り", "所在階", "向き"]
+
 
 @dataclass
 class ListRow:
@@ -89,12 +91,6 @@ class ListRow:
     direction_text: str
 
 
-@dataclass
-class ParseDebug:
-    selector_hits: dict[str, int]
-    selector_trace: list[str]
-
-
 def normalize_space(text: str | None) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
@@ -119,25 +115,25 @@ def parse_max_page(html: str, *, kind: str, city_id: str) -> int:
     for node in tree.css("a[href]"):
         href = normalize_space(node.attributes.get("href"))
         m = pattern.search(href)
-        if not m:
-            continue
-        page = int(m.group(1) or "1")
-        max_page = max(max_page, page)
+        if m:
+            max_page = max(max_page, int(m.group(1) or "1"))
     return max_page
 
 
-def _extract_building_facts(card: Node) -> dict[str, str]:
+def _extract_facts_map(card: Node) -> dict[str, str]:
     root = card.css_first(".property-detail-content_main")
     if root is None:
         return {}
 
     facts: dict[str, str] = {}
     for dl in root.css("dl"):
-        for dt, dd in zip(dl.css("dt"), dl.css("dd")):
+        dts = dl.css("dt")
+        dds = dl.css("dd")
+        for dt, dd in zip(dts, dds):
             key = normalize_space(dt.text(separator=" ")).replace("：", "").replace(":", "")
-            value = normalize_space(dd.text(separator=" "))
-            if key and value:
-                facts[key] = value
+            val = normalize_space(dd.text(separator=" "))
+            if key and val:
+                facts[key] = val
 
     for row in root.css("tr"):
         th = row.css_first("th")
@@ -145,13 +141,14 @@ def _extract_building_facts(card: Node) -> dict[str, str]:
         if not th or not td:
             continue
         key = normalize_space(th.text(separator=" ")).replace("：", "").replace(":", "")
-        value = normalize_space(td.text(separator=" "))
-        if key and value:
-            facts[key] = value
+        val = normalize_space(td.text(separator=" "))
+        if key and val:
+            facts[key] = val
+
     return facts
 
 
-def _building_fact_value(facts: dict[str, str], labels: Iterable[str]) -> str:
+def _fact(facts: dict[str, str], *labels: str) -> str:
     for label in labels:
         value = normalize_space(facts.get(label))
         if value:
@@ -168,157 +165,120 @@ def _extract_detail_url(card: Node, page_url: str, kind: str) -> str:
     return ""
 
 
-def _headers_for_table(table: Node) -> list[str]:
-    head_cells = table.css("thead th")
-    if not head_cells:
-        head_cells = table.css("tr.recommend_head th, tr.recommendHead th")
-    if not head_cells:
-        return []
-    return [normalize_space(cell.text(separator=" ")).replace(" ", "") for cell in head_cells]
+def _table_headers(table: Node) -> list[str]:
+    ths = table.css("thead th") or table.css("tr.recommend_head th, tr.recommendHead th")
+    return [normalize_space(th.text(separator=" ")).replace(" ", "") for th in ths]
 
 
-def _split_rent_and_fee(value: str) -> tuple[str, str]:
-    text = normalize_space(value)
-    if not text:
-        return "", ""
-    m = re.match(r"^(.*?)\((.*?)\)$", text)
-    if m:
-        return normalize_space(m.group(1)), normalize_space(m.group(2))
-    if "/" in text:
-        left, right = text.split("/", 1)
-        return normalize_space(left), normalize_space(right)
-    return text, ""
-
-
-def _value_from_columns(columns: dict[str, str], *keys: str) -> str:
-    for key in keys:
-        if key in columns:
-            return columns[key]
-    return ""
-
-
-def _columns_from_row(tr: Node, headers: list[str], *, kind: str) -> dict[str, str]:
+def _row_columns(tr: Node, headers: list[str], order: list[str]) -> dict[str, str]:
     cells = [normalize_space(td.text(separator=" ")) for td in tr.css("td")]
     if not cells:
         return {}
 
     if headers:
-        return {headers[idx]: cells[idx] for idx in range(min(len(headers), len(cells)))}
+        return {headers[i]: cells[i] for i in range(min(len(headers), len(cells)))}
 
-    inferred: dict[str, str] = {}
-    td_nodes = tr.css("td")
-    for idx, td in enumerate(td_nodes):
-        label = normalize_space(
+    labeled: dict[str, str] = {}
+    for i, td in enumerate(tr.css("td")):
+        key = normalize_space(
             td.attributes.get("data-th")
             or td.attributes.get("data-title")
             or td.attributes.get("data-label")
         ).replace(" ", "")
-        if label:
-            inferred[label] = cells[idx]
-    if inferred:
-        return inferred
+        if key:
+            labeled[key] = cells[i]
+    if labeled:
+        return labeled
 
-    if kind == "chintai":
-        ordered_keys = ["賃料", "管理費", "敷金", "礼金", "専有面積", "間取り"]
-    else:
-        ordered_keys = ["価格", "坪単価", "専有面積", "間取り", "所在階", "向き"]
-    return {ordered_keys[idx]: cells[idx] for idx in range(min(len(ordered_keys), len(cells)))}
+    return {order[i]: cells[i] for i in range(min(len(order), len(cells)))}
 
 
-def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: int) -> tuple[list[ListRow], ParseDebug]:
+def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: int) -> tuple[list[ListRow], dict[str, int]]:
     tree = HTMLParser(html)
     cards = tree.css("li.property-detail-list-item, section.property-detail-list-item, article.property-detail-list-item")
-    selector_trace = ["li/section/article.property-detail-list-item"]
-
     rows: list[ListRow] = []
+
     for card in cards:
-        facts = _extract_building_facts(card)
-        building_name = normalize_space(
-            (card.css_first("h1, h2, h3, .property-name, .mansionName") or card).text(separator=" ")
-        )
-        address = _building_fact_value(facts, ("住所", "所在地"))
-        access_text = _building_fact_value(facts, ("交通", "アクセス"))
-        built_text = _building_fact_value(facts, ("築年数", "築年月", "築"))
-        building_floor_count_text = _building_fact_value(facts, ("階建て", "建物階数"))
-        total_units_text = _building_fact_value(facts, ("総戸数",))
+        facts = _extract_facts_map(card)
+        name_node = card.css_first("h1, h2, h3, .property-name, .mansionName")
+        building_name = normalize_space(name_node.text(separator=" ") if name_node else "")
         detail_url = _extract_detail_url(card, page_url, kind)
 
-        recommend_table = card.css_first("table.recommendTable")
-        if recommend_table is None:
+        table = card.css_first("table.recommendTable")
+        if table is None:
             continue
 
-        headers = _headers_for_table(recommend_table)
-        recommend_rows = recommend_table.css("tbody.recommend_row tr")
-        for tr in recommend_rows:
-            columns = _columns_from_row(tr, headers, kind=kind)
-            if not columns:
+        headers = _table_headers(table)
+        row_nodes = table.css("tbody.recommend_row tr")
+        for tr in row_nodes:
+            cols = _row_columns(tr, headers, CHINTAI_ORDER if kind == "chintai" else MANSION_ORDER)
+            if not cols:
                 continue
 
             if kind == "chintai":
-                rent_or_combined = _value_from_columns(columns, "賃料", "賃料(管理費)", "賃料/管理費")
-                rent_text, fee_inline = _split_rent_and_fee(rent_or_combined)
-                fee_text = _value_from_columns(columns, "管理費", "共益費") or fee_inline
-                row = ListRow(
-                    kind=kind,
-                    city_id=city_id,
-                    ward=CITY_MAP.get(city_id, ""),
-                    city_page=f"{city_id}_{page_no}",
-                    page_url=page_url,
-                    detail_url=detail_url,
-                    building_name=building_name,
-                    address=address,
-                    access_text=access_text,
-                    built_text=built_text,
-                    building_floor_count_text=building_floor_count_text,
-                    total_units_text=total_units_text,
-                    price_or_rent_text=rent_text,
-                    fee_text=fee_text,
-                    tsubo_unit_price_text="",
-                    deposit_text=_value_from_columns(columns, "敷金"),
-                    key_money_text=_value_from_columns(columns, "礼金"),
-                    area_text=_value_from_columns(columns, "専有面積", "面積"),
-                    layout_text=_value_from_columns(columns, "間取り"),
-                    floor_text="",
-                    direction_text="",
+                rows.append(
+                    ListRow(
+                        kind=kind,
+                        city_id=city_id,
+                        ward=CITY_MAP.get(city_id, ""),
+                        city_page=f"{city_id}_{page_no}",
+                        page_url=page_url,
+                        detail_url=detail_url,
+                        building_name=building_name,
+                        address=_fact(facts, "住所", "所在地"),
+                        access_text=_fact(facts, "交通", "アクセス"),
+                        built_text=_fact(facts, "築年数", "築年月", "築"),
+                        building_floor_count_text=_fact(facts, "階建て", "建物階数"),
+                        total_units_text=_fact(facts, "総戸数"),
+                        price_or_rent_text=cols.get("賃料", cols.get("賃料(管理費)", "")),
+                        fee_text=cols.get("管理費", cols.get("共益費", "")),
+                        tsubo_unit_price_text="",
+                        deposit_text=cols.get("敷金", ""),
+                        key_money_text=cols.get("礼金", ""),
+                        area_text=cols.get("専有面積", cols.get("面積", "")),
+                        layout_text=cols.get("間取り", ""),
+                        floor_text="",
+                        direction_text="",
+                    )
                 )
             else:
-                row = ListRow(
-                    kind=kind,
-                    city_id=city_id,
-                    ward=CITY_MAP.get(city_id, ""),
-                    city_page=f"{city_id}_{page_no}",
-                    page_url=page_url,
-                    detail_url=detail_url,
-                    building_name=building_name,
-                    address=address,
-                    access_text=access_text,
-                    built_text=built_text,
-                    building_floor_count_text=building_floor_count_text,
-                    total_units_text=total_units_text,
-                    price_or_rent_text=_value_from_columns(columns, "価格", "販売価格"),
-                    fee_text="",
-                    tsubo_unit_price_text=_value_from_columns(columns, "坪単価"),
-                    deposit_text="",
-                    key_money_text="",
-                    area_text=_value_from_columns(columns, "専有面積", "面積"),
-                    layout_text=_value_from_columns(columns, "間取り"),
-                    floor_text=_value_from_columns(columns, "所在階", "階"),
-                    direction_text=_value_from_columns(columns, "向き", "主要採光面"),
+                rows.append(
+                    ListRow(
+                        kind=kind,
+                        city_id=city_id,
+                        ward=CITY_MAP.get(city_id, ""),
+                        city_page=f"{city_id}_{page_no}",
+                        page_url=page_url,
+                        detail_url=detail_url,
+                        building_name=building_name,
+                        address=_fact(facts, "住所", "所在地"),
+                        access_text=_fact(facts, "交通", "アクセス"),
+                        built_text=_fact(facts, "築年数", "築年月", "築"),
+                        building_floor_count_text=_fact(facts, "階建て", "建物階数"),
+                        total_units_text=_fact(facts, "総戸数"),
+                        price_or_rent_text=cols.get("価格", cols.get("販売価格", "")),
+                        fee_text="",
+                        tsubo_unit_price_text=cols.get("坪単価", ""),
+                        deposit_text="",
+                        key_money_text="",
+                        area_text=cols.get("専有面積", cols.get("面積", "")),
+                        layout_text=cols.get("間取り", ""),
+                        floor_text=cols.get("所在階", cols.get("階", "")),
+                        direction_text=cols.get("向き", cols.get("主要採光面", "")),
+                    )
                 )
-            rows.append(row)
 
-    return rows, ParseDebug(selector_hits={"cards": len(cards), "rows": len(rows)}, selector_trace=selector_trace)
+    return rows, {"cards": len(cards), "rows": len(rows)}
 
 
 def _cache_path(cache_dir: Path, url: str) -> Path:
-    key = hashlib.sha1(url.encode("utf-8")).hexdigest()
-    return cache_dir / f"{key}.html"
+    return cache_dir / f"{hashlib.sha1(url.encode('utf-8')).hexdigest()}.html"
 
 
-def fetch_html(session: requests.Session, url: str, cache_dir: Path, *, retry_count: int, sleep_sec: float) -> tuple[str, bool]:
-    cache_file = _cache_path(cache_dir, url)
-    if cache_file.exists():
-        return cache_file.read_text(encoding="utf-8"), True
+def fetch_html(session: requests.Session, url: str, cache_dir: Path, *, retry_count: int, sleep_sec: float) -> str:
+    path = _cache_path(cache_dir, url)
+    if path.exists():
+        return path.read_text(encoding="utf-8")
 
     last_error: Exception | None = None
     for attempt in range(retry_count + 1):
@@ -327,9 +287,9 @@ def fetch_html(session: requests.Session, url: str, cache_dir: Path, *, retry_co
             response.raise_for_status()
             response.encoding = response.encoding or "utf-8"
             html = response.text
-            cache_file.parent.mkdir(parents=True, exist_ok=True)
-            cache_file.write_text(html, encoding="utf-8")
-            return html, False
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(html, encoding="utf-8")
+            return html
         except Exception as err:  # noqa: BLE001
             last_error = err
             if attempt < retry_count:
@@ -351,32 +311,30 @@ def _parse_total_units(value: str) -> str:
     return m.group(1) if m else ""
 
 
-def _facts_rows_from_list_rows(rows: list[ListRow]) -> list[dict[str, str]]:
-    result: dict[tuple[str, str], dict[str, str]] = {}
+def _to_facts_rows(rows: list[ListRow]) -> list[dict[str, str]]:
+    dedup: dict[tuple[str, str], dict[str, str]] = {}
     for row in rows:
         key = (row.kind, f"{row.building_name}|{row.address}")
-        if key in result:
+        if key in dedup:
             continue
-        raw_block = " | ".join(
-            [
-                f"交通:{row.access_text}",
-                f"築年数:{row.built_text}",
-                f"階建て:{row.building_floor_count_text}",
-                f"総戸数:{row.total_units_text}",
-                f"詳細URL:{row.detail_url}",
-            ]
-        )
-        evidence_source = row.detail_url or f"{row.kind}:{row.building_name}:{row.address}"
-        result[key] = {
+        dedup[key] = {
             "building_name": row.building_name,
             "address": row.address,
             "access_info": row.access_text,
             "floor_count_text": row.building_floor_count_text,
             "total_units": _parse_total_units(row.total_units_text),
-            "evidence_id": f"mansion_review:{evidence_source}",
-            "raw_block": raw_block,
+            "evidence_id": f"mansion_review:{row.detail_url or row.page_url}",
+            "raw_block": " | ".join(
+                [
+                    f"交通:{row.access_text}",
+                    f"築年数:{row.built_text}",
+                    f"階建て:{row.building_floor_count_text}",
+                    f"総戸数:{row.total_units_text}",
+                    f"詳細URL:{row.detail_url}",
+                ]
+            ),
         }
-    return list(result.values())
+    return list(dedup.values())
 
 
 def _write_facts_csv(rows: list[dict[str, str]], path: Path) -> None:
@@ -401,77 +359,70 @@ def run_crawl(
 ) -> tuple[Path, Path, dict[str, object]]:
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     run_dir = out_root / timestamp
-    all_rows: list[ListRow] = []
-    stats: dict[str, object] = {
-        "pages_total": 0,
-        "rows_total": 0,
-        "errors": [],
-        "rows_by_kind": {},
-        "unique_detail_url_by_kind": {},
-    }
 
     session = requests.Session()
     session.headers.update({"User-Agent": user_agent})
 
+    all_rows: list[ListRow] = []
+    stats: dict[str, object] = {
+        "pages_total": 0,
+        "rows_total": 0,
+        "rows_by_kind": {},
+        "unique_detail_url_by_kind": {},
+        "errors": [],
+    }
+
     for kind in kinds:
         for city_id in city_ids:
-            page1_url = build_city_page_url(kind, city_id, 1)
             try:
-                page1_html, _ = fetch_html(
+                first_html = fetch_html(
                     session,
-                    page1_url,
+                    build_city_page_url(kind, city_id, 1),
                     cache_dir,
                     retry_count=retry_count,
                     sleep_sec=sleep_sec,
                 )
-            except Exception as err:  # noqa: BLE001
-                stats["errors"].append({"kind": kind, "city_id": city_id, "page": 1, "url": page1_url, "error": str(err)})
-                continue
+                total_pages = parse_max_page(first_html, kind=kind, city_id=city_id)
+                if max_pages > 0:
+                    total_pages = min(total_pages, max_pages)
 
-            total_pages = parse_max_page(page1_html, kind=kind, city_id=city_id)
-            if max_pages > 0:
-                total_pages = min(total_pages, max_pages)
-
-            for page_no in range(1, total_pages + 1):
-                page_url = build_city_page_url(kind, city_id, page_no)
-                try:
-                    html, _ = (page1_html, True) if page_no == 1 else fetch_html(
+                for page_no in range(1, total_pages + 1):
+                    url = build_city_page_url(kind, city_id, page_no)
+                    html = first_html if page_no == 1 else fetch_html(
                         session,
-                        page_url,
+                        url,
                         cache_dir,
                         retry_count=retry_count,
                         sleep_sec=sleep_sec,
                     )
-                    rows, _ = parse_list_page(html, page_url, kind, city_id, page_no)
+                    rows, _ = parse_list_page(html, url, kind, city_id, page_no)
                     all_rows.extend(rows)
                     stats["pages_total"] = int(stats["pages_total"]) + 1
-                except Exception as err:  # noqa: BLE001
-                    stats["errors"].append(
-                        {"kind": kind, "city_id": city_id, "page": page_no, "url": page_url, "error": str(err)}
-                    )
-                time.sleep(sleep_sec)
+                    time.sleep(sleep_sec)
+            except Exception as err:  # noqa: BLE001
+                casted = stats["errors"]
+                assert isinstance(casted, list)
+                casted.append({"kind": kind, "city_id": city_id, "error": str(err)})
 
     list_csv = run_dir / f"mansion_review_list_{timestamp}.csv"
     _write_list_csv(all_rows, list_csv)
-    stats["rows_total"] = len(all_rows)
+
     rows_by_kind: dict[str, int] = {}
-    detail_by_kind: dict[str, set[str]] = {}
+    detail_urls_by_kind: dict[str, set[str]] = {}
     for row in all_rows:
         rows_by_kind[row.kind] = rows_by_kind.get(row.kind, 0) + 1
-        detail_by_kind.setdefault(row.kind, set())
+        detail_urls_by_kind.setdefault(row.kind, set())
         if row.detail_url:
-            detail_by_kind[row.kind].add(row.detail_url)
+            detail_urls_by_kind[row.kind].add(row.detail_url)
+    stats["rows_total"] = len(all_rows)
     stats["rows_by_kind"] = rows_by_kind
-    stats["unique_detail_url_by_kind"] = {k: len(v) for k, v in detail_by_kind.items()}
+    stats["unique_detail_url_by_kind"] = {k: len(v) for k, v in detail_urls_by_kind.items()}
 
+    out_csv = list_csv
     if mode == "facts":
-        facts_rows = _facts_rows_from_list_rows(all_rows)
         facts_csv = out_root / "combined" / f"building_facts_{timestamp}.csv"
-        _write_facts_csv(facts_rows, facts_csv)
-        stats["facts_total"] = len(facts_rows)
+        _write_facts_csv(_to_facts_rows(all_rows), facts_csv)
         out_csv = facts_csv
-    else:
-        out_csv = list_csv
 
     run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "stats.json").write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -481,7 +432,7 @@ def run_crawl(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Crawl mansion-review city list pages and export CSV")
     parser.add_argument("--city-ids", default="1616,1619")
-    parser.add_argument("--kinds", default="mansion,chintai")
+    parser.add_argument("--kinds", default="chintai,mansion")
     parser.add_argument("--mode", default="list", choices=["list", "facts"])
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT))
     parser.add_argument("--cache-dir", default=str(DEFAULT_CACHE))
@@ -493,10 +444,8 @@ def main() -> int:
 
     city_ids = parse_csv_arg(args.city_ids)
     kinds = parse_csv_arg(args.kinds)
-    if not city_ids or not kinds:
-        raise SystemExit("--city-ids/--kinds must not be empty")
 
-    out_dir, out_csv, stats = run_crawl(
+    run_dir, out_csv, stats = run_crawl(
         city_ids=city_ids,
         kinds=kinds,
         mode=args.mode,
@@ -507,17 +456,14 @@ def main() -> int:
         retry_count=args.retry_count,
         user_agent=args.user_agent,
     )
-    print(
-        f"[OK] pages_total={stats['pages_total']} rows_total={stats['rows_total']} "
-        f"errors={len(stats['errors'])} out_csv={out_csv}"
-    )
+
+    print(f"[OK] pages_total={stats['pages_total']}")
+    print(f"[OK] rows_total={stats['rows_total']}")
     for kind in kinds:
         print(f"[OK] kind={kind} rows={stats.get('rows_by_kind', {}).get(kind, 0)}")
-        print(
-            f"[OK] kind={kind} unique_detail_url="
-            f"{stats.get('unique_detail_url_by_kind', {}).get(kind, 0)}"
-        )
-    print(f"[OK] stats={out_dir / 'stats.json'}")
+        print(f"[OK] kind={kind} unique_detail_url={stats.get('unique_detail_url_by_kind', {}).get(kind, 0)}")
+    print(f"[OK] out_csv={out_csv}")
+    print(f"[OK] stats={run_dir / 'stats.json'}")
     return 0
 
 

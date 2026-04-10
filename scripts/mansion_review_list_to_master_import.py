@@ -49,56 +49,59 @@ def _extract_man_value(text: str) -> str:
     normalized = _clean(text).replace(",", "")
     if not normalized:
         return ""
-    m = re.search(r"(\d+(?:\.\d+)?)\s*万円", normalized)
-    if m:
-        return m.group(1)
+
+    man = re.search(r"(\d+(?:\.\d+)?)\s*万円", normalized)
+    if man:
+        return man.group(1)
+
     yen = re.search(r"(\d+)\s*円", normalized)
-    if not yen:
-        return ""
-    value = int(yen.group(1)) / 10000
-    return f"{value:.4f}".rstrip("0").rstrip(".")
+    if yen:
+        value = int(yen.group(1)) / 10000
+        return f"{value:.4f}".rstrip("0").rstrip(".")
+
+    return ""
 
 
-def _extract_area(text: str) -> str:
+def _extract_area_sqm(text: str) -> str:
     m = re.search(r"(\d+(?:\.\d+)?)\s*(?:㎡|m²|m2)", _clean(text))
     return m.group(1) if m else ""
 
 
 def _simple_layout(value: str | None) -> str:
     layout = _clean(value)
-    if len(layout) > 40:
-        return ""
-    return layout
+    return "" if len(layout) > 40 else layout
 
 
-def _build_raw_block(row: dict[str, str], *, kind: str) -> str:
-    parts = [
-        f"種類:{_clean(row.get('kind'))}",
-        f"市区:{_clean(row.get('ward'))}",
-        f"価格賃料:{_clean(row.get('price_or_rent_text'))}",
-        f"間取り:{_clean(row.get('layout_text'))}",
-        f"面積:{_clean(row.get('area_text'))}",
-        f"所在階:{_clean(row.get('floor_text'))}",
-        f"向き:{_clean(row.get('direction_text'))}",
-        f"坪単価:{_clean(row.get('tsubo_unit_price_text'))}",
-        f"交通:{_clean(row.get('access_text'))}",
-        f"築年数:{_clean(row.get('built_text'))}",
-        f"階建て:{_clean(row.get('building_floor_count_text'))}",
-        f"総戸数:{_clean(row.get('total_units_text'))}",
-        f"詳細URL:{_clean(row.get('detail_url'))}",
-        f"一覧URL:{_clean(row.get('page_url'))}",
+def _build_raw_block(row: dict[str, str]) -> str:
+    fields = [
+        ("種類", row.get("kind")),
+        ("市区", row.get("ward")),
+        ("価格賃料", row.get("price_or_rent_text")),
+        ("管理費", row.get("fee_text")),
+        ("坪単価", row.get("tsubo_unit_price_text")),
+        ("敷金", row.get("deposit_text")),
+        ("礼金", row.get("key_money_text")),
+        ("専有面積", row.get("area_text")),
+        ("間取り", row.get("layout_text")),
+        ("所在階", row.get("floor_text")),
+        ("向き", row.get("direction_text")),
+        ("住所", row.get("address")),
+        ("交通", row.get("access_text")),
+        ("築年数", row.get("built_text")),
+        ("階建て", row.get("building_floor_count_text")),
+        ("総戸数", row.get("total_units_text")),
+        ("詳細URL", row.get("detail_url")),
+        ("一覧URL", row.get("page_url")),
     ]
-    if kind == "chintai":
-        fee = _clean(row.get("fee_text"))
-        parts.extend([f"管理費:{fee}", f"敷金:{_clean(row.get('deposit_text'))}", f"礼金:{_clean(row.get('key_money_text'))}"])
-    return " | ".join(part for part in parts if not part.endswith(":"))
+    return " | ".join(f"{k}:{_clean(v)}" for k, v in fields if _clean(v))
 
 
 def _evidence_id(row: dict[str, str]) -> str:
     detail_url = _clean(row.get("detail_url"))
-    material = "|".join(
-        _clean(row.get(key))
-        for key in (
+    payload = "|".join(
+        _clean(row.get(k))
+        for k in (
+            "kind",
             "price_or_rent_text",
             "fee_text",
             "tsubo_unit_price_text",
@@ -110,18 +113,17 @@ def _evidence_id(row: dict[str, str]) -> str:
             "direction_text",
         )
     )
-    digest = hashlib.sha1(material.encode("utf-8")).hexdigest()[:12]
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
     if detail_url:
         return f"mansion_review:{detail_url}#l={digest}"
-    fallback = hashlib.sha1((material + _clean(row.get("building_name"))).encode("utf-8")).hexdigest()[:16]
-    return f"mansion_review:list:{fallback}"
+    return f"mansion_review:list:{digest}"
 
 
 def convert(input_csv: Path, output_csv: Path, updated_at: str | None) -> int:
     updated = updated_at or _parse_updated_at_from_filename(input_csv)
     output_csv.parent.mkdir(parents=True, exist_ok=True)
-    written = 0
 
+    count = 0
     with input_csv.open("r", encoding="utf-8-sig", newline="") as in_fh, output_csv.open(
         "w", encoding="utf-8-sig", newline=""
     ) as out_fh:
@@ -129,26 +131,25 @@ def convert(input_csv: Path, output_csv: Path, updated_at: str | None) -> int:
         writer = csv.DictWriter(out_fh, fieldnames=list(MASTER_COLUMNS))
         writer.writeheader()
 
-        for src in reader:
-            kind = _clean(src.get("kind")).lower()
-            if kind not in {"mansion", "chintai"}:
+        for row in reader:
+            kind = _clean(row.get("kind")).lower()
+            if kind not in {"chintai", "mansion"}:
                 continue
-
             writer.writerow(
                 {
-                    "page": _clean(src.get("detail_url")) or _clean(src.get("page_url")),
+                    "page": _clean(row.get("detail_url")) or _clean(row.get("page_url")),
                     "category": kind,
                     "updated_at": updated,
-                    "building_name": _clean(src.get("building_name")),
+                    "building_name": _clean(row.get("building_name")),
                     "room": "",
-                    "address": _clean(src.get("address")),
-                    "rent_man": _extract_man_value(src.get("price_or_rent_text") or ""),
-                    "fee_man": _extract_man_value(src.get("fee_text") or "") if kind == "chintai" else "",
-                    "floor": _clean(src.get("floor_text")),
-                    "layout": _simple_layout(src.get("layout_text")),
-                    "area_sqm": _extract_area(src.get("area_text") or ""),
+                    "address": _clean(row.get("address")),
+                    "rent_man": _extract_man_value(_clean(row.get("price_or_rent_text"))),
+                    "fee_man": _extract_man_value(_clean(row.get("fee_text"))) if kind == "chintai" else "",
+                    "floor": _clean(row.get("floor_text")),
+                    "layout": _simple_layout(row.get("layout_text")),
+                    "area_sqm": _extract_area_sqm(_clean(row.get("area_text"))),
                     "availability_raw": "",
-                    "built_raw": _clean(src.get("built_text")),
+                    "built_raw": _clean(row.get("built_text")),
                     "age_years": "",
                     "structure": "",
                     "built_year_month": "",
@@ -156,26 +157,23 @@ def convert(input_csv: Path, output_csv: Path, updated_at: str | None) -> int:
                     "availability_date": "",
                     "availability_flag_immediate": "",
                     "structure_raw": "",
-                    "raw_block": _build_raw_block(src, kind=kind),
-                    "evidence_id": _evidence_id(src),
+                    "raw_block": _build_raw_block(row),
+                    "evidence_id": _evidence_id(row),
                 }
             )
-            written += 1
-
-    return written
+            count += 1
+    return count
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Convert mansion_review_list CSV to ingest_master_import-compatible CSV")
+    parser = argparse.ArgumentParser(description="Convert mansion_review list CSV to master_import CSV")
     parser.add_argument("--input-csv", required=True)
     parser.add_argument("--output-csv", required=True)
     parser.add_argument("--updated-at", default="")
     args = parser.parse_args()
 
-    input_csv = Path(args.input_csv)
-    output_csv = Path(args.output_csv)
-    count = convert(input_csv, output_csv, args.updated_at or None)
-    print(f"converted_rows={count} output={output_csv}")
+    converted = convert(Path(args.input_csv), Path(args.output_csv), args.updated_at or None)
+    print(f"converted_rows={converted} output={args.output_csv}")
 
 
 if __name__ == "__main__":
