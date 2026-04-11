@@ -916,11 +916,35 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         floor_text = str(row["floor_text"] or "").strip()
         if floor_text and floor_text not in current["floors"]:
             current["floors"].append(floor_text)
-    for alias_key, canonical_key in alias_map.items():
-        if alias_key in rental_summary_map and canonical_key not in rental_summary_map:
-            rental_summary_map[canonical_key] = rental_summary_map[alias_key]
-        if alias_key in sale_summary_map and canonical_key not in sale_summary_map:
-            sale_summary_map[canonical_key] = sale_summary_map[alias_key]
+    merged_rental_summary_map: dict[str, dict] = {}
+    for key, row in rental_summary_map.items():
+        canonical_key = alias_map.get(key, key)
+        current = merged_rental_summary_map.get(canonical_key)
+        if current is None:
+            merged_rental_summary_map[canonical_key] = dict(row)
+            continue
+        current_updated = str(current.get("updated_at") or "")
+        row_updated = str(row.get("updated_at") or "")
+        current_count = int(current.get("vacancy_count") or 0)
+        row_count = int(row.get("vacancy_count") or 0)
+        if (row_count, row_updated) > (current_count, current_updated):
+            merged_rental_summary_map[canonical_key] = dict(row)
+    rental_summary_map = merged_rental_summary_map
+
+    merged_sale_summary_map: dict[str, dict] = {}
+    for key, row in sale_summary_map.items():
+        canonical_key = alias_map.get(key, key)
+        current = merged_sale_summary_map.get(canonical_key)
+        if current is None:
+            merged_sale_summary_map[canonical_key] = dict(row)
+            continue
+        current_updated = str(current.get("updated_at") or "")
+        row_updated = str(row.get("updated_at") or "")
+        current_count = int(current.get("sale_listing_count") or 0)
+        row_count = int(row.get("sale_listing_count") or 0)
+        if (row_count, row_updated) > (current_count, current_updated):
+            merged_sale_summary_map[canonical_key] = dict(row)
+    sale_summary_map = merged_sale_summary_map
     conn.close()
     for building in building_list:
         building["sponsor"] = sponsor_map.get(str(building.get("building_key")))

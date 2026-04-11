@@ -441,11 +441,14 @@ def ingest_building_facts_csv(
             should_repair_floor_count = False
             should_overwrite_access_info = False
             should_overwrite_floor_count = False
+            should_overwrite_built_year_month = False
+            should_overwrite_age_years = False
+            should_overwrite_total_units = False
             should_clear_stale_access_info = False
             should_clear_stale_floor_count = False
             if merge == "fill_only" and source == "mansion_review_list_facts":
                 existing_building = conn.execute(
-                    "SELECT access_info, floor_count_text FROM buildings WHERE building_id=?",
+                    "SELECT access_info, floor_count_text, built_year_month, age_years, total_units FROM buildings WHERE building_id=?",
                     (building_id,),
                 ).fetchone()
                 existing_access = existing_building["access_info"] if existing_building else None
@@ -459,6 +462,9 @@ def ingest_building_facts_csv(
 
                 should_overwrite_access_info = bool(access_info)
                 should_overwrite_floor_count = bool(floor_count_text)
+                should_overwrite_built_year_month = bool(built_year_month)
+                should_overwrite_age_years = age_years is not None
+                should_overwrite_total_units = total_units is not None and total_units > 0
                 should_clear_stale_access_info = (not access_info) and _is_invalid_access_info(existing_access)
                 should_clear_stale_floor_count = (not floor_count_text) and (not _is_valid_floor_count_text(existing_floor))
 
@@ -514,10 +520,14 @@ def ingest_building_facts_csv(
                             structure={_fill_only_sql('structure')},
                             age_years=CASE
                                 WHEN ? IS NOT NULL THEN ?
+                                WHEN ? THEN ?
                                 WHEN age_years IS NULL THEN ?
                                 ELSE age_years
                             END,
-                            built_year_month={_fill_only_sql('built_year_month')},
+                            built_year_month=CASE
+                                WHEN ? THEN ?
+                                ELSE {_fill_only_sql('built_year_month')}
+                            END,
                             property_kind={_fill_only_sql('property_kind')},
                             access_info=CASE
                                 WHEN ? THEN NULL
@@ -531,7 +541,11 @@ def ingest_building_facts_csv(
                                 WHEN floor_count_text IS NULL OR floor_count_text = '' OR ? THEN ?
                                 ELSE floor_count_text
                             END,
-                            total_units=CASE WHEN total_units IS NULL THEN ? ELSE total_units END,
+                            total_units=CASE
+                                WHEN ? THEN ?
+                                WHEN total_units IS NULL THEN ?
+                                ELSE total_units
+                            END,
                             management_style={_fill_only_sql('management_style')},
                             updated_at=CURRENT_TIMESTAMP
                         WHERE building_id=?
@@ -542,7 +556,11 @@ def ingest_building_facts_csv(
                             structure,
                             built_age_years,
                             built_age_years,
+                            should_overwrite_age_years,
                             age_years,
+                            age_years,
+                            should_overwrite_built_year_month,
+                            built_year_month,
                             built_year_month,
                             property_kind,
                             should_clear_stale_access_info,
@@ -555,6 +573,8 @@ def ingest_building_facts_csv(
                             floor_count_text,
                             should_repair_floor_count,
                             floor_count_text,
+                            should_overwrite_total_units,
+                            total_units,
                             total_units,
                             management_style,
                             building_id,
@@ -569,11 +589,15 @@ def ingest_building_facts_csv(
                             structure={_fill_only_sql('structure')},
                             age_years=CASE
                                 WHEN ? IS NOT NULL THEN ?
+                                WHEN ? THEN ?
                                 WHEN age_years IS NULL THEN ?
                                 ELSE age_years
                             END,
                             availability_label={_fill_only_sql('availability_label')},
-                            built_year_month={_fill_only_sql('built_year_month')},
+                            built_year_month=CASE
+                                WHEN ? THEN ?
+                                ELSE {_fill_only_sql('built_year_month')}
+                            END,
                             property_kind={_fill_only_sql('property_kind')},
                             sale_price_yen_min=CASE WHEN sale_price_yen_min IS NULL THEN ? ELSE sale_price_yen_min END,
                             sale_price_yen_max=CASE WHEN sale_price_yen_max IS NULL THEN ? ELSE sale_price_yen_max END,
@@ -596,14 +620,28 @@ def ingest_building_facts_csv(
                                 WHEN floor_count_text IS NULL OR floor_count_text = '' OR ? THEN ?
                                 ELSE floor_count_text
                             END,
-                            total_units=CASE WHEN total_units IS NULL THEN ? ELSE total_units END,
+                            total_units=CASE
+                                WHEN ? THEN ?
+                                WHEN total_units IS NULL THEN ?
+                                ELSE total_units
+                            END,
                             management_style={_fill_only_sql('management_style')},
                             updated_at=CURRENT_TIMESTAMP
                         WHERE building_id=?
                         """,
                         (
                             normalized.raw_name, normalized.canonical_address,
-                            structure, built_age_years, built_age_years, age_years, availability_label, built_year_month, property_kind,
+                            structure,
+                            built_age_years,
+                            built_age_years,
+                            should_overwrite_age_years,
+                            age_years,
+                            age_years,
+                            availability_label,
+                            should_overwrite_built_year_month,
+                            built_year_month,
+                            built_year_month,
+                            property_kind,
                             sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
                             sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json,
                             sale_listing_count,
@@ -619,6 +657,8 @@ def ingest_building_facts_csv(
                             floor_count_text,
                             should_repair_floor_count,
                             floor_count_text,
+                            should_overwrite_total_units,
+                            total_units,
                             total_units,
                             management_style,
                             building_id,
