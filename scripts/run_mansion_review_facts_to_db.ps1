@@ -4,14 +4,11 @@ param(
   [string]$Kinds = "mansion,chintai",
   [double]$SleepSec = 0.7,
   [int]$MaxPages = 3,
-  [string]$Merge = "fill_only"
+  [string]$Merge = "fill_only",
+  [switch]$RunPublish = $true
 )
 
 $ErrorActionPreference = "Stop"
-
-if ($MaxPages -le 0) {
-  throw "MaxPages must be > 0 for safe/reproducible operation."
-}
 
 $repo = (Resolve-Path $RepoPath).Path
 if (-not (Test-Path (Join-Path $repo ".git"))) { throw "Not a git repository: $repo" }
@@ -42,13 +39,15 @@ $dbPath = Join-Path $repo "data\tatemono_map.sqlite3"
 if ($LASTEXITCODE -ne 0) { throw "ingest_building_facts failed" }
 Write-Host "[OK] ingest_building_facts db=$dbPath merge=$Merge"
 
-& pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\publish_public.ps1") -RepoPath $repo
-if ($LASTEXITCODE -ne 0) { throw "publish_public.ps1 failed" }
-Write-Host "[OK] publish_public data/public/public.sqlite3"
+if ($RunPublish) {
+  & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\publish_public.ps1") -RepoPath $repo
+  if ($LASTEXITCODE -ne 0) { throw "publish_public.ps1 failed" }
+  Write-Host "[OK] publish_public data/public/public.sqlite3"
 
-& $py -m tatemono_map.cli.export_buildings_json --db data/public/public.sqlite3 --out dist/data/buildings.v2.min.json --format v2min
-if ($LASTEXITCODE -ne 0) { throw "export buildings.v2.min.json failed" }
-& $py -m tatemono_map.cli.export_buildings_json --db data/public/public.sqlite3 --out dist/data/buildings.json --format legacy
-if ($LASTEXITCODE -ne 0) { throw "export buildings.json failed" }
-Write-Host "[OK] dist export: dist/data/buildings.v2.min.json"
-Write-Host "[OK] dist export: dist/data/buildings.json"
+  & $py -m tatemono_map.cli.export_buildings_json --db data/public/public.sqlite3 --out dist/data/buildings.v2.min.json --format v2min
+  if ($LASTEXITCODE -ne 0) { throw "export buildings.v2.min.json failed" }
+  & $py -m tatemono_map.cli.export_buildings_json --db data/public/public.sqlite3 --out dist/data/buildings.json --format legacy
+  if ($LASTEXITCODE -ne 0) { throw "export buildings.json failed" }
+  Write-Host "[OK] dist export: dist/data/buildings.v2.min.json"
+  Write-Host "[OK] dist export: dist/data/buildings.json"
+}

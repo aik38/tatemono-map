@@ -143,6 +143,47 @@ def test_parse_list_page_headerless_uses_fixed_column_order() -> None:
     assert rows[0].direction_text == "南西"
 
 
+def test_parse_list_page_chintai_combined_cells_are_split() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>門司港レジデンス</h3>
+        <div class="property-detail-content_main">
+          <dl>
+            <dt>住所</dt><dd>福岡県北九州市門司区東港町1-2</dd>
+            <dt>交通</dt><dd>JR門司港駅 徒歩6分</dd>
+            <dt>築年数</dt><dd>築10年</dd>
+            <dt>階建て</dt><dd>14階建</dd>
+            <dt>総戸数</dt><dd>88戸</dd>
+          </dl>
+        </div>
+        <table class="recommendTable"><tbody class="recommend_row">
+          <tr>
+            <td data-th="賃料（管理費等）">8.2万円（管理費 6,000円）</td>
+            <td data-th="敷/礼">1ヶ月/2ヶ月</td>
+            <td data-th="専有面積">45.1㎡</td>
+            <td data-th="間取り">1LDK</td>
+          </tr>
+        </tbody></table>
+      </li>
+    </body></html>
+    """
+    rows, _ = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        kind="chintai",
+        city_id="1616",
+        page_no=1,
+    )
+    row = rows[0]
+    assert row.price_or_rent_text == "8.2万円"
+    assert row.fee_text == "6,000円"
+    assert row.deposit_text == "1ヶ月"
+    assert row.key_money_text == "2ヶ月"
+    assert row.area_text == "45.1㎡"
+    assert row.layout_text == "1LDK"
+
+
 def test_parse_list_page_does_not_use_non_target_card_selector() -> None:
     html = """
     <html><body>

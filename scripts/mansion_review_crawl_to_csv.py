@@ -193,6 +193,49 @@ def _row_columns(tr: Node, headers: list[str], order: list[str]) -> dict[str, st
     return {order[i]: cells[i] for i in range(min(len(order), len(cells)))}
 
 
+def _extract_chintai_row(cols: dict[str, str]) -> dict[str, str]:
+    rent = normalize_space(
+        cols.get("賃料")
+        or cols.get("賃料(管理費)")
+        or cols.get("賃料（管理費）")
+        or cols.get("賃料(管理費等)")
+        or cols.get("賃料（管理費等）")
+    )
+    fee = normalize_space(cols.get("管理費") or cols.get("共益費"))
+    if not fee and rent:
+        m = re.search(r"[（(]\s*(?:管理費|共益費)[^0-9]*(\d[\d,]*(?:円|万円)?|無料|-)\s*[)）]", rent)
+        if m:
+            fee = normalize_space(m.group(1))
+            rent = normalize_space(re.sub(r"\s*[（(].*[)）]\s*$", "", rent))
+
+    deposit = normalize_space(cols.get("敷金") or cols.get("敷/礼"))
+    key_money = normalize_space(cols.get("礼金"))
+    if deposit and not key_money and "/" in deposit:
+        parts = [normalize_space(p) for p in deposit.split("/", 1)]
+        deposit = parts[0]
+        key_money = parts[1] if len(parts) > 1 else ""
+
+    return {
+        "price_or_rent_text": rent,
+        "fee_text": fee,
+        "deposit_text": deposit,
+        "key_money_text": key_money,
+        "area_text": normalize_space(cols.get("専有面積") or cols.get("面積")),
+        "layout_text": normalize_space(cols.get("間取り")),
+    }
+
+
+def _extract_mansion_row(cols: dict[str, str]) -> dict[str, str]:
+    return {
+        "price_or_rent_text": normalize_space(cols.get("価格") or cols.get("販売価格")),
+        "tsubo_unit_price_text": normalize_space(cols.get("坪単価")),
+        "area_text": normalize_space(cols.get("専有面積") or cols.get("面積")),
+        "layout_text": normalize_space(cols.get("間取り")),
+        "floor_text": normalize_space(cols.get("所在階") or cols.get("階")),
+        "direction_text": normalize_space(cols.get("向き") or cols.get("主要採光面")),
+    }
+
+
 def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: int) -> tuple[list[ListRow], dict[str, int]]:
     tree = HTMLParser(html)
     cards = tree.css("li.property-detail-list-item, section.property-detail-list-item, article.property-detail-list-item")
@@ -216,6 +259,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                 continue
 
             if kind == "chintai":
+                listing = _extract_chintai_row(cols)
                 rows.append(
                     ListRow(
                         kind=kind,
@@ -230,18 +274,19 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                         built_text=_fact(facts, "築年数", "築年月", "築"),
                         building_floor_count_text=_fact(facts, "階建て", "建物階数"),
                         total_units_text=_fact(facts, "総戸数"),
-                        price_or_rent_text=cols.get("賃料", cols.get("賃料(管理費)", "")),
-                        fee_text=cols.get("管理費", cols.get("共益費", "")),
+                        price_or_rent_text=listing["price_or_rent_text"],
+                        fee_text=listing["fee_text"],
                         tsubo_unit_price_text="",
-                        deposit_text=cols.get("敷金", ""),
-                        key_money_text=cols.get("礼金", ""),
-                        area_text=cols.get("専有面積", cols.get("面積", "")),
-                        layout_text=cols.get("間取り", ""),
+                        deposit_text=listing["deposit_text"],
+                        key_money_text=listing["key_money_text"],
+                        area_text=listing["area_text"],
+                        layout_text=listing["layout_text"],
                         floor_text="",
                         direction_text="",
                     )
                 )
             else:
+                sale = _extract_mansion_row(cols)
                 rows.append(
                     ListRow(
                         kind=kind,
@@ -256,15 +301,15 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                         built_text=_fact(facts, "築年数", "築年月", "築"),
                         building_floor_count_text=_fact(facts, "階建て", "建物階数"),
                         total_units_text=_fact(facts, "総戸数"),
-                        price_or_rent_text=cols.get("価格", cols.get("販売価格", "")),
+                        price_or_rent_text=sale["price_or_rent_text"],
                         fee_text="",
-                        tsubo_unit_price_text=cols.get("坪単価", ""),
+                        tsubo_unit_price_text=sale["tsubo_unit_price_text"],
                         deposit_text="",
                         key_money_text="",
-                        area_text=cols.get("専有面積", cols.get("面積", "")),
-                        layout_text=cols.get("間取り", ""),
-                        floor_text=cols.get("所在階", cols.get("階", "")),
-                        direction_text=cols.get("向き", cols.get("主要採光面", "")),
+                        area_text=sale["area_text"],
+                        layout_text=sale["layout_text"],
+                        floor_text=sale["floor_text"],
+                        direction_text=sale["direction_text"],
                     )
                 )
 
