@@ -1254,6 +1254,13 @@ def _build_dist_version(
         b["sale_layout_label"] = _format_layout_label(
             json.loads(sale_summary.get("layout_types_json") or "[]")
         ) if sale_summary else _format_layout_label(json.loads(b.get("sale_layout_types_json") or "[]"))
+        b["sale_tsubo_price_label"] = _format_range(
+            (sale_summary.get("tsubo_unit_price_yen_min") / 10000) if sale_summary and sale_summary.get("tsubo_unit_price_yen_min") else None,
+            (sale_summary.get("tsubo_unit_price_yen_max") / 10000) if sale_summary and sale_summary.get("tsubo_unit_price_yen_max") else None,
+            suffix="万円/坪",
+        )
+        b["sale_floor_label"] = sale_summary.get("floor_summary") if sale_summary else None
+        b["sale_direction_label"] = sale_summary.get("direction_summary") if sale_summary else None
         seo = _build_building_seo(b, site_origin=site_origin, base_path=base_path)
         detail_path = f"{base_path}/b/{b['detail_filename']}"
         area_hub = None

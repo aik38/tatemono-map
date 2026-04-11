@@ -69,7 +69,8 @@ def test_render_dist_sanitizes_room_number_from_name_and_address(tmp_path):
     assert "サンプルレジデンス" in index
     assert "東京都渋谷区神南1-2-3" in index
 
-    detail = _pick_primary_detail_path(dist / "b").read_text(encoding="utf-8")
+    detail_path = dist / "b" / "分譲表示テスト-b-sale.html"
+    detail = detail_path.read_text(encoding="utf-8")
     assert "号室" not in detail
 
 
@@ -108,6 +109,40 @@ def test_render_dist_writes_legacy_detail_redirect_stub(tmp_path):
     assert '<meta http-equiv="refresh"' in legacy_html
     assert "window.location.replace(" in legacy_html
     assert 'rel="canonical" href="https://www.tatemono-map.com/b/' in legacy_html
+
+
+def test_render_dist_sale_section_shows_tsubo_floor_and_direction(tmp_path):
+    db = tmp_path / "test_sale.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(
+            building_id, canonical_name, canonical_address, property_kind
+        ) VALUES ('b-sale', '分譲表示テスト', '福岡県北九州市小倉北区魚町1-1-1', 'bunjo')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO sale_listings(
+            sale_listing_key, building_key, source, source_url, evidence_id,
+            price_yen, tsubo_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at
+        ) VALUES ('sale-1', 'b-sale', 'mansion_review_mansion', 'u1', 'e1', 39800000, 1820000, 72.5, '3LDK', '7階', '南', '2026-04-01')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist))
+
+    detail = (dist / "b" / "分譲表示テスト-b-sale.html").read_text(encoding="utf-8")
+    assert "坪単価" in detail
+    assert "182.0万円/坪" in detail
+    assert "所在階" in detail
+    assert "7階" in detail
+    assert "向き" in detail
+    assert "南" in detail
 
 
 def test_render_dist_fails_when_forbidden_text_exists(tmp_path):
