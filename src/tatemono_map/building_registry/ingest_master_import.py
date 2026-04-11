@@ -386,8 +386,8 @@ def _extract_money_yen(raw_text: str, label: str) -> int | None:
     return int(matched.group(1).replace(",", ""))
 
 
-def _extract_tsubo_unit_price_yen(raw_text: str) -> int | None:
-    text = _extract_text_field(raw_text, ("坪単価",))
+def _extract_sqm_unit_price_yen(raw_text: str) -> int | None:
+    text = _extract_text_field(raw_text, ("㎡単価", "m²単価", "m2単価", "坪単価"))
     if not text:
         return None
     cleaned = _clean_text(text).replace(",", "")
@@ -699,7 +699,7 @@ def ingest_master_import_csv(
                 if management_fee_yen is None:
                     management_fee_yen = _extract_money_yen(raw_block, "共益費")
                 repair_fund_yen = _extract_money_yen(raw_block, "修繕積立金")
-                tsubo_unit_price_yen = _extract_tsubo_unit_price_yen(raw_block)
+                sqm_unit_price_yen = _extract_sqm_unit_price_yen(raw_block)
                 access_info = _extract_text_field(raw_block, ("交通",))
                 floor_count_text = _extract_text_field(raw_block, ("階建て", "階建", "建物階数"))
                 total_units_text = _extract_text_field(raw_block, ("総戸数",))
@@ -796,7 +796,7 @@ def ingest_master_import_csv(
                             rent_yen,
                             management_fee_yen if management_fee_yen is not None else maint_yen,
                             repair_fund_yen,
-                            tsubo_unit_price_yen,
+                            sqm_unit_price_yen,
                             area_sqm,
                             layout,
                             floor_text,

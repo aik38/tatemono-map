@@ -473,8 +473,8 @@ def test_sale_summary_uses_sale_listings_payload(tmp_path):
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            ("s1", "b-sale", "mansion_review_mansion", "u1", "e1", 36000000, 9000, 7000, 1650000, 66.0, "2LDK", "7階", "南", "2026-01-02", 30),
-            ("s2", "b-sale", "mansion_review_mansion", "u2", "e2", 42000000, 12000, 8000, 1820000, 72.0, "3LDK", "10階", "東", "2026-01-03", 30),
+            ("s1", "b-sale", "mansion_review_mansion", "u1", "e1", 36000000, 9000, 7000, 545500, 66.0, "2LDK", "7階", "南", "2026-01-02", 30),
+            ("s2", "b-sale", "mansion_review_mansion", "u2", "e2", 42000000, 12000, 8000, 583300, 72.0, "3LDK", "10階", "東", "2026-01-03", 30),
         ],
     )
     conn.commit()
@@ -495,8 +495,8 @@ def test_sale_summary_uses_sale_listings_payload(tmp_path):
     assert summary["sale_price_yen_max"] == 42000000
     assert sale_summary["price_yen_min"] == 36000000
     assert sale_summary["price_yen_max"] == 42000000
-    assert sale_summary["tsubo_unit_price_yen_min"] == 1650000
-    assert sale_summary["tsubo_unit_price_yen_max"] == 1820000
+    assert sale_summary["tsubo_unit_price_yen_min"] == 545500
+    assert sale_summary["tsubo_unit_price_yen_max"] == 583300
     assert sale_summary["management_fee_yen_min"] == 9000
     assert sale_summary["management_fee_yen_max"] == 12000
     assert sale_summary["repair_fund_yen_min"] == 7000

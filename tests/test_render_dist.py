@@ -111,7 +111,7 @@ def test_render_dist_writes_legacy_detail_redirect_stub(tmp_path):
     assert 'rel="canonical" href="https://www.tatemono-map.com/b/' in legacy_html
 
 
-def test_render_dist_sale_section_shows_tsubo_floor_and_direction(tmp_path):
+def test_render_dist_sale_section_shows_sqm_floor_and_direction(tmp_path):
     db = tmp_path / "test_sale.sqlite3"
     dist = tmp_path / "dist"
     conn = connect(db)
@@ -127,7 +127,7 @@ def test_render_dist_sale_section_shows_tsubo_floor_and_direction(tmp_path):
         INSERT INTO sale_listings(
             sale_listing_key, building_key, source, source_url, evidence_id,
             price_yen, tsubo_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at
-        ) VALUES ('sale-1', 'b-sale', 'mansion_review_mansion', 'u1', 'e1', 39800000, 1820000, 72.5, '3LDK', '7階', '南', '2026-04-01')
+        ) VALUES ('sale-1', 'b-sale', 'mansion_review_mansion', 'u1', 'e1', 39800000, 549000, 72.5, '3LDK', '7階', '南', '2026-04-01')
         """
     )
     conn.commit()
@@ -137,8 +137,8 @@ def test_render_dist_sale_section_shows_tsubo_floor_and_direction(tmp_path):
     build_dist(str(db), str(dist))
 
     detail = (dist / "b" / "分譲表示テスト-b-sale.html").read_text(encoding="utf-8")
-    assert "坪単価" in detail
-    assert "182.0万円/坪" in detail
+    assert "㎡単価" in detail
+    assert "54.9万円/m²" in detail
     assert "所在階" in detail
     assert "7階" in detail
     assert "向き" in detail
