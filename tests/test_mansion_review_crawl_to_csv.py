@@ -334,3 +334,32 @@ def test_to_master_rows_sets_empty_fee_when_combined_text_has_hyphen_yen() -> No
     master = _to_master_rows([row], "2026/04/01 10:00")[0]
     assert master["rent_man"] == "10.8"
     assert master["fee_man"] == ""
+
+
+def test_to_master_rows_sets_empty_fee_when_combined_text_has_fullwidth_hyphen_yen() -> None:
+    row = ListRow(
+        kind="chintai",
+        city_id="1616",
+        ward="門司区",
+        city_page="1616_1",
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        detail_url="https://www.mansion-review.jp/chintai/1",
+        building_name="テスト",
+        address="福岡県北九州市門司区1-1-1",
+        access_text="JR徒歩1分",
+        built_text="築10年",
+        building_floor_count_text="10階建",
+        total_units_text="30戸",
+        price_or_rent_text="10.8万円 (－円)",
+        fee_text="",
+        tsubo_unit_price_text="",
+        deposit_text="1ヶ月",
+        key_money_text="1ヶ月",
+        area_text="25.0㎡",
+        layout_text="1K",
+        floor_text="",
+        direction_text="",
+    )
+    master = _to_master_rows([row], "2026/04/01 10:00")[0]
+    assert master["rent_man"] == "10.8"
+    assert master["fee_man"] == ""

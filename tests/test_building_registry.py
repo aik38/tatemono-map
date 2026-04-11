@@ -205,7 +205,7 @@ def test_ingest_master_import_routes_mansion_to_sale_listings(tmp_path: Path) ->
     master_csv = tmp_path / "master_import_sale.csv"
     master_csv.write_text(
         "page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,availability_raw,built_raw,age_years,structure,built_year_month,built_age_years,availability_date,availability_flag_immediate,structure_raw,raw_block,evidence_id\n"
-        "1,mansion,2026/01/01 10:00,分譲テストマンション,701,福岡県北九州市小倉北区魚町1-1-1,3980,,7階,3LDK,72.5,,,,,2010-01,,,,,\"管理費:12000円 修繕積立金:8000円 坪単価:182万円/坪 向き:南\",e1\n",
+        "1,mansion,2026/01/01 10:00,分譲テストマンション,701,福岡県北九州市小倉北区魚町1-1-1,3980,,7階,3LDK,72.5,,,,,2010-01,,,,,\"管理費:12000円 | 修繕積立金:8000円 | 坪単価:182万円/坪 | 向き:南\",e1\n",
         encoding="utf-8",
     )
 

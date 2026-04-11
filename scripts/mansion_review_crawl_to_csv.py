@@ -621,7 +621,7 @@ def _split_chintai_rent_and_fee(price_or_rent_text: str, fee_text: str) -> tuple
         return rent_man, ""
 
     fee_raw = normalize_space(paren.group(1))
-    if not fee_raw or re.search(r"^-+\s*円?$", fee_raw):
+    if not fee_raw or re.search(r"^[\-ー−－]+\s*円?$", fee_raw) or fee_raw in {"なし", "無し"}:
         return rent_man, ""
     fee_from_paren = _extract_man_value(fee_raw)
     return rent_man, fee_from_paren
