@@ -7,6 +7,7 @@ import json
 import re
 import time
 from dataclasses import asdict, dataclass
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urljoin
@@ -88,7 +89,7 @@ MASTER_COLUMNS = (
 )
 
 CHINTAI_ORDER = ["賃料", "管理費", "敷金", "礼金", "専有面積", "間取り"]
-MANSION_ORDER = ["価格", "坪単価", "専有面積", "間取り", "所在階", "向き"]
+MANSION_ORDER = ["価格", "㎡単価", "専有面積", "間取り", "所在階", "向き"]
 
 
 @dataclass
@@ -392,7 +393,6 @@ def _extract_chintai_row(cols: dict[str, str], cells: list[dict[str, str]], buil
 
 def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], building_name: str) -> dict[str, str]:
     price = normalize_space(cols.get("価格") or cols.get("販売価格"))
-    tsubo = normalize_space(cols.get("坪単価"))
     area = normalize_space(cols.get("専有面積") or cols.get("面積"))
     layout = normalize_space(cols.get("間取り"))
     floor = normalize_space(cols.get("所在階") or cols.get("階"))
@@ -400,8 +400,6 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
 
     if price and (not _is_money_text(price) or _is_tsubo_text(price)):
         price = ""
-    if tsubo and not _is_tsubo_text(tsubo):
-        tsubo = ""
     if area and not _is_area_text(area):
         area = ""
     if layout and not _is_layout_text(layout):
@@ -411,14 +409,11 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
     if direction and not _is_direction_text(direction):
         direction = ""
 
-    if not all((price, tsubo, area, layout, floor, direction)):
+    if not all((price, area, layout, floor, direction)):
         data_cells = [c for c in cells if not _is_deco_cell(c, building_name)]
         for cell in data_cells:
             text = cell["text"]
             label = cell["label"]
-            if not tsubo and ("坪単価" in label or _is_tsubo_text(text)):
-                tsubo = text
-                continue
             if not area and ("面積" in label or _is_area_text(text)):
                 area = text
                 continue
@@ -435,9 +430,10 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
                 price = text
                 continue
 
+    sqm_unit = _calc_sqm_unit_price_text(price, area)
     return {
         "price_or_rent_text": price,
-        "tsubo_unit_price_text": tsubo,
+        "tsubo_unit_price_text": sqm_unit,
         "area_text": area,
         "layout_text": layout,
         "floor_text": floor,
@@ -621,10 +617,37 @@ def _split_chintai_rent_and_fee(price_or_rent_text: str, fee_text: str) -> tuple
         return rent_man, ""
 
     fee_raw = normalize_space(paren.group(1))
-    if not fee_raw or re.search(r"^[\-ー−－]+\s*円?$", fee_raw) or fee_raw in {"なし", "無し"}:
+    if _is_empty_fee_text(fee_raw):
         return rent_man, ""
     fee_from_paren = _extract_man_value(fee_raw)
     return rent_man, fee_from_paren
+
+
+def _is_empty_fee_text(text: str) -> bool:
+    normalized = normalize_space(text)
+    if not normalized:
+        return True
+    ascii_norm = normalized.lower().replace("　", " ")
+    if re.fullmatch(r"[\-ー−－]+(?:\s*円)?", ascii_norm):
+        return True
+    return ascii_norm in {"なし", "無し", "無", "-"}
+
+
+def _calc_sqm_unit_price_text(price_text: str, area_text: str) -> str:
+    price_man = _extract_man_value(price_text)
+    area_sqm = _extract_area_sqm(area_text)
+    if not price_man or not area_sqm:
+        return ""
+    try:
+        price = Decimal(price_man)
+        area = Decimal(area_sqm)
+        if area <= 0:
+            return ""
+        sqm = (price / area).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception:  # noqa: BLE001
+        return ""
+    sqm_text = format(sqm, "f").rstrip("0").rstrip(".")
+    return f"{sqm_text}万円/m²"
 
 
 def _extract_area_sqm(text: str) -> str:
@@ -663,7 +686,7 @@ def _to_master_rows(rows: list[ListRow], updated_at: str) -> list[dict[str, str]
             ("kind", row.kind),
             ("賃料/価格", row.price_or_rent_text),
             ("管理費", row.fee_text),
-            ("坪単価", row.tsubo_unit_price_text),
+            ("㎡単価", row.tsubo_unit_price_text),
             ("敷金", row.deposit_text),
             ("礼金", row.key_money_text),
             ("専有面積", row.area_text),

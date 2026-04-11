@@ -192,7 +192,7 @@
           <dt>面積</dt>
           <dd>{{ building.sale_area_label or "要確認" }}</dd>
         </div>
-        {% if building.sale_tsubo_price_label %}<div class="fact"><dt>坪単価</dt><dd>{{ building.sale_tsubo_price_label }}</dd></div>{% endif %}
+        {% if building.sale_sqm_price_label %}<div class="fact"><dt>㎡単価</dt><dd>{{ building.sale_sqm_price_label }}</dd></div>{% endif %}
         {% if building.sale_floor_label %}<div class="fact"><dt>所在階</dt><dd>{{ building.sale_floor_label }}</dd></div>{% endif %}
         {% if building.sale_direction_label %}<div class="fact"><dt>向き</dt><dd>{{ building.sale_direction_label }}</dd></div>{% endif %}
         {% if building.sale_summary and (building.sale_summary.management_fee_yen_min or building.sale_summary.management_fee_yen_max) %}

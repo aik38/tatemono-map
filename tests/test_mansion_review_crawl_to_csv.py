@@ -112,7 +112,7 @@ def test_parse_list_page_mansion_extracts_required_11_fields() -> None:
     assert row.building_floor_count_text == "20階建て"
     assert row.total_units_text == "120戸"
     assert row.price_or_rent_text == "3,180万円"
-    assert row.tsubo_unit_price_text == "159万円/坪"
+    assert row.tsubo_unit_price_text == "48.18万円/m²"
     assert row.area_text == "66.0㎡"
     assert row.layout_text == "2LDK"
     assert row.floor_text == "7階"
@@ -138,7 +138,7 @@ def test_parse_list_page_headerless_uses_fixed_column_order() -> None:
         page_no=1,
     )
     assert rows[0].price_or_rent_text == "2,980万円"
-    assert rows[0].tsubo_unit_price_text == "139万円/坪"
+    assert rows[0].tsubo_unit_price_text == "47.3万円/m²"
     assert rows[0].area_text == "63.0㎡"
     assert rows[0].layout_text == "2LDK"
     assert rows[0].floor_text == "8階"
@@ -169,7 +169,7 @@ def test_parse_list_page_mansion_ignores_leading_decorative_cells() -> None:
     )
     row = rows[0]
     assert row.price_or_rent_text == "3,180万円"
-    assert row.tsubo_unit_price_text == "159万円/坪"
+    assert row.tsubo_unit_price_text == "48.18万円/m²"
     assert row.area_text == "66.0㎡"
     assert row.layout_text == "2LDK"
     assert row.floor_text == "7階"
@@ -363,3 +363,36 @@ def test_to_master_rows_sets_empty_fee_when_combined_text_has_fullwidth_hyphen_y
     master = _to_master_rows([row], "2026/04/01 10:00")[0]
     assert master["rent_man"] == "10.8"
     assert master["fee_man"] == ""
+
+
+def test_to_master_rows_sets_empty_fee_when_combined_text_has_nashi_or_mu() -> None:
+    row_nashi = ListRow(
+        kind="chintai",
+        city_id="1616",
+        ward="門司区",
+        city_page="1616_1",
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        detail_url="https://www.mansion-review.jp/chintai/1",
+        building_name="テスト",
+        address="福岡県北九州市門司区1-1-1",
+        access_text="JR徒歩1分",
+        built_text="築10年",
+        building_floor_count_text="10階建",
+        total_units_text="30戸",
+        price_or_rent_text="12万円 (無し)",
+        fee_text="",
+        tsubo_unit_price_text="",
+        deposit_text="1ヶ月",
+        key_money_text="1ヶ月",
+        area_text="25.0㎡",
+        layout_text="1K",
+        floor_text="",
+        direction_text="",
+    )
+    row_mu = ListRow(
+        **{**row_nashi.__dict__, "price_or_rent_text": "12万円 (無)"}
+    )
+    master_nashi = _to_master_rows([row_nashi], "2026/04/01 10:00")[0]
+    master_mu = _to_master_rows([row_mu], "2026/04/01 10:00")[0]
+    assert master_nashi["fee_man"] == ""
+    assert master_mu["fee_man"] == ""

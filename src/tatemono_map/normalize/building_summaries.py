@@ -103,7 +103,7 @@ def _load_priority_rank(conn, domain: str) -> dict[str, int]:
     ).fetchall()
     sale_rows = conn.execute(
         """
-        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
+        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen AS sqm_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
         FROM sale_listings
         WHERE (
             ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
@@ -157,7 +157,7 @@ def rebuild(db_path: str) -> int:
     ).fetchall()
     sale_rows = conn.execute(
         """
-        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
+        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen AS sqm_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
         FROM sale_listings
         WHERE (
             ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
@@ -244,7 +244,7 @@ def rebuild(db_path: str) -> int:
         sale_layouts = sorted({normalize_text(r["layout"]) for r in sale_items if r["layout"]})
         sale_mgmt_fees = [int(r["management_fee_yen"]) for r in sale_items if r["management_fee_yen"] is not None]
         sale_repair_funds = [int(r["repair_fund_yen"]) for r in sale_items if r["repair_fund_yen"] is not None]
-        sale_tsubo_unit_prices = [int(r["tsubo_unit_price_yen"]) for r in sale_items if r["tsubo_unit_price_yen"] is not None]
+        sale_sqm_unit_prices = [int(r["sqm_unit_price_yen"]) for r in sale_items if r["sqm_unit_price_yen"] is not None]
         sale_floors = sorted({normalize_text(r["floor_text"]) for r in sale_items if normalize_text(r["floor_text"])})
         sale_directions = sorted({normalize_text(r["direction_text"]) for r in sale_items if normalize_text(r["direction_text"])})
         sale_latest = max((r["updated_at"] for r in sale_items if r["updated_at"]), default=None)
@@ -392,8 +392,8 @@ def rebuild(db_path: str) -> int:
                     sale_layout_types_json or "[]",
                     ", ".join(sale_floors) if sale_floors else None,
                     ", ".join(sale_directions) if sale_directions else None,
-                    min(sale_tsubo_unit_prices) if sale_tsubo_unit_prices else None,
-                    max(sale_tsubo_unit_prices) if sale_tsubo_unit_prices else None,
+                    min(sale_sqm_unit_prices) if sale_sqm_unit_prices else None,
+                    max(sale_sqm_unit_prices) if sale_sqm_unit_prices else None,
                     min(sale_mgmt_fees) if sale_mgmt_fees else None,
                     max(sale_mgmt_fees) if sale_mgmt_fees else None,
                     min(sale_repair_funds) if sale_repair_funds else None,
