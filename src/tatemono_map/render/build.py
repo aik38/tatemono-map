@@ -919,6 +919,8 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     for alias_key, canonical_key in alias_map.items():
         if alias_key in rental_summary_map and canonical_key not in rental_summary_map:
             rental_summary_map[canonical_key] = rental_summary_map[alias_key]
+        if alias_key in sale_summary_map and canonical_key not in sale_summary_map:
+            sale_summary_map[canonical_key] = sale_summary_map[alias_key]
     conn.close()
     for building in building_list:
         building["sponsor"] = sponsor_map.get(str(building.get("building_key")))
