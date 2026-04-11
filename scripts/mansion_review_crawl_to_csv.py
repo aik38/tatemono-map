@@ -218,7 +218,91 @@ def _row_columns(tr: Node, headers: list[str], order: list[str]) -> dict[str, st
     return {order[i]: cells[i] for i in range(min(len(order), len(cells)))}
 
 
-def _extract_chintai_row(cols: dict[str, str]) -> dict[str, str]:
+def _row_cells(tr: Node) -> list[dict[str, str]]:
+    cells: list[dict[str, str]] = []
+    for td in tr.css("td"):
+        text = normalize_space(td.text(separator=" "))
+        label = normalize_space(
+            td.attributes.get("data-th")
+            or td.attributes.get("data-title")
+            or td.attributes.get("data-label")
+        ).replace(" ", "")
+        classes = normalize_space(td.attributes.get("class"))
+        cells.append({"text": text, "label": label, "class": classes})
+    return cells
+
+
+def _is_area_text(text: str) -> bool:
+    return bool(re.search(r"\d+(?:\.\d+)?\s*(?:㎡|m²|m2)", text))
+
+
+def _is_layout_text(text: str) -> bool:
+    return bool(
+        re.search(r"(?:\d+\s*(?:R|K|DK|LDK|SLDK)|ワンルーム|1R|1K|1DK|1LDK|2LDK|3LDK|4LDK)", text, re.IGNORECASE)
+    )
+
+
+def _is_floor_text(text: str) -> bool:
+    return bool(re.search(r"(?:所在階|[Bb]?\d+\s*(?:階|F))", text))
+
+
+def _is_direction_text(text: str) -> bool:
+    t = normalize_space(text)
+    if not t:
+        return False
+    if re.search(r"(北東|北西|南東|南西|東|西|南|北)(向き)?$", t):
+        return True
+    return "向き" in t and bool(re.search(r"(東|西|南|北)", t))
+
+
+def _is_tsubo_text(text: str) -> bool:
+    return "坪" in text and bool(re.search(r"(?:\d[\d,.]*\s*万?円?)", text))
+
+
+def _is_money_text(text: str) -> bool:
+    return bool(re.search(r"\d[\d,.]*(?:\.\d+)?\s*(?:万円|円)", text))
+
+
+def _is_deposit_or_key_text(text: str) -> bool:
+    t = normalize_space(text)
+    if not t:
+        return False
+    if any(token in t for token in ("なし", "無", "-")):
+        return True
+    if re.search(r"\d+(?:\.\d+)?\s*(?:ヶ月|か月)", t):
+        return True
+    return bool(re.search(r"\d[\d,.]*\s*円", t)) and "万円" not in t
+
+
+def _is_deco_cell(cell: dict[str, str], building_name: str) -> bool:
+    text = cell["text"]
+    label = cell["label"]
+    classes = cell["class"]
+    if not text:
+        return True
+    if "icon" in classes.lower():
+        return True
+    if text in {"新着", "リノベ", "リフォーム", "NEW"}:
+        return True
+    if "号室" in text:
+        return True
+    if building_name and normalize_space(building_name) == normalize_space(text):
+        return True
+    if not label and not _is_money_text(text) and not any(
+        (
+            _is_area_text(text),
+            _is_layout_text(text),
+            _is_floor_text(text),
+            _is_direction_text(text),
+            _is_tsubo_text(text),
+            _is_deposit_or_key_text(text),
+        )
+    ):
+        return True
+    return False
+
+
+def _extract_chintai_row(cols: dict[str, str], cells: list[dict[str, str]], building_name: str) -> dict[str, str]:
     rent = normalize_space(
         cols.get("賃料")
         or cols.get("賃料(管理費)")
@@ -240,24 +324,124 @@ def _extract_chintai_row(cols: dict[str, str]) -> dict[str, str]:
         deposit = parts[0]
         key_money = parts[1] if len(parts) > 1 else ""
 
+    area = normalize_space(cols.get("専有面積") or cols.get("面積"))
+    layout = normalize_space(cols.get("間取り"))
+
+    if rent and not _is_money_text(rent):
+        rent = ""
+    if fee and not (_is_money_text(fee) or fee in {"無料", "なし", "無", "-"}):
+        fee = ""
+    if deposit and not _is_deposit_or_key_text(deposit):
+        deposit = ""
+    if key_money and not _is_deposit_or_key_text(key_money):
+        key_money = ""
+    if area and not _is_area_text(area):
+        area = ""
+    if layout and not _is_layout_text(layout):
+        layout = ""
+
+    if not area or not layout:
+        data_cells = [c for c in cells if not _is_deco_cell(c, building_name)]
+        for cell in data_cells:
+            text = cell["text"]
+            label = cell["label"]
+            if not rent and (_is_money_text(text) and not any(k in text for k in ("管理費", "共益費", "敷", "礼"))):
+                rent = text
+                continue
+            if not fee and ("管理費" in label or "共益費" in label or "管理費" in text or "共益費" in text):
+                fee = text
+                continue
+            if (
+                not fee
+                and rent
+                and _is_money_text(text)
+                and not _is_tsubo_text(text)
+                and not any(k in text for k in ("敷", "礼"))
+                and not _is_area_text(text)
+            ):
+                fee = text
+                continue
+            if not deposit and ("敷" in label or "敷" in text):
+                deposit = text
+                continue
+            if not key_money and ("礼" in label or "礼" in text):
+                key_money = text
+                continue
+            if not deposit and _is_deposit_or_key_text(text):
+                deposit = text
+                continue
+            if not key_money and deposit and _is_deposit_or_key_text(text):
+                key_money = text
+                continue
+            if not area and _is_area_text(text):
+                area = text
+                continue
+            if not layout and _is_layout_text(text):
+                layout = text
+                continue
+
     return {
         "price_or_rent_text": rent,
         "fee_text": fee,
         "deposit_text": deposit,
         "key_money_text": key_money,
-        "area_text": normalize_space(cols.get("専有面積") or cols.get("面積")),
-        "layout_text": normalize_space(cols.get("間取り")),
+        "area_text": area,
+        "layout_text": layout,
     }
 
 
-def _extract_mansion_row(cols: dict[str, str]) -> dict[str, str]:
+def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], building_name: str) -> dict[str, str]:
+    price = normalize_space(cols.get("価格") or cols.get("販売価格"))
+    tsubo = normalize_space(cols.get("坪単価"))
+    area = normalize_space(cols.get("専有面積") or cols.get("面積"))
+    layout = normalize_space(cols.get("間取り"))
+    floor = normalize_space(cols.get("所在階") or cols.get("階"))
+    direction = normalize_space(cols.get("向き") or cols.get("主要採光面"))
+
+    if price and (not _is_money_text(price) or _is_tsubo_text(price)):
+        price = ""
+    if tsubo and not _is_tsubo_text(tsubo):
+        tsubo = ""
+    if area and not _is_area_text(area):
+        area = ""
+    if layout and not _is_layout_text(layout):
+        layout = ""
+    if floor and not _is_floor_text(floor):
+        floor = ""
+    if direction and not _is_direction_text(direction):
+        direction = ""
+
+    if not all((price, tsubo, area, layout, floor, direction)):
+        data_cells = [c for c in cells if not _is_deco_cell(c, building_name)]
+        for cell in data_cells:
+            text = cell["text"]
+            label = cell["label"]
+            if not tsubo and ("坪単価" in label or _is_tsubo_text(text)):
+                tsubo = text
+                continue
+            if not area and ("面積" in label or _is_area_text(text)):
+                area = text
+                continue
+            if not layout and ("間取り" in label or _is_layout_text(text)):
+                layout = text
+                continue
+            if not floor and ("所在階" in label or _is_floor_text(text)):
+                floor = text
+                continue
+            if not direction and ("向き" in label or _is_direction_text(text)):
+                direction = text
+                continue
+            if not price and ("価格" in label or ("販売価格" in label) or (_is_money_text(text) and not _is_tsubo_text(text))):
+                price = text
+                continue
+
     return {
-        "price_or_rent_text": normalize_space(cols.get("価格") or cols.get("販売価格")),
-        "tsubo_unit_price_text": normalize_space(cols.get("坪単価")),
-        "area_text": normalize_space(cols.get("専有面積") or cols.get("面積")),
-        "layout_text": normalize_space(cols.get("間取り")),
-        "floor_text": normalize_space(cols.get("所在階") or cols.get("階")),
-        "direction_text": normalize_space(cols.get("向き") or cols.get("主要採光面")),
+        "price_or_rent_text": price,
+        "tsubo_unit_price_text": tsubo,
+        "area_text": area,
+        "layout_text": layout,
+        "floor_text": floor,
+        "direction_text": direction,
     }
 
 
@@ -279,12 +463,13 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         headers = _table_headers(table)
         row_nodes = table.css("tbody.recommend_row tr")
         for tr in row_nodes:
+            cells = _row_cells(tr)
             cols = _row_columns(tr, headers, CHINTAI_ORDER if kind == "chintai" else MANSION_ORDER)
-            if not cols:
+            if not cols and not cells:
                 continue
 
             if kind == "chintai":
-                listing = _extract_chintai_row(cols)
+                listing = _extract_chintai_row(cols, cells, building_name)
                 rows.append(
                     ListRow(
                         kind=kind,
@@ -311,7 +496,7 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                     )
                 )
             else:
-                sale = _extract_mansion_row(cols)
+                sale = _extract_mansion_row(cols, cells, building_name)
                 rows.append(
                     ListRow(
                         kind=kind,
