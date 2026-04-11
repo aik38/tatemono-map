@@ -606,6 +606,27 @@ def _extract_man_value(text: str) -> str:
     return ""
 
 
+def _split_chintai_rent_and_fee(price_or_rent_text: str, fee_text: str) -> tuple[str, str]:
+    rent_man = _extract_man_value(price_or_rent_text)
+    fee_man = _extract_man_value(fee_text)
+    if fee_man:
+        return rent_man, fee_man
+
+    normalized = normalize_space(price_or_rent_text)
+    if not normalized:
+        return rent_man, ""
+
+    paren = re.search(r"[（(]\s*([^)）]+)\s*[)）]", normalized)
+    if not paren:
+        return rent_man, ""
+
+    fee_raw = normalize_space(paren.group(1))
+    if not fee_raw or re.search(r"^-+\s*円?$", fee_raw):
+        return rent_man, ""
+    fee_from_paren = _extract_man_value(fee_raw)
+    return rent_man, fee_from_paren
+
+
 def _extract_area_sqm(text: str) -> str:
     m = re.search(r"(\d+(?:\.\d+)?)\s*(?:㎡|m²|m2)", normalize_space(text))
     return m.group(1) if m else ""
@@ -634,6 +655,10 @@ def _listing_evidence_id(row: ListRow) -> str:
 def _to_master_rows(rows: list[ListRow], updated_at: str) -> list[dict[str, str]]:
     out: list[dict[str, str]] = []
     for row in rows:
+        rent_man = _extract_man_value(row.price_or_rent_text)
+        fee_man = ""
+        if row.kind == "chintai":
+            rent_man, fee_man = _split_chintai_rent_and_fee(row.price_or_rent_text, row.fee_text)
         raw_fields = [
             ("kind", row.kind),
             ("賃料/価格", row.price_or_rent_text),
@@ -662,8 +687,8 @@ def _to_master_rows(rows: list[ListRow], updated_at: str) -> list[dict[str, str]
                 "building_name": row.building_name,
                 "room": "",
                 "address": row.address,
-                "rent_man": _extract_man_value(row.price_or_rent_text),
-                "fee_man": _extract_man_value(row.fee_text) if row.kind == "chintai" else "",
+                "rent_man": rent_man,
+                "fee_man": fee_man,
                 "floor": row.floor_text,
                 "layout": row.layout_text,
                 "area_sqm": _extract_area_sqm(row.area_text),

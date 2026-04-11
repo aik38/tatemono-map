@@ -469,12 +469,12 @@ def test_sale_summary_uses_sale_listings_payload(tmp_path):
         """
         INSERT INTO sale_listings(
             sale_listing_key, building_key, source, source_url, evidence_id,
-            price_yen, management_fee_yen, repair_fund_yen, area_sqm, layout, floor_text, direction_text, updated_at, ingest_run_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, ingest_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            ("s1", "b-sale", "mansion_review_mansion", "u1", "e1", 36000000, 9000, 7000, 66.0, "2LDK", "7階", "南", "2026-01-02", 30),
-            ("s2", "b-sale", "mansion_review_mansion", "u2", "e2", 42000000, 12000, 8000, 72.0, "3LDK", "10階", "東", "2026-01-03", 30),
+            ("s1", "b-sale", "mansion_review_mansion", "u1", "e1", 36000000, 9000, 7000, 1650000, 66.0, "2LDK", "7階", "南", "2026-01-02", 30),
+            ("s2", "b-sale", "mansion_review_mansion", "u2", "e2", 42000000, 12000, 8000, 1820000, 72.0, "3LDK", "10階", "東", "2026-01-03", 30),
         ],
     )
     conn.commit()
@@ -485,7 +485,7 @@ def test_sale_summary_uses_sale_listings_payload(tmp_path):
     conn = connect(db)
     summary = conn.execute("SELECT sale_price_yen_min, sale_price_yen_max, sale_listing_count, has_sale FROM building_summaries WHERE building_key='b-sale'").fetchone()
     sale_summary = conn.execute(
-        "SELECT price_yen_min, price_yen_max, management_fee_yen_min, management_fee_yen_max, repair_fund_yen_min, repair_fund_yen_max, floor_summary, floor_count_text, total_units FROM building_sale_summaries WHERE building_key='b-sale'"
+        "SELECT price_yen_min, price_yen_max, tsubo_unit_price_yen_min, tsubo_unit_price_yen_max, management_fee_yen_min, management_fee_yen_max, repair_fund_yen_min, repair_fund_yen_max, floor_summary, direction_summary, floor_count_text, total_units FROM building_sale_summaries WHERE building_key='b-sale'"
     ).fetchone()
     conn.close()
 
@@ -495,10 +495,13 @@ def test_sale_summary_uses_sale_listings_payload(tmp_path):
     assert summary["sale_price_yen_max"] == 42000000
     assert sale_summary["price_yen_min"] == 36000000
     assert sale_summary["price_yen_max"] == 42000000
+    assert sale_summary["tsubo_unit_price_yen_min"] == 1650000
+    assert sale_summary["tsubo_unit_price_yen_max"] == 1820000
     assert sale_summary["management_fee_yen_min"] == 9000
     assert sale_summary["management_fee_yen_max"] == 12000
     assert sale_summary["repair_fund_yen_min"] == 7000
     assert sale_summary["repair_fund_yen_max"] == 8000
     assert sale_summary["floor_summary"] == "10階, 7階"
+    assert sale_summary["direction_summary"] == "南, 東"
     assert sale_summary["floor_count_text"] == "14階建"
     assert sale_summary["total_units"] == 120

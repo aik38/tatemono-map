@@ -103,7 +103,7 @@ def _load_priority_rank(conn, domain: str) -> dict[str, int]:
     ).fetchall()
     sale_rows = conn.execute(
         """
-        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
+        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
         FROM sale_listings
         WHERE (
             ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
@@ -157,7 +157,7 @@ def rebuild(db_path: str) -> int:
     ).fetchall()
     sale_rows = conn.execute(
         """
-        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
+        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
         FROM sale_listings
         WHERE (
             ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
@@ -244,7 +244,9 @@ def rebuild(db_path: str) -> int:
         sale_layouts = sorted({normalize_text(r["layout"]) for r in sale_items if r["layout"]})
         sale_mgmt_fees = [int(r["management_fee_yen"]) for r in sale_items if r["management_fee_yen"] is not None]
         sale_repair_funds = [int(r["repair_fund_yen"]) for r in sale_items if r["repair_fund_yen"] is not None]
+        sale_tsubo_unit_prices = [int(r["tsubo_unit_price_yen"]) for r in sale_items if r["tsubo_unit_price_yen"] is not None]
         sale_floors = sorted({normalize_text(r["floor_text"]) for r in sale_items if normalize_text(r["floor_text"])})
+        sale_directions = sorted({normalize_text(r["direction_text"]) for r in sale_items if normalize_text(r["direction_text"])})
         sale_latest = max((r["updated_at"] for r in sale_items if r["updated_at"]), default=None)
 
         sale_price_min = min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building else None)
@@ -352,10 +354,10 @@ def rebuild(db_path: str) -> int:
                 """
                 INSERT INTO building_sale_summaries(
                     building_key, sale_listing_count, price_yen_min, price_yen_max, area_sqm_min, area_sqm_max,
-                    layout_types_json, floor_summary, management_fee_yen_min, management_fee_yen_max,
+                    layout_types_json, floor_summary, direction_summary, tsubo_unit_price_yen_min, tsubo_unit_price_yen_max, management_fee_yen_min, management_fee_yen_max,
                     repair_fund_yen_min, repair_fund_yen_max, management_style, built_year_month, built_age_years,
                     structure, floor_count_text, total_units, fetched_date, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'), ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'), ?)
                 ON CONFLICT(building_key) DO UPDATE SET
                     sale_listing_count=excluded.sale_listing_count,
                     price_yen_min=excluded.price_yen_min,
@@ -364,6 +366,9 @@ def rebuild(db_path: str) -> int:
                     area_sqm_max=excluded.area_sqm_max,
                     layout_types_json=excluded.layout_types_json,
                     floor_summary=excluded.floor_summary,
+                    direction_summary=excluded.direction_summary,
+                    tsubo_unit_price_yen_min=excluded.tsubo_unit_price_yen_min,
+                    tsubo_unit_price_yen_max=excluded.tsubo_unit_price_yen_max,
                     management_fee_yen_min=excluded.management_fee_yen_min,
                     management_fee_yen_max=excluded.management_fee_yen_max,
                     repair_fund_yen_min=excluded.repair_fund_yen_min,
@@ -386,6 +391,9 @@ def rebuild(db_path: str) -> int:
                     sale_area_max,
                     sale_layout_types_json or "[]",
                     ", ".join(sale_floors) if sale_floors else None,
+                    ", ".join(sale_directions) if sale_directions else None,
+                    min(sale_tsubo_unit_prices) if sale_tsubo_unit_prices else None,
+                    max(sale_tsubo_unit_prices) if sale_tsubo_unit_prices else None,
                     min(sale_mgmt_fees) if sale_mgmt_fees else None,
                     max(sale_mgmt_fees) if sale_mgmt_fees else None,
                     min(sale_repair_funds) if sale_repair_funds else None,

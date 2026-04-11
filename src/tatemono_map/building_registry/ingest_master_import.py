@@ -386,6 +386,20 @@ def _extract_money_yen(raw_text: str, label: str) -> int | None:
     return int(matched.group(1).replace(",", ""))
 
 
+def _extract_tsubo_unit_price_yen(raw_text: str) -> int | None:
+    text = _extract_text_field(raw_text, ("坪単価",))
+    if not text:
+        return None
+    cleaned = _clean_text(text).replace(",", "")
+    man_match = re.search(r"(\d+(?:\.\d+)?)\s*万円", cleaned)
+    if man_match:
+        return int(float(man_match.group(1)) * 10000)
+    yen_match = re.search(r"(\d+)\s*円", cleaned)
+    if yen_match:
+        return int(yen_match.group(1))
+    return None
+
+
 def _extract_text_field(raw_text: str, labels: tuple[str, ...]) -> str | None:
     if not raw_text:
         return None
@@ -685,6 +699,7 @@ def ingest_master_import_csv(
                 if management_fee_yen is None:
                     management_fee_yen = _extract_money_yen(raw_block, "共益費")
                 repair_fund_yen = _extract_money_yen(raw_block, "修繕積立金")
+                tsubo_unit_price_yen = _extract_tsubo_unit_price_yen(raw_block)
                 access_info = _extract_text_field(raw_block, ("交通",))
                 floor_count_text = _extract_text_field(raw_block, ("階建て", "階建", "建物階数"))
                 total_units_text = _extract_text_field(raw_block, ("総戸数",))
@@ -753,9 +768,9 @@ def ingest_master_import_csv(
                         """
                         INSERT INTO sale_listings(
                             sale_listing_key, building_key, source, source_url, evidence_id,
-                            price_yen, management_fee_yen, repair_fund_yen, area_sqm, layout, floor_text, direction_text,
+                            price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen, area_sqm, layout, floor_text, direction_text,
                             updated_at, ingest_run_id
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(sale_listing_key) DO UPDATE SET
                             building_key=excluded.building_key,
                             source=excluded.source,
@@ -764,6 +779,7 @@ def ingest_master_import_csv(
                             price_yen=excluded.price_yen,
                             management_fee_yen=excluded.management_fee_yen,
                             repair_fund_yen=excluded.repair_fund_yen,
+                            tsubo_unit_price_yen=excluded.tsubo_unit_price_yen,
                             area_sqm=excluded.area_sqm,
                             layout=excluded.layout,
                             floor_text=excluded.floor_text,
@@ -780,6 +796,7 @@ def ingest_master_import_csv(
                             rent_yen,
                             management_fee_yen if management_fee_yen is not None else maint_yen,
                             repair_fund_yen,
+                            tsubo_unit_price_yen,
                             area_sqm,
                             layout,
                             floor_text,
