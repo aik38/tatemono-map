@@ -48,17 +48,16 @@ try {
 
   Write-Host "BACKUP=$backupRoot"
 
-  Write-Host "[STEP] Mansion-Review list facts ingest"
-  & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts/run_mansion_review_listfacts_to_db.ps1") `
+  Write-Host "[STEP] Mansion-Review facts ingest"
+  & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts/run_mansion_review_facts_to_db.ps1") `
     -RepoPath $repo `
     -CityIds $CityIds `
     -Kinds $Kinds `
     -SleepSec $SleepSec `
     -MaxPages $MaxPages `
     -Merge "fill_only" `
-    $(if($CreateMissingSafe){"-CreateMissingSafe"}) `
     -RunPublish:$false
-  if ($LASTEXITCODE -ne 0) { throw "run_mansion_review_listfacts_to_db.ps1 failed" }
+  if ($LASTEXITCODE -ne 0) { throw "run_mansion_review_facts_to_db.ps1 failed" }
 
   $py = Join-Path $repo ".venv\Scripts\python.exe"
   if (-not (Test-Path $py)) { throw ".venv python not found: $py. Run scripts/setup.ps1 first." }

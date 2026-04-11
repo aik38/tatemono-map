@@ -14,59 +14,16 @@ $ErrorActionPreference = "Stop"
 
 $repo = (Resolve-Path $RepoPath).Path
 if (-not (Test-Path (Join-Path $repo ".git"))) { throw "Not a git repository: $repo" }
-if (-not (Test-Path (Join-Path $repo "pyproject.toml"))) { throw "pyproject.toml not found: $repo" }
 
-Push-Location $repo
-try {
-  $env:PYTHONPATH = "src"
-  $py = Join-Path $repo ".venv\Scripts\python.exe"
-  if (-not (Test-Path $py)) { throw ".venv python not found: $py. Run scripts/setup.ps1 first." }
+$effectiveMaxPages = $MaxPages
+if ($effectiveMaxPages -le 0) { $effectiveMaxPages = 3 }
 
-  & $py (Join-Path $repo "scripts/mansion_review_crawl_to_csv.py") `
-    --city-ids $CityIds `
-    --kinds $Kinds `
-    --mode facts `
-    --sleep-sec $SleepSec `
-    --max-pages $MaxPages
-  if ($LASTEXITCODE -ne 0) { throw "mansion_review_crawl_to_csv.py failed" }
-
-  $factsCsv = Get-ChildItem -Path (Join-Path $repo "tmp\manual\outputs\mansion_review\combined") -Filter "building_facts_*.csv" -File |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-  if (-not $factsCsv) { throw "building_facts CSV not found under tmp/manual/outputs/mansion_review/combined" }
-  Write-Host "[OK] facts_csv=$($factsCsv.FullName)"
-
-  $listCsvName = $factsCsv.Name -replace '^building_facts_', 'mansion_review_list_'
-  $runDir = Join-Path (Join-Path $repo "tmp\manual\outputs\mansion_review") ($factsCsv.BaseName -replace '^building_facts_', '')
-  $listCsvPath = Join-Path $runDir $listCsvName
-  if (-not (Test-Path $listCsvPath)) { throw "mansion_review_list CSV not found: $listCsvPath" }
-  Write-Host "[OK] list_csv=$listCsvPath"
-
-  $masterImportCsv = Join-Path $runDir "mansion_review_master_import.csv"
-  & $py (Join-Path $repo "scripts/mansion_review_list_to_master_import.py") --input-csv $listCsvPath --output-csv $masterImportCsv
-  if ($LASTEXITCODE -ne 0) { throw "mansion_review_list_to_master_import.py failed" }
-  Write-Host "[OK] master_import_csv=$masterImportCsv"
-
-  $dbPath = Join-Path $repo "data\tatemono_map.sqlite3"
-  $enableAutoSeed = $CreateMissingSafe -or $AutoSeedHighConfidence
-  & $py -m tatemono_map.building_registry.ingest_building_facts --db $dbPath --csv $factsCsv.FullName --source mansion_review_list_facts --merge $Merge $(if($enableAutoSeed){"--create-missing-safe"})
-  if ($LASTEXITCODE -ne 0) { throw "ingest_building_facts failed" }
-  Write-Host "[OK] ingest_building_facts db=$dbPath merge=$Merge auto_seed_high_confidence=$enableAutoSeed"
-
-  & $py -m tatemono_map.building_registry.ingest_master_import --db $dbPath --csv $masterImportCsv --source mansion_review_list
-  if ($LASTEXITCODE -ne 0) { throw "ingest_master_import (mansion_review_list) failed" }
-  Write-Host "[OK] ingest_master_import source=mansion_review_list"
-
-  & $py -m tatemono_map.building_registry.ingest_master_import --db $dbPath --source mansion_review_list --set-current-latest-completed
-  if ($LASTEXITCODE -ne 0) { throw "set-current-latest-completed failed for mansion_review_list" }
-  Write-Host "[OK] set current snapshot source=mansion_review_list"
-
-  if ($RunPublish) {
-    & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\publish_public.ps1") -RepoPath $repo
-    if ($LASTEXITCODE -ne 0) { throw "publish_public.ps1 failed" }
-    Write-Host "[OK] publish_public data/public/public.sqlite3"
-  }
-}
-finally {
-  Pop-Location
-}
+& pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\run_mansion_review_facts_to_db.ps1") `
+  -RepoPath $repo `
+  -CityIds $CityIds `
+  -Kinds $Kinds `
+  -SleepSec $SleepSec `
+  -MaxPages $effectiveMaxPages `
+  -Merge $Merge `
+  -RunPublish:$RunPublish
+if ($LASTEXITCODE -ne 0) { throw "run_mansion_review_facts_to_db.ps1 failed" }
