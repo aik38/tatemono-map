@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections import Counter
 from datetime import date
 
@@ -48,6 +49,39 @@ def _pick_built_year_month(values: list[str]) -> str | None:
     max_count = max(counts.values())
     modes = sorted(value for value, count in counts.items() if count == max_count)
     return modes[0]
+
+
+def _is_valid_access_info(value: str | None) -> bool:
+    cleaned = normalize_text(value)
+    if not cleaned:
+        return False
+    if "線" in cleaned and "駅" not in cleaned:
+        return False
+    return any(token in cleaned for token in ("駅", "徒歩", "バス"))
+
+
+def _is_valid_floor_count_text(value: str | None) -> bool:
+    cleaned = normalize_text(value)
+    if not cleaned:
+        return False
+    if "て:" in cleaned or "階建て:" in cleaned:
+        return False
+    return re.fullmatch(r"(地上\d+階建|地上\d+階建\s*地下\d+階|地下\d+階\s*地上\d+階建)", cleaned) is not None
+
+
+def _pick_latest_valid_value(rows: list[dict], field: str, *, validator=None):
+    for row in sorted(rows, key=lambda r: (normalize_text(r.get("updated_at")) or "", str(r.get("building_id") or "")), reverse=True):
+        value = row.get(field)
+        if value is None:
+            continue
+        if isinstance(value, str):
+            value = normalize_text(value)
+            if not value:
+                continue
+        if validator and not validator(value):
+            continue
+        return value
+    return None
 
 
 def _nearest_availability_date(items: list) -> str | None:
@@ -131,7 +165,8 @@ def rebuild(db_path: str) -> int:
                structure, age_years, built_year, built_year_month, availability_raw, availability_label,
                property_kind, sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
                sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json, sale_listing_count,
-               avg_rent_yen, rental_listing_count, management_style, floor_count_text, total_units
+               avg_rent_yen, rental_listing_count, management_style, floor_count_text, total_units,
+               access_info, updated_at
         FROM buildings
         """
     ).fetchall()
@@ -182,7 +217,27 @@ def rebuild(db_path: str) -> int:
         canonical_key = alias_map.get(row["building_key"], row["building_key"])
         grouped_sale.setdefault(canonical_key, []).append(row)
 
-    canonical_by_id = {row["building_id"]: row for row in building_rows}
+    building_dicts = [dict(row) for row in building_rows]
+    canonical_by_id = {row["building_id"]: row for row in building_dicts}
+    grouped_buildings: dict[str, list[dict]] = {key: [row] for key, row in canonical_by_id.items()}
+    for alias_key, canonical_key in alias_map.items():
+        alias_row = canonical_by_id.get(alias_key)
+        if not alias_row:
+            continue
+        grouped_buildings.setdefault(canonical_key, [])
+        if all(existing["building_id"] != alias_key for existing in grouped_buildings[canonical_key]):
+            grouped_buildings[canonical_key].append(alias_row)
+    merged_canonical_by_id: dict[str, dict] = {}
+    for building_id, base in canonical_by_id.items():
+        merged = dict(base)
+        candidates = grouped_buildings.get(building_id, [base])
+        merged["access_info"] = _pick_latest_valid_value(candidates, "access_info", validator=_is_valid_access_info) or merged.get("access_info")
+        merged["floor_count_text"] = _pick_latest_valid_value(candidates, "floor_count_text", validator=_is_valid_floor_count_text) or merged.get("floor_count_text")
+        merged["total_units"] = _pick_latest_valid_value(candidates, "total_units", validator=lambda v: isinstance(v, int) and v > 0) or merged.get("total_units")
+        merged["built_year_month"] = _pick_latest_valid_value(candidates, "built_year_month") or merged.get("built_year_month")
+        merged["age_years"] = _pick_latest_valid_value(candidates, "age_years", validator=lambda v: isinstance(v, int) and v >= 0) or merged.get("age_years")
+        merged_canonical_by_id[building_id] = merged
+
     target_keys = set(canonical_by_id.keys()) | set(grouped.keys()) | set(grouped_sale.keys())
 
     for building_key in sorted(target_keys):
@@ -194,7 +249,7 @@ def rebuild(db_path: str) -> int:
             if available_ranks and len(ranked_items) == len(items):
                 best_rank = min(available_ranks)
                 items = [row for row in items if rental_priority.get(str(row["source_kind"])) == best_rank]
-        building = canonical_by_id.get(building_key)
+        building = merged_canonical_by_id.get(building_key)
         rents = [r["rent_yen"] for r in items if r["rent_yen"] is not None]
         maints = [r["maint_yen"] for r in items if r["maint_yen"] is not None]
         areas = [r["area_sqm"] for r in items if r["area_sqm"] is not None]
