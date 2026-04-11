@@ -2,7 +2,6 @@ param(
   [string]$RepoPath = (Resolve-Path (Join-Path $PSScriptRoot "..") | Select-Object -ExpandProperty Path),
   [string]$CityIds = "1616,1619",
   [string]$Kinds = "mansion,chintai",
-  [string]$Mode = "list",
   [double]$SleepSec = 0.7,
   [int]$MaxPages = 0
 )
@@ -32,13 +31,12 @@ if (-not (Test-Path $PY)) { throw ".venv python not found: $PY. Run scripts/setu
 & $PY (Join-Path $REPO "scripts/mansion_review_crawl_to_csv.py") `
   --city-ids $CityIds `
   --kinds $Kinds `
-  --mode $Mode `
   --sleep-sec $SleepSec `
   --max-pages $MaxPages
 
 <#
 Example:
-pwsh scripts/run_mansion_review_crawl.ps1 -CityIds "1616,1619" -Kinds "mansion,chintai" -Mode list -SleepSec 0.7 -MaxPages 0
+pwsh scripts/run_mansion_review_crawl.ps1 -CityIds "1616,1619" -Kinds "mansion,chintai" -SleepSec 0.7 -MaxPages 0
 
 Notes:
 -MaxPages 0 : 自動ページング（ページネーションリンク推定。異常値時は次へ追跡で安全停止）
