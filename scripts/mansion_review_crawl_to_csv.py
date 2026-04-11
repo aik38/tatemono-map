@@ -56,10 +56,35 @@ FACTS_COLUMNS = (
     "building_name",
     "address",
     "access_info",
+    "built_text",
     "floor_count_text",
     "total_units",
     "evidence_id",
+)
+
+MASTER_COLUMNS = (
+    "page",
+    "category",
+    "updated_at",
+    "building_name",
+    "room",
+    "address",
+    "rent_man",
+    "fee_man",
+    "floor",
+    "layout",
+    "area_sqm",
+    "availability_raw",
+    "built_raw",
+    "age_years",
+    "structure",
+    "built_year_month",
+    "built_age_years",
+    "availability_date",
+    "availability_flag_immediate",
+    "structure_raw",
     "raw_block",
+    "evidence_id",
 )
 
 CHINTAI_ORDER = ["賃料", "管理費", "敷金", "礼金", "専有面積", "間取り"]
@@ -366,18 +391,10 @@ def _to_facts_rows(rows: list[ListRow]) -> list[dict[str, str]]:
             "building_name": row.building_name,
             "address": row.address,
             "access_info": row.access_text,
+            "built_text": row.built_text,
             "floor_count_text": row.building_floor_count_text,
             "total_units": _parse_total_units(row.total_units_text),
             "evidence_id": f"mansion_review:{row.detail_url or row.page_url}",
-            "raw_block": " | ".join(
-                [
-                    f"交通:{row.access_text}",
-                    f"築年数:{row.built_text}",
-                    f"階建て:{row.building_floor_count_text}",
-                    f"総戸数:{row.total_units_text}",
-                    f"詳細URL:{row.detail_url}",
-                ]
-            ),
         }
     return list(dedup.values())
 
@@ -390,18 +407,116 @@ def _write_facts_csv(rows: list[dict[str, str]], path: Path) -> None:
         writer.writerows(rows)
 
 
+def _extract_man_value(text: str) -> str:
+    normalized = normalize_space(text).replace(",", "")
+    if not normalized:
+        return ""
+    man = re.search(r"(\d+(?:\.\d+)?)\s*万円", normalized)
+    if man:
+        return man.group(1)
+    yen = re.search(r"(\d+)\s*円", normalized)
+    if yen:
+        value = int(yen.group(1)) / 10000
+        return f"{value:.4f}".rstrip("0").rstrip(".")
+    return ""
+
+
+def _extract_area_sqm(text: str) -> str:
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(?:㎡|m²|m2)", normalize_space(text))
+    return m.group(1) if m else ""
+
+
+def _listing_evidence_id(row: ListRow) -> str:
+    payload = "|".join(
+        normalize_space(getattr(row, k))
+        for k in (
+            "kind",
+            "price_or_rent_text",
+            "fee_text",
+            "tsubo_unit_price_text",
+            "deposit_text",
+            "key_money_text",
+            "area_text",
+            "layout_text",
+            "floor_text",
+            "direction_text",
+        )
+    )
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+    return f"mansion_review:{row.detail_url or row.page_url}#l={digest}"
+
+
+def _to_master_rows(rows: list[ListRow], updated_at: str) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    for row in rows:
+        raw_fields = [
+            ("kind", row.kind),
+            ("賃料/価格", row.price_or_rent_text),
+            ("管理費", row.fee_text),
+            ("坪単価", row.tsubo_unit_price_text),
+            ("敷金", row.deposit_text),
+            ("礼金", row.key_money_text),
+            ("専有面積", row.area_text),
+            ("間取り", row.layout_text),
+            ("所在階", row.floor_text),
+            ("向き", row.direction_text),
+            ("住所", row.address),
+            ("交通", row.access_text),
+            ("築年数", row.built_text),
+            ("階建て", row.building_floor_count_text),
+            ("総戸数", row.total_units_text),
+            ("一覧URL", row.page_url),
+            ("詳細URL", row.detail_url),
+        ]
+        raw_block = " | ".join(f"{k}:{normalize_space(v)}" for k, v in raw_fields if normalize_space(v))
+        out.append(
+            {
+                "page": row.detail_url or row.page_url,
+                "category": row.kind,
+                "updated_at": updated_at,
+                "building_name": row.building_name,
+                "room": "",
+                "address": row.address,
+                "rent_man": _extract_man_value(row.price_or_rent_text),
+                "fee_man": _extract_man_value(row.fee_text) if row.kind == "chintai" else "",
+                "floor": row.floor_text,
+                "layout": row.layout_text,
+                "area_sqm": _extract_area_sqm(row.area_text),
+                "availability_raw": "",
+                "built_raw": row.built_text,
+                "age_years": "",
+                "structure": "",
+                "built_year_month": "",
+                "built_age_years": "",
+                "availability_date": "",
+                "availability_flag_immediate": "",
+                "structure_raw": "",
+                "raw_block": raw_block,
+                "evidence_id": _listing_evidence_id(row),
+            }
+        )
+    return out
+
+
+def _write_master_csv(rows: list[dict[str, str]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(MASTER_COLUMNS))
+        writer.writeheader()
+        writer.writerows(rows)
+
+
 def run_crawl(
     *,
     city_ids: list[str],
     kinds: list[str],
-    mode: str,
     out_root: Path,
     cache_dir: Path,
     sleep_sec: float,
     max_pages: int,
     retry_count: int,
     user_agent: str,
-) -> tuple[Path, Path, dict[str, object]]:
+) -> tuple[Path, dict[str, Path], dict[str, object]]:
     timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     run_dir = out_root / timestamp
 
@@ -440,17 +555,23 @@ def run_crawl(
                         retry_count=retry_count,
                         sleep_sec=sleep_sec,
                     )
-                    rows, _ = parse_list_page(html, url, kind, city_id, page_no)
+                    rows, page_stats = parse_list_page(html, url, kind, city_id, page_no)
                     all_rows.extend(rows)
                     stats["pages_total"] = int(stats["pages_total"]) + 1
+                    print(f"[INFO] kind={kind} city_id={city_id} page={page_no}/{total_pages} rows={page_stats['rows']}")
                     time.sleep(sleep_sec)
             except Exception as err:  # noqa: BLE001
                 casted = stats["errors"]
                 assert isinstance(casted, list)
                 casted.append({"kind": kind, "city_id": city_id, "error": str(err)})
 
+    run_dir.mkdir(parents=True, exist_ok=True)
     list_csv = run_dir / f"mansion_review_list_{timestamp}.csv"
     _write_list_csv(all_rows, list_csv)
+    facts_csv = run_dir / "building_facts.csv"
+    master_csv = run_dir / "mansion_review_master_import.csv"
+    _write_facts_csv(_to_facts_rows(all_rows), facts_csv)
+    _write_master_csv(_to_master_rows(all_rows, datetime.utcnow().strftime("%Y/%m/%d %H:%M")), master_csv)
 
     rows_by_kind: dict[str, int] = {}
     detail_urls_by_kind: dict[str, set[str]] = {}
@@ -463,22 +584,19 @@ def run_crawl(
     stats["rows_by_kind"] = rows_by_kind
     stats["unique_detail_url_by_kind"] = {k: len(v) for k, v in detail_urls_by_kind.items()}
 
-    out_csv = list_csv
-    if mode == "facts":
-        facts_csv = out_root / "combined" / f"building_facts_{timestamp}.csv"
-        _write_facts_csv(_to_facts_rows(all_rows), facts_csv)
-        out_csv = facts_csv
-
-    run_dir.mkdir(parents=True, exist_ok=True)
     (run_dir / "stats.json").write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
-    return run_dir, out_csv, stats
+    outputs = {
+        "list_csv": list_csv,
+        "building_facts_csv": facts_csv,
+        "master_import_csv": master_csv,
+    }
+    return run_dir, outputs, stats
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Crawl mansion-review city list pages and export CSV")
     parser.add_argument("--city-ids", default="1616,1619")
     parser.add_argument("--kinds", default="chintai,mansion")
-    parser.add_argument("--mode", default="list", choices=["list", "facts"])
     parser.add_argument("--out-dir", default=str(DEFAULT_OUT))
     parser.add_argument("--cache-dir", default=str(DEFAULT_CACHE))
     parser.add_argument("--sleep-sec", type=float, default=0.7)
@@ -490,10 +608,9 @@ def main() -> int:
     city_ids = parse_csv_arg(args.city_ids)
     kinds = parse_csv_arg(args.kinds)
 
-    run_dir, out_csv, stats = run_crawl(
+    run_dir, outputs, stats = run_crawl(
         city_ids=city_ids,
         kinds=kinds,
-        mode=args.mode,
         out_root=Path(args.out_dir),
         cache_dir=Path(args.cache_dir),
         sleep_sec=args.sleep_sec,
@@ -507,7 +624,9 @@ def main() -> int:
     for kind in kinds:
         print(f"[OK] kind={kind} rows={stats.get('rows_by_kind', {}).get(kind, 0)}")
         print(f"[OK] kind={kind} unique_detail_url={stats.get('unique_detail_url_by_kind', {}).get(kind, 0)}")
-    print(f"[OK] out_csv={out_csv}")
+    print(f"[OK] list_csv={outputs['list_csv']}")
+    print(f"[OK] building_facts_csv={outputs['building_facts_csv']}")
+    print(f"[OK] master_import_csv={outputs['master_import_csv']}")
     print(f"[OK] stats={run_dir / 'stats.json'}")
     return 0
 

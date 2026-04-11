@@ -15,15 +15,12 @@ $ErrorActionPreference = "Stop"
 $repo = (Resolve-Path $RepoPath).Path
 if (-not (Test-Path (Join-Path $repo ".git"))) { throw "Not a git repository: $repo" }
 
-$effectiveMaxPages = $MaxPages
-if ($effectiveMaxPages -le 0) { $effectiveMaxPages = 3 }
-
 & pwsh -NoProfile -ExecutionPolicy Bypass -File (Join-Path $repo "scripts\run_mansion_review_facts_to_db.ps1") `
   -RepoPath $repo `
   -CityIds $CityIds `
   -Kinds $Kinds `
   -SleepSec $SleepSec `
-  -MaxPages $effectiveMaxPages `
+  -MaxPages $MaxPages `
   -Merge $Merge `
   -RunPublish:$RunPublish
 if ($LASTEXITCODE -ne 0) { throw "run_mansion_review_facts_to_db.ps1 failed" }
