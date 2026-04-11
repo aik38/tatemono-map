@@ -143,6 +143,37 @@ def test_parse_list_page_headerless_uses_fixed_column_order() -> None:
     assert rows[0].direction_text == "南西"
 
 
+def test_parse_list_page_mansion_ignores_leading_decorative_cells() -> None:
+    html = """
+    <html><body>
+      <article class="property-detail-list-item">
+        <h3>コクラタワー</h3>
+        <div class="property-detail-content_main"></div>
+        <table class="recommendTable"><tbody class="recommend_row">
+          <tr>
+            <td>新着</td><td>リノベ</td><td>コクラタワー</td><td>1302号室</td>
+            <td>3,180万円</td><td>159万円/坪</td><td>66.0㎡</td><td>2LDK</td><td>7階</td><td>南</td>
+          </tr>
+        </tbody></table>
+      </article>
+    </body></html>
+    """
+    rows, _ = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/mansion/city/1619.html",
+        kind="mansion",
+        city_id="1619",
+        page_no=1,
+    )
+    row = rows[0]
+    assert row.price_or_rent_text == "3,180万円"
+    assert row.tsubo_unit_price_text == "159万円/坪"
+    assert row.area_text == "66.0㎡"
+    assert row.layout_text == "2LDK"
+    assert row.floor_text == "7階"
+    assert row.direction_text == "南"
+
+
 def test_parse_list_page_chintai_combined_cells_are_split() -> None:
     html = """
     <html><body>
@@ -163,6 +194,37 @@ def test_parse_list_page_chintai_combined_cells_are_split() -> None:
             <td data-th="敷/礼">1ヶ月/2ヶ月</td>
             <td data-th="専有面積">45.1㎡</td>
             <td data-th="間取り">1LDK</td>
+          </tr>
+        </tbody></table>
+      </li>
+    </body></html>
+    """
+    rows, _ = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/chintai/city/1616.html",
+        kind="chintai",
+        city_id="1616",
+        page_no=1,
+    )
+    row = rows[0]
+    assert row.price_or_rent_text == "8.2万円"
+    assert row.fee_text == "6,000円"
+    assert row.deposit_text == "1ヶ月"
+    assert row.key_money_text == "2ヶ月"
+    assert row.area_text == "45.1㎡"
+    assert row.layout_text == "1LDK"
+
+
+def test_parse_list_page_chintai_ignores_leading_decorative_cells() -> None:
+    html = """
+    <html><body>
+      <li class="property-detail-list-item">
+        <h3>門司港レジデンス</h3>
+        <div class="property-detail-content_main"></div>
+        <table class="recommendTable"><tbody class="recommend_row">
+          <tr>
+            <td>新着</td><td>門司港レジデンス</td><td>203号室</td>
+            <td>8.2万円</td><td>6,000円</td><td>1ヶ月</td><td>2ヶ月</td><td>45.1㎡</td><td>1LDK</td>
           </tr>
         </tbody></table>
       </li>
