@@ -212,9 +212,9 @@
           {% if building.sale_floor_label %}<div class="fact"><dt>所在階</dt><dd>{{ building.sale_floor_label }}</dd></div>{% endif %}
           {% if building.sale_direction_label %}<div class="fact"><dt>向き</dt><dd>{{ building.sale_direction_label }}</dd></div>{% endif %}
         </div>
-        <div class="fact-row">
-          <div class="fact"><dt>間取り</dt><dd>{{ building.sale_layout_label or "要確認" }}</dd></div>
-          <div class="fact"><dt>面積</dt><dd>{{ building.sale_area_label or "要確認" }}</dd></div>
+        <div class="fact-row{% if not (building.sale_layout_label and building.sale_area_label) %} fact-row--single{% endif %}">
+          {% if building.sale_layout_label %}<div class="fact"><dt>間取り</dt><dd>{{ building.sale_layout_label }}</dd></div>{% endif %}
+          {% if building.sale_area_label %}<div class="fact"><dt>面積</dt><dd>{{ building.sale_area_label }}</dd></div>{% endif %}
         </div>
         {% if building.sale_sqm_price_label %}<div class="fact-row fact-row--single"><div class="fact fact--wide"><dt>㎡単価</dt><dd>{{ building.sale_sqm_price_label }}</dd></div></div>{% endif %}
         {% endif %}

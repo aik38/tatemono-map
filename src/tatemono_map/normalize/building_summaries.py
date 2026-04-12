@@ -97,6 +97,35 @@ def _pick_latest_nonempty_listing_field(rows: list, field: str):
     return None
 
 
+_SALE_LAYOUT_RE = re.compile(r"\d+\s*(?:SLDK|LDK|SDK|DK|K|R|ワンルーム)", re.IGNORECASE)
+
+
+def _normalize_sale_row_fields(row: dict) -> dict:
+    normalized = dict(row)
+    floor_text = normalize_text(normalized.get("floor_text"))
+    direction_text = normalize_text(normalized.get("direction_text"))
+    layout = normalize_text(normalized.get("layout"))
+    area_sqm = normalized.get("area_sqm")
+    sqm_unit_price_yen = normalized.get("sqm_unit_price_yen")
+
+    if area_sqm is None and floor_text and re.search(r"(?:㎡|m2|m²)", floor_text, flags=re.IGNORECASE):
+        area_match = re.search(r"(\d+(?:\.\d+)?)", floor_text.replace(",", ""))
+        if area_match:
+            normalized["area_sqm"] = float(area_match.group(1))
+            normalized["floor_text"] = None
+            floor_text = None
+
+    if layout and sqm_unit_price_yen is None and re.search(r"万円", layout):
+        match = re.search(r"(\d+(?:\.\d+)?)", layout.replace(",", ""))
+        if match:
+            normalized["sqm_unit_price_yen"] = int(float(match.group(1)) * 10000)
+            normalized["layout"] = direction_text if direction_text and _SALE_LAYOUT_RE.search(direction_text) else None
+            if direction_text and _SALE_LAYOUT_RE.search(direction_text):
+                normalized["direction_text"] = None
+
+    return normalized
+
+
 def _nearest_availability_date(items: list) -> str | None:
     dates: list[date] = []
     for row in items:
@@ -307,22 +336,23 @@ def rebuild(db_path: str) -> int:
         fallback_availability_label = (normalize_text(building["availability_label"]) if building else "") or None
         fallback_property_kind = normalize_text(building["property_kind"]) if building and building["property_kind"] else ""
 
-        sale_prices = [int(r["price_yen"]) for r in sale_items if r["price_yen"] is not None]
-        sale_areas = [float(r["area_sqm"]) for r in sale_items if r["area_sqm"] is not None]
-        sale_layouts = sorted({normalize_text(r["layout"]) for r in sale_items if r["layout"]})
-        sale_mgmt_fees = [int(r["management_fee_yen"]) for r in sale_items if r["management_fee_yen"] is not None]
-        sale_repair_funds = [int(r["repair_fund_yen"]) for r in sale_items if r["repair_fund_yen"] is not None]
-        sale_sqm_unit_prices = [int(r["sqm_unit_price_yen"]) for r in sale_items if r["sqm_unit_price_yen"] is not None]
-        sale_floors = sorted({normalize_text(r["floor_text"]) for r in sale_items if normalize_text(r["floor_text"])})
-        sale_directions = sorted({normalize_text(r["direction_text"]) for r in sale_items if normalize_text(r["direction_text"])})
+        normalized_sale_items = [_normalize_sale_row_fields(dict(r)) for r in sale_items]
+        sale_prices = [int(r["price_yen"]) for r in normalized_sale_items if r["price_yen"] is not None]
+        sale_areas = [float(r["area_sqm"]) for r in normalized_sale_items if r["area_sqm"] is not None]
+        sale_layouts = sorted({normalize_text(r["layout"]) for r in normalized_sale_items if r["layout"]})
+        sale_mgmt_fees = [int(r["management_fee_yen"]) for r in normalized_sale_items if r["management_fee_yen"] is not None]
+        sale_repair_funds = [int(r["repair_fund_yen"]) for r in normalized_sale_items if r["repair_fund_yen"] is not None]
+        sale_sqm_unit_prices = [int(r["sqm_unit_price_yen"]) for r in normalized_sale_items if r["sqm_unit_price_yen"] is not None]
+        sale_floors = sorted({normalize_text(r["floor_text"]) for r in normalized_sale_items if normalize_text(r["floor_text"])})
+        sale_directions = sorted({normalize_text(r["direction_text"]) for r in normalized_sale_items if normalize_text(r["direction_text"])})
         sale_latest = max((r["updated_at"] for r in sale_items if r["updated_at"]), default=None)
 
-        sale_price_current = _pick_latest_nonempty_listing_field(sale_items, "price_yen")
-        sale_area_current = _pick_latest_nonempty_listing_field(sale_items, "area_sqm")
-        sale_layout_current = _pick_latest_nonempty_listing_field(sale_items, "layout")
-        sale_floor_current = _pick_latest_nonempty_listing_field(sale_items, "floor_text")
-        sale_direction_current = _pick_latest_nonempty_listing_field(sale_items, "direction_text")
-        sale_sqm_unit_price_current = _pick_latest_nonempty_listing_field(sale_items, "sqm_unit_price_yen")
+        sale_price_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "price_yen")
+        sale_area_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "area_sqm")
+        sale_layout_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "layout")
+        sale_floor_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "floor_text")
+        sale_direction_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "direction_text")
+        sale_sqm_unit_price_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "sqm_unit_price_yen")
 
         sale_price_min = sale_price_current if sale_price_current is not None else (min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building else None))
         sale_price_max = sale_price_current if sale_price_current is not None else (max(sale_prices) if sale_prices else (building["sale_price_yen_max"] if building else None))
