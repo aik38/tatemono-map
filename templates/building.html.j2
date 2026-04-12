@@ -73,6 +73,12 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+    border-top: 1px dashed var(--border);
+    padding-top: 8px;
+  }
+  .fact-row:first-child {
+    border-top: 0;
+    padding-top: 0;
   }
   .fact-row--single {
     grid-template-columns: minmax(0, 1fr);
@@ -83,12 +89,6 @@
     display: grid;
     grid-template-columns: 140px minmax(0, 1fr);
     gap: 10px;
-    border-top: 1px dashed var(--border);
-    padding-top: 8px;
-  }
-  .fact-row:first-child .fact {
-    border-top: 0;
-    padding-top: 0;
   }
   .fact--wide { grid-column: 1 / -1; }
 
@@ -136,9 +136,6 @@
   .mode-panel[hidden] { display: none; }
 
   @media (max-width: 740px) {
-    .fact-row {
-      grid-template-columns: minmax(0, 1fr);
-    }
     .fact {
       grid-template-columns: 1fr;
       gap: 4px;
@@ -267,17 +264,24 @@
         {% else %}
         <div class="fact-row fact-row--single"><div class="fact fact--wide"><dt>補足</dt><dd>現在、この建物の募集は確認できていません。ご希望に近いお部屋もご案内可能です。</dd></div></div>
         {% endif %}
-      <div class="fact-row{% if not (building.built_label and building.display_structure) %} fact-row--single{% endif %}">
-      {% if building.built_label %}<div class="fact"><dt>築年月</dt><dd>{{ building.built_label }}</dd></div>{% endif %}
-      {% if building.display_structure %}<div class="fact"><dt>構造</dt><dd>{{ building.display_structure }}</dd></div>{% endif %}
-      </div>
-      {% set floor_count_text = (building.sale_summary.floor_count_text if building.sale_summary and building.sale_summary.floor_count_text else building.floor_count_text) %}
-      {% set total_units = (building.sale_summary.total_units if building.sale_summary and building.sale_summary.total_units else building.total_units) %}
-      <div class="fact-row{% if not (floor_count_text and total_units) %} fact-row--single{% endif %}">
-      {% if floor_count_text %}<div class="fact"><dt>階建て</dt><dd>{{ floor_count_text }}</dd></div>{% endif %}
-      {% if total_units %}<div class="fact"><dt>総戸数</dt><dd>{{ total_units }}</dd></div>{% endif %}
-      </div>
-      {% if building.access_info %}<div class="fact-row fact-row--single"><div class="fact fact--wide"><dt>交通</dt><dd>{{ building.access_info }}</dd></div></div>{% endif %}
+      </dl>
+    </section>
+    {% endif %}
+    {% if show_rental %}
+    <section class="info card" aria-label="建物概要">
+      <h2 class="a11y-only">建物概要</h2>
+      <dl class="facts">
+        <div class="fact-row{% if not (building.built_label and building.display_structure) %} fact-row--single{% endif %}">
+        {% if building.built_label %}<div class="fact"><dt>築年月</dt><dd>{{ building.built_label }}</dd></div>{% endif %}
+        {% if building.display_structure %}<div class="fact"><dt>構造</dt><dd>{{ building.display_structure }}</dd></div>{% endif %}
+        </div>
+        {% set floor_count_text = (building.sale_summary.floor_count_text if building.sale_summary and building.sale_summary.floor_count_text else building.floor_count_text) %}
+        {% set total_units = (building.sale_summary.total_units if building.sale_summary and building.sale_summary.total_units else building.total_units) %}
+        <div class="fact-row{% if not (floor_count_text and total_units) %} fact-row--single{% endif %}">
+        {% if floor_count_text %}<div class="fact"><dt>階建て</dt><dd>{{ floor_count_text }}</dd></div>{% endif %}
+        {% if total_units %}<div class="fact"><dt>総戸数</dt><dd>{{ total_units }}</dd></div>{% endif %}
+        </div>
+        {% if building.access_info %}<div class="fact-row fact-row--single"><div class="fact fact--wide"><dt>交通</dt><dd>{{ building.access_info }}</dd></div></div>{% endif %}
       </dl>
     </section>
     {% endif %}

@@ -892,6 +892,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     ).fetchall()
     rental_terms_map: dict[str, dict[str, list[object]]] = {}
     rental_current_map: dict[str, dict[str, object]] = {}
+    sale_current_map: dict[str, dict[str, object]] = {}
     for row in rental_terms_rows:
         building_key = str(row["building_key"] or "").strip()
         if not building_key:
@@ -916,6 +917,51 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         floor_text = str(row["floor_text"] or "").strip()
         if floor_text and floor_text not in current["floors"]:
             current["floors"].append(floor_text)
+    sale_rows = conn.execute(
+        """
+        SELECT building_key, price_yen, area_sqm, layout, floor_text, direction_text, tsubo_unit_price_yen
+        FROM sale_listings
+        WHERE (
+            ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
+            OR (
+                ingest_run_id IS NULL
+                AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)
+            )
+        )
+        ORDER BY id DESC
+        """
+    ).fetchall()
+    for row in sale_rows:
+        building_key = str(row["building_key"] or "").strip()
+        if not building_key:
+            continue
+        canonical_key = alias_map.get(building_key, building_key)
+        current = sale_current_map.setdefault(
+            canonical_key,
+            {
+                "price_yen": None,
+                "area_sqm": None,
+                "layout": None,
+                "floor_text": None,
+                "direction_text": None,
+                "tsubo_unit_price_yen": None,
+            },
+        )
+        if current["price_yen"] is None and row["price_yen"] is not None:
+            current["price_yen"] = row["price_yen"]
+        if current["area_sqm"] is None and row["area_sqm"] is not None:
+            current["area_sqm"] = row["area_sqm"]
+        layout = str(row["layout"] or "").strip()
+        if current["layout"] is None and layout:
+            current["layout"] = layout
+        floor_text = str(row["floor_text"] or "").strip()
+        if current["floor_text"] is None and floor_text:
+            current["floor_text"] = floor_text
+        direction_text = str(row["direction_text"] or "").strip()
+        if current["direction_text"] is None and direction_text:
+            current["direction_text"] = direction_text
+        if current["tsubo_unit_price_yen"] is None and row["tsubo_unit_price_yen"] is not None:
+            current["tsubo_unit_price_yen"] = row["tsubo_unit_price_yen"]
     merged_rental_summary_map: dict[str, dict] = {}
     for key, row in rental_summary_map.items():
         canonical_key = alias_map.get(key, key)
@@ -954,6 +1000,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         building["rental_deposit_label"] = _format_text_label(rental_terms.get("deposit", []))
         building["rental_key_money_label"] = _format_text_label(rental_terms.get("key_money", []))
         building["rental_current"] = rental_current_map.get(str(building.get("building_key")), {})
+        building["sale_current"] = sale_current_map.get(str(building.get("building_key")), {})
     print(
         "render_kpi_counts canonical_buildings_count={} summary_buildings_count={} vacancy_total={}".format(
             canonical_buildings_count,
@@ -1266,27 +1313,34 @@ def _build_dist_version(
         b["access_info"] = _format_access_info_for_display(b.get("access_info"))
         b["display_structure"] = _normalize_structure_label(b.get("building_structure") or b.get("structure"))
         sale_count = sale_summary.get("sale_listing_count") if sale_summary else b.get("sale_listing_count")
+        sale_current = b.get("sale_current") or {}
         b["sale_status_label"] = f"{int(sale_count)}件" if (sale_count or 0) > 0 else "現在、販売中の住戸はありません。"
+        sale_price_current = sale_current.get("price_yen")
         b["sale_price_label"] = _format_range(
-            (sale_summary.get("price_yen_min") if sale_summary else b.get("sale_price_yen_min")) / 10000 if (sale_summary.get("price_yen_min") if sale_summary else b.get("sale_price_yen_min")) else None,
-            (sale_summary.get("price_yen_max") if sale_summary else b.get("sale_price_yen_max")) / 10000 if (sale_summary.get("price_yen_max") if sale_summary else b.get("sale_price_yen_max")) else None,
+            (sale_price_current / 10000) if sale_price_current is not None else ((sale_summary.get("price_yen_min") if sale_summary else b.get("sale_price_yen_min")) / 10000 if (sale_summary.get("price_yen_min") if sale_summary else b.get("sale_price_yen_min")) else None),
+            (sale_price_current / 10000) if sale_price_current is not None else ((sale_summary.get("price_yen_max") if sale_summary else b.get("sale_price_yen_max")) / 10000 if (sale_summary.get("price_yen_max") if sale_summary else b.get("sale_price_yen_max")) else None),
             suffix="万円",
         )
+        sale_area_current = sale_current.get("area_sqm")
         b["sale_area_label"] = _format_range(
-            sale_summary.get("area_sqm_min") if sale_summary else b.get("sale_area_sqm_min"),
-            sale_summary.get("area_sqm_max") if sale_summary else b.get("sale_area_sqm_max"),
+            sale_area_current if sale_area_current is not None else (sale_summary.get("area_sqm_min") if sale_summary else b.get("sale_area_sqm_min")),
+            sale_area_current if sale_area_current is not None else (sale_summary.get("area_sqm_max") if sale_summary else b.get("sale_area_sqm_max")),
             suffix="㎡",
         )
-        b["sale_layout_label"] = _format_layout_label(
-            json.loads(sale_summary.get("layout_types_json") or "[]")
-        ) if sale_summary else _format_layout_label(json.loads(b.get("sale_layout_types_json") or "[]"))
+        sale_layout_current = sale_current.get("layout")
+        b["sale_layout_label"] = (
+            _format_layout_label([sale_layout_current])
+            if sale_layout_current
+            else (_format_layout_label(json.loads(sale_summary.get("layout_types_json") or "[]")) if sale_summary else _format_layout_label(json.loads(b.get("sale_layout_types_json") or "[]")))
+        )
+        sqm_unit_current = sale_current.get("tsubo_unit_price_yen")
         b["sale_sqm_price_label"] = _format_range(
-            (sale_summary.get("tsubo_unit_price_yen_min") / 10000) if sale_summary and sale_summary.get("tsubo_unit_price_yen_min") else None,
-            (sale_summary.get("tsubo_unit_price_yen_max") / 10000) if sale_summary and sale_summary.get("tsubo_unit_price_yen_max") else None,
+            (sqm_unit_current / 10000) if sqm_unit_current is not None else ((sale_summary.get("tsubo_unit_price_yen_min") / 10000) if sale_summary and sale_summary.get("tsubo_unit_price_yen_min") else None),
+            (sqm_unit_current / 10000) if sqm_unit_current is not None else ((sale_summary.get("tsubo_unit_price_yen_max") / 10000) if sale_summary and sale_summary.get("tsubo_unit_price_yen_max") else None),
             suffix="万円/m²",
         )
-        b["sale_floor_label"] = sale_summary.get("floor_summary") if sale_summary else None
-        b["sale_direction_label"] = sale_summary.get("direction_summary") if sale_summary else None
+        b["sale_floor_label"] = sale_current.get("floor_text") or (sale_summary.get("floor_summary") if sale_summary else None)
+        b["sale_direction_label"] = sale_current.get("direction_text") or (sale_summary.get("direction_summary") if sale_summary else None)
         seo = _build_building_seo(b, site_origin=site_origin, base_path=base_path)
         detail_path = f"{base_path}/b/{b['detail_filename']}"
         area_hub = None
