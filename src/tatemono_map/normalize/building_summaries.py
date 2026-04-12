@@ -84,6 +84,19 @@ def _pick_latest_valid_value(rows: list[dict], field: str, *, validator=None):
     return None
 
 
+def _pick_latest_nonempty_listing_field(rows: list, field: str):
+    for row in sorted(rows, key=lambda r: (normalize_text(r["updated_at"]) or ""), reverse=True):
+        value = row[field]
+        if value is None:
+            continue
+        if isinstance(value, str):
+            value = normalize_text(value)
+            if not value:
+                continue
+        return value
+    return None
+
+
 def _nearest_availability_date(items: list) -> str | None:
     dates: list[date] = []
     for row in items:
@@ -304,12 +317,23 @@ def rebuild(db_path: str) -> int:
         sale_directions = sorted({normalize_text(r["direction_text"]) for r in sale_items if normalize_text(r["direction_text"])})
         sale_latest = max((r["updated_at"] for r in sale_items if r["updated_at"]), default=None)
 
-        sale_price_min = min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building else None)
-        sale_price_max = max(sale_prices) if sale_prices else (building["sale_price_yen_max"] if building else None)
-        sale_price_avg = (sum(sale_prices) // len(sale_prices)) if sale_prices else (building["sale_price_yen_avg"] if building else None)
-        sale_area_min = min(sale_areas) if sale_areas else (building["sale_area_sqm_min"] if building else None)
-        sale_area_max = max(sale_areas) if sale_areas else (building["sale_area_sqm_max"] if building else None)
-        sale_layout_types_json = json.dumps(sale_layouts, ensure_ascii=False) if sale_layouts else (building["sale_layout_types_json"] if building else None)
+        sale_price_current = _pick_latest_nonempty_listing_field(sale_items, "price_yen")
+        sale_area_current = _pick_latest_nonempty_listing_field(sale_items, "area_sqm")
+        sale_layout_current = _pick_latest_nonempty_listing_field(sale_items, "layout")
+        sale_floor_current = _pick_latest_nonempty_listing_field(sale_items, "floor_text")
+        sale_direction_current = _pick_latest_nonempty_listing_field(sale_items, "direction_text")
+        sale_sqm_unit_price_current = _pick_latest_nonempty_listing_field(sale_items, "sqm_unit_price_yen")
+
+        sale_price_min = sale_price_current if sale_price_current is not None else (min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building else None))
+        sale_price_max = sale_price_current if sale_price_current is not None else (max(sale_prices) if sale_prices else (building["sale_price_yen_max"] if building else None))
+        sale_price_avg = int(sale_price_current) if sale_price_current is not None else ((sum(sale_prices) // len(sale_prices)) if sale_prices else (building["sale_price_yen_avg"] if building else None))
+        sale_area_min = sale_area_current if sale_area_current is not None else (min(sale_areas) if sale_areas else (building["sale_area_sqm_min"] if building else None))
+        sale_area_max = sale_area_current if sale_area_current is not None else (max(sale_areas) if sale_areas else (building["sale_area_sqm_max"] if building else None))
+        sale_layout_types_json = (
+            json.dumps([sale_layout_current], ensure_ascii=False)
+            if sale_layout_current
+            else (json.dumps(sale_layouts, ensure_ascii=False) if sale_layouts else (building["sale_layout_types_json"] if building else None))
+        )
         sale_listing_count = len(sale_items) if sale_items else (building["sale_listing_count"] if building else None)
 
         availability_label = (_select_availability_label(move_in_dates, items) if items else None) or fallback_availability_label
@@ -445,10 +469,10 @@ def rebuild(db_path: str) -> int:
                     sale_area_min,
                     sale_area_max,
                     sale_layout_types_json or "[]",
-                    ", ".join(sale_floors) if sale_floors else None,
-                    ", ".join(sale_directions) if sale_directions else None,
-                    min(sale_sqm_unit_prices) if sale_sqm_unit_prices else None,
-                    max(sale_sqm_unit_prices) if sale_sqm_unit_prices else None,
+                    sale_floor_current or (", ".join(sale_floors) if sale_floors else None),
+                    sale_direction_current or (", ".join(sale_directions) if sale_directions else None),
+                    sale_sqm_unit_price_current if sale_sqm_unit_price_current is not None else (min(sale_sqm_unit_prices) if sale_sqm_unit_prices else None),
+                    sale_sqm_unit_price_current if sale_sqm_unit_price_current is not None else (max(sale_sqm_unit_prices) if sale_sqm_unit_prices else None),
                     min(sale_mgmt_fees) if sale_mgmt_fees else None,
                     max(sale_mgmt_fees) if sale_mgmt_fees else None,
                     min(sale_repair_funds) if sale_repair_funds else None,
