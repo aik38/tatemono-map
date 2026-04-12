@@ -547,6 +547,28 @@ def test_build_dist_versions_v2_index_has_min_json_fallback_logic(tmp_path):
     assert "function validateRawItems(raw, sourceLabel)" in index_v2
 
 
+def test_build_dist_versions_v2_index_sale_card_uses_sale_min_max_fields(tmp_path):
+    db = tmp_path / "test.sqlite3"
+    out = tmp_path / "dist"
+    conn = connect(db)
+    upsert_listing(
+        conn,
+        ListingRecord("分譲表示確認マンション", "東京都港区1-2-3", 120000, 31.0, "1LDK", "2026-12-01", "ulucks", "sale-card-check"),
+    )
+    conn.close()
+
+    rebuild(str(db))
+    build_dist_versions(str(db), str(out))
+
+    index_v2 = (out / "index.html").read_text(encoding="utf-8")
+    assert "salePriceMin: item.sale_price_min" in index_v2
+    assert "salePriceMax: item.sale_price_max" in index_v2
+    assert "saleAreaMin: item.sale_area_min" in index_v2
+    assert "saleAreaMax: item.sale_area_max" in index_v2
+    assert "formatRangeLabel(item.salePriceMin, item.salePriceMax" in index_v2
+    assert "item.saleAreaMin != null ? item.saleAreaMin : item.areaMin" in index_v2
+
+
 def test_render_dist_versions_detail_shows_immediate_when_availability_label_is_nyukyo(tmp_path):
     db = tmp_path / "test.sqlite3"
     out = tmp_path / "dist"
