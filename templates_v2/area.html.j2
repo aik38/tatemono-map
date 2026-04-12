@@ -68,7 +68,9 @@
             <li class="kpi"><span>販売情報</span>{{ b.sale_listing_count if b.sale_listing_count is not none and b.sale_listing_count > 0 else "なし" }}</li>
           {% elif b.listing_mode == "sale" %}
             <li class="kpi"><span>販売情報</span>{{ b.sale_listing_count if b.sale_listing_count is not none and b.sale_listing_count > 0 else "なし" }}</li>
-            <li class="kpi"><span>家賃</span>{{ ((b.sale_price_yen_avg / 10000)|int ~ "万円") if b.sale_price_yen_avg is not none else "—" }}</li>
+            {% set sale_price_min = b.sale_price_yen_min if b.sale_price_yen_min is not none and b.sale_price_yen_min > 0 else none %}
+            {% set sale_price_max = b.sale_price_yen_max if b.sale_price_yen_max is not none and b.sale_price_yen_max > 0 else none %}
+            <li class="kpi"><span>販売価格</span>{% if sale_price_min and sale_price_max %}{% if sale_price_min == sale_price_max %}{{ ((sale_price_min / 10000)|int) }}万円{% else %}{{ ((sale_price_min / 10000)|int) }}万円〜{{ ((sale_price_max / 10000)|int) }}万円{% endif %}{% elif sale_price_min %}{{ ((sale_price_min / 10000)|int) }}万円{% elif sale_price_max %}{{ ((sale_price_max / 10000)|int) }}万円{% else %}—{% endif %}</li>
           {% else %}
             <li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>
             {% set rent_min = b.rent_yen_min if b.rent_yen_min is not none and b.rent_yen_min > 0 else none %}
@@ -76,8 +78,10 @@
             <li class="kpi"><span>家賃</span>{% if rent_min and rent_max %}{% if rent_min == rent_max %}{{ rent_min|yen }}円{% else %}{{ rent_min|yen }}円〜{{ rent_max|yen }}円{% endif %}{% elif rent_min %}{{ rent_min|yen }}円{% elif rent_max %}{{ rent_max|yen }}円{% else %}—{% endif %}</li>
           {% endif %}
         </ul>
-        {% set area_min = b.area_sqm_min if b.area_sqm_min is not none and b.area_sqm_min > 0 else none %}
-        {% set area_max = b.area_sqm_max if b.area_sqm_max is not none and b.area_sqm_max > 0 else none %}
+        {% set area_min = (b.sale_area_sqm_min if b.sale_area_sqm_min is not none and b.sale_area_sqm_min > 0 else none) if b.listing_mode in ["sale", "both"] or b.property_kind == "bunjo" else (b.area_sqm_min if b.area_sqm_min is not none and b.area_sqm_min > 0 else none) %}
+        {% set area_max = (b.sale_area_sqm_max if b.sale_area_sqm_max is not none and b.sale_area_sqm_max > 0 else none) if b.listing_mode in ["sale", "both"] or b.property_kind == "bunjo" else (b.area_sqm_max if b.area_sqm_max is not none and b.area_sqm_max > 0 else none) %}
+        {% if area_min is none %}{% set area_min = b.area_sqm_min if b.area_sqm_min is not none and b.area_sqm_min > 0 else none %}{% endif %}
+        {% if area_max is none %}{% set area_max = b.area_sqm_max if b.area_sqm_max is not none and b.area_sqm_max > 0 else none %}{% endif %}
         <dl class="meta">
           <div class="meta-row">
             <dt>面積</dt>
