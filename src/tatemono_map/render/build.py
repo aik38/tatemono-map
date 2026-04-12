@@ -218,6 +218,20 @@ def _format_text_label(values: list[object]) -> str | None:
 _SALE_LAYOUT_RE = re.compile(r"\d+\s*(?:SLDK|LDK|SDK|DK|K|R|ワンルーム)", re.IGNORECASE)
 
 
+def _natural_sort_key(value: str) -> tuple:
+    return tuple(int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", value))
+
+
+def _distinct_natural_text(values: list[object]) -> list[str]:
+    labels: dict[str, None] = {}
+    for value in values:
+        text = str(value or "").strip()
+        if not text or text in {"-", "--", "- -", "なし"}:
+            continue
+        labels.setdefault(text, None)
+    return sorted(labels.keys(), key=_natural_sort_key)
+
+
 def _normalize_sale_binding_row(row: dict[str, object]) -> dict[str, object]:
     normalized = dict(row)
     floor_text = str(normalized.get("floor_text") or "").strip()
@@ -971,29 +985,45 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         current = sale_current_map.setdefault(
             canonical_key,
             {
-                "price_yen": None,
-                "area_sqm": None,
-                "layout": None,
-                "floor_text": None,
-                "direction_text": None,
-                "tsubo_unit_price_yen": None,
+                "listing_count": 0,
+                "price_values": [],
+                "area_values": [],
+                "sqm_price_values": [],
+                "layout_values": [],
+                "floor_values": [],
+                "direction_values": [],
             },
         )
-        if current["price_yen"] is None and row["price_yen"] is not None:
-            current["price_yen"] = row["price_yen"]
-        if current["area_sqm"] is None and row["area_sqm"] is not None:
-            current["area_sqm"] = row["area_sqm"]
-        layout = str(row["layout"] or "").strip()
-        if current["layout"] is None and layout:
-            current["layout"] = layout
-        floor_text = str(row["floor_text"] or "").strip()
-        if current["floor_text"] is None and floor_text:
-            current["floor_text"] = floor_text
-        direction_text = str(row["direction_text"] or "").strip()
-        if current["direction_text"] is None and direction_text:
-            current["direction_text"] = direction_text
-        if current["tsubo_unit_price_yen"] is None and row["tsubo_unit_price_yen"] is not None:
-            current["tsubo_unit_price_yen"] = row["tsubo_unit_price_yen"]
+        current["listing_count"] += 1
+        if row["price_yen"] is not None:
+            current["price_values"].append(int(row["price_yen"]))
+        if row["area_sqm"] is not None:
+            current["area_values"].append(float(row["area_sqm"]))
+        if row["tsubo_unit_price_yen"] is not None:
+            current["sqm_price_values"].append(int(row["tsubo_unit_price_yen"]))
+        current["layout_values"].append(row.get("layout"))
+        current["floor_values"].append(row.get("floor_text"))
+        current["direction_values"].append(row.get("direction_text"))
+
+    for canonical_key, current in sale_current_map.items():
+        price_values = current.get("price_values") or []
+        area_values = current.get("area_values") or []
+        sqm_price_values = current.get("sqm_price_values") or []
+        layout_list = _distinct_natural_text(current.get("layout_values") or [])
+        floor_list = _distinct_natural_text(current.get("floor_values") or [])
+        direction_list = _distinct_natural_text(current.get("direction_values") or [])
+        sale_current_map[canonical_key] = {
+            "listing_count": int(current.get("listing_count") or 0),
+            "price_min": min(price_values) if price_values else None,
+            "price_max": max(price_values) if price_values else None,
+            "area_min": min(area_values) if area_values else None,
+            "area_max": max(area_values) if area_values else None,
+            "sqm_price_min": min(sqm_price_values) if sqm_price_values else None,
+            "sqm_price_max": max(sqm_price_values) if sqm_price_values else None,
+            "layout_list": layout_list,
+            "floor_list": floor_list,
+            "direction_list": direction_list,
+        }
     merged_rental_summary_map: dict[str, dict] = {}
     for key, row in rental_summary_map.items():
         canonical_key = alias_map.get(key, key)
@@ -1214,6 +1244,18 @@ def _build_dist_version(
         b["address_full"] = b.get("address")
         b["display_address"] = _build_display_address(b.get("address"))
         b["render_address"] = b.get("display_address") if selected_mode == "short" else b.get("address_full")
+        sale_current = b.get("sale_current") or {}
+        sale_count = int(sale_current.get("listing_count") or 0)
+        sale_price_min = sale_current.get("price_min")
+        sale_price_max = sale_current.get("price_max")
+        sale_area_min = sale_current.get("area_min")
+        sale_area_max = sale_current.get("area_max")
+        b["sale_listing_count"] = sale_count
+        b["sale_price_yen_min"] = sale_price_min
+        b["sale_price_yen_max"] = sale_price_max
+        b["sale_price_yen_avg"] = int((sale_price_min + sale_price_max) / 2) if sale_price_min is not None and sale_price_max is not None else None
+        b["sale_area_sqm_min"] = sale_area_min
+        b["sale_area_sqm_max"] = sale_area_max
         has_sale = bool(b.get("has_sale")) or bool((b.get("sale_listing_count") or 0) > 0)
         has_rental = bool(b.get("has_rental")) or bool((b.get("vacancy_count") or 0) > 0)
         if has_sale and has_rental:
@@ -1344,35 +1386,39 @@ def _build_dist_version(
         b["rental_move_in_label"] = rental_summary.get("move_in_summary") if rental_summary else b.get("building_availability_label")
         b["access_info"] = _format_access_info_for_display(b.get("access_info"))
         b["display_structure"] = _normalize_structure_label(b.get("building_structure") or b.get("structure"))
-        sale_count = sale_summary.get("sale_listing_count") if sale_summary else b.get("sale_listing_count")
         sale_current = b.get("sale_current") or {}
-        b["sale_status_label"] = f"{int(sale_count)}件" if (sale_count or 0) > 0 else "現在、販売中の住戸はありません。"
-        sale_price_current = sale_current.get("price_yen")
+        sale_count = int(sale_current.get("listing_count") or 0)
+        b["sale_listing_count"] = sale_count
+        b["sale_status_label"] = f"{sale_count}件" if sale_count > 0 else "現在、販売中の住戸はありません。"
+        sale_price_min = sale_current.get("price_min")
+        sale_price_max = sale_current.get("price_max")
+        b["sale_price_yen_min"] = sale_price_min
+        b["sale_price_yen_max"] = sale_price_max
+        b["sale_price_yen_avg"] = int((sale_price_min + sale_price_max) / 2) if sale_price_min is not None and sale_price_max is not None else None
         b["sale_price_label"] = _format_range(
-            (sale_price_current / 10000) if sale_price_current is not None else ((sale_summary.get("price_yen_min") if sale_summary else b.get("sale_price_yen_min")) / 10000 if (sale_summary.get("price_yen_min") if sale_summary else b.get("sale_price_yen_min")) else None),
-            (sale_price_current / 10000) if sale_price_current is not None else ((sale_summary.get("price_yen_max") if sale_summary else b.get("sale_price_yen_max")) / 10000 if (sale_summary.get("price_yen_max") if sale_summary else b.get("sale_price_yen_max")) else None),
+            (sale_price_min / 10000) if sale_price_min is not None else None,
+            (sale_price_max / 10000) if sale_price_max is not None else None,
             suffix="万円",
         )
-        sale_area_current = sale_current.get("area_sqm")
+        sale_area_min = sale_current.get("area_min")
+        sale_area_max = sale_current.get("area_max")
+        b["sale_area_sqm_min"] = sale_area_min
+        b["sale_area_sqm_max"] = sale_area_max
         b["sale_area_label"] = _format_range(
-            sale_area_current if sale_area_current is not None else (sale_summary.get("area_sqm_min") if sale_summary else b.get("sale_area_sqm_min")),
-            sale_area_current if sale_area_current is not None else (sale_summary.get("area_sqm_max") if sale_summary else b.get("sale_area_sqm_max")),
+            sale_area_min,
+            sale_area_max,
             suffix="㎡",
         )
-        sale_layout_current = sale_current.get("layout")
-        b["sale_layout_label"] = (
-            _format_layout_label([sale_layout_current])
-            if sale_layout_current
-            else (_format_layout_label(json.loads(sale_summary.get("layout_types_json") or "[]")) if sale_summary else _format_layout_label(json.loads(b.get("sale_layout_types_json") or "[]")))
-        )
-        sqm_unit_current = sale_current.get("tsubo_unit_price_yen")
+        b["sale_layout_label"] = _format_layout_label(sale_current.get("layout_list") or [])
+        sqm_price_min = sale_current.get("sqm_price_min")
+        sqm_price_max = sale_current.get("sqm_price_max")
         b["sale_sqm_price_label"] = _format_range(
-            (sqm_unit_current / 10000) if sqm_unit_current is not None else ((sale_summary.get("tsubo_unit_price_yen_min") / 10000) if sale_summary and sale_summary.get("tsubo_unit_price_yen_min") else None),
-            (sqm_unit_current / 10000) if sqm_unit_current is not None else ((sale_summary.get("tsubo_unit_price_yen_max") / 10000) if sale_summary and sale_summary.get("tsubo_unit_price_yen_max") else None),
-            suffix="万円/m²",
+            (sqm_price_min / 10000) if sqm_price_min is not None else None,
+            (sqm_price_max / 10000) if sqm_price_max is not None else None,
+            suffix="万円/㎡",
         )
-        b["sale_floor_label"] = sale_current.get("floor_text") or (sale_summary.get("floor_summary") if sale_summary else None)
-        b["sale_direction_label"] = sale_current.get("direction_text") or (sale_summary.get("direction_summary") if sale_summary else None)
+        b["sale_floor_label"] = _format_text_label(sale_current.get("floor_list") or [])
+        b["sale_direction_label"] = _format_text_label(sale_current.get("direction_list") or [])
         seo = _build_building_seo(b, site_origin=site_origin, base_path=base_path)
         detail_path = f"{base_path}/b/{b['detail_filename']}"
         area_hub = None
