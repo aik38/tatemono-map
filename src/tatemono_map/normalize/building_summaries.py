@@ -367,6 +367,16 @@ def rebuild(db_path: str) -> int:
             else (building["sale_layout_types_json"] if building else None)
         )
         sale_listing_count = len(sale_items) if sale_items else (building["sale_listing_count"] if building else None)
+        if (
+            not sale_prices
+            and (sale_listing_count or 0) > 1
+            and sale_price_min is not None
+            and sale_price_max is not None
+            and sale_price_min == sale_price_max
+        ):
+            sale_price_min = None
+            sale_price_max = None
+            sale_price_avg = None
 
         availability_label = (_select_availability_label(move_in_dates, items) if items else None) or fallback_availability_label
         vacancy_count = len(items)

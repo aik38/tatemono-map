@@ -423,7 +423,7 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
             if not floor and ("所在階" in label or _is_floor_text(text)):
                 floor = text
                 continue
-            if not direction and ("向き" in label or _is_direction_text(text)):
+            if not direction and _is_direction_text(text):
                 direction = text
                 continue
             if not price and ("価格" in label or ("販売価格" in label) or (_is_money_text(text) and not _is_tsubo_text(text))):

@@ -505,3 +505,39 @@ def test_sale_summary_uses_sale_listings_payload(tmp_path):
     assert sale_summary["direction_summary"] == "南, 東"
     assert sale_summary["floor_count_text"] == "14階建"
     assert sale_summary["total_units"] == 120
+
+
+def test_sale_summary_hides_single_price_fallback_when_count_is_plural_without_sale_listings(tmp_path):
+    db = tmp_path / "test_sale_summary_plural_count_single_price_fallback.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(
+            building_id, canonical_name, canonical_address, property_kind,
+            sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg,
+            sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json, sale_listing_count
+        ) VALUES ('b-sale','分譲マンション','福岡県北九州市門司区X','bunjo',29800000,29800000,29800000,55.0,55.0,'["2LDK"]',3)
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    summary = conn.execute(
+        "SELECT sale_listing_count, sale_price_yen_min, sale_price_yen_max, sale_price_yen_avg, has_sale FROM building_summaries WHERE building_key='b-sale'"
+    ).fetchone()
+    sale_summary = conn.execute(
+        "SELECT sale_listing_count, price_yen_min, price_yen_max FROM building_sale_summaries WHERE building_key='b-sale'"
+    ).fetchone()
+    conn.close()
+
+    assert summary["has_sale"] == 1
+    assert summary["sale_listing_count"] == 3
+    assert summary["sale_price_yen_min"] is None
+    assert summary["sale_price_yen_max"] is None
+    assert summary["sale_price_yen_avg"] is None
+    assert sale_summary["sale_listing_count"] == 3
+    assert sale_summary["price_yen_min"] is None
+    assert sale_summary["price_yen_max"] is None
