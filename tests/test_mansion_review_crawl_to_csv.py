@@ -176,6 +176,37 @@ def test_parse_list_page_mansion_ignores_leading_decorative_cells() -> None:
     assert row.direction_text == "南"
 
 
+def test_parse_list_page_mansion_does_not_treat_layout_as_direction_on_shifted_column() -> None:
+    html = """
+    <html><body>
+      <article class="property-detail-list-item">
+        <h3>パサージュ門司</h3>
+        <div class="property-detail-content_main"></div>
+        <table class="recommendTable"><tbody class="recommend_row">
+          <tr>
+            <td data-th="価格">1,980万円</td>
+            <td data-th="専有面積">41.2㎡</td>
+            <td data-th="間取り">1R</td>
+            <td data-th="所在階">5階</td>
+            <td data-th="向き">ワンルーム</td>
+          </tr>
+        </tbody></table>
+      </article>
+    </body></html>
+    """
+    rows, _ = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/mansion/city/1616.html",
+        kind="mansion",
+        city_id="1616",
+        page_no=1,
+    )
+    row = rows[0]
+    assert row.layout_text == "1R"
+    assert row.floor_text == "5階"
+    assert row.direction_text == ""
+
+
 def test_parse_list_page_chintai_combined_cells_are_split() -> None:
     html = """
     <html><body>
