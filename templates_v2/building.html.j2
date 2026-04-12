@@ -113,13 +113,14 @@
   <section class="info card mode-panel" aria-label="販売状況" data-mode-panel="sale" {% if is_both_mode %}hidden{% endif %}>
     <h2 class="a11y-only">販売状況</h2>
     <dl class="facts">
-      <div class="fact-row{% if not ((building.sale_summary and (building.sale_summary.sale_listing_count or 0) > 0) or (building.sale_listing_count or 0) > 0) %} fact-row--single{% endif %}">
+      <div class="fact-row{% if not ((building.sale_listing_count or 0) > 0) %} fact-row--single{% endif %}">
         <div class="fact"><dt>販売状況</dt><dd>{{ building.sale_status_label }}</dd></div>
-        {% if (building.sale_summary and (building.sale_summary.sale_listing_count or 0) > 0) or (building.sale_listing_count or 0) > 0 %}
+        {% if (building.sale_listing_count or 0) > 0 %}
         <div class="fact"><dt>価格</dt><dd>{{ building.sale_price_label or "販売中" }}</dd></div>
         {% endif %}
       </div>
-      {% if (building.sale_summary and (building.sale_summary.sale_listing_count or 0) > 0) or (building.sale_listing_count or 0) > 0 %}
+      {% if (building.sale_listing_count or 0) > 0 %}
+      {% if building.sale_floor_label or building.sale_direction_label %}
       <div class="fact-row{% if not (building.sale_floor_label and building.sale_direction_label) %} fact-row--single{% endif %}">
         {% if building.sale_floor_label %}
         <div class="fact"><dt>所在階</dt><dd>{{ building.sale_floor_label }}</dd></div>
@@ -128,6 +129,8 @@
         <div class="fact"><dt>向き</dt><dd>{{ building.sale_direction_label }}</dd></div>
         {% endif %}
       </div>
+      {% endif %}
+      {% if building.sale_layout_label or building.sale_area_label %}
       <div class="fact-row{% if not (building.sale_layout_label and building.sale_area_label) %} fact-row--single{% endif %}">
         {% if building.sale_layout_label %}
         <div class="fact"><dt>間取り</dt><dd>{{ building.sale_layout_label }}</dd></div>
@@ -136,6 +139,7 @@
         <div class="fact"><dt>面積</dt><dd>{{ building.sale_area_label }}</dd></div>
         {% endif %}
       </div>
+      {% endif %}
       {% if building.sale_sqm_price_label %}
       <div class="fact-row fact-row--single">
         <div class="fact fact--wide"><dt>㎡単価</dt><dd>{{ building.sale_sqm_price_label }}</dd></div>
@@ -163,7 +167,7 @@
   </section>
 
   <section class="line-cta card{% if is_both_mode %} mode-panel{% endif %}" aria-label="分譲のお問い合わせ" {% if is_both_mode %}data-mode-panel="sale" hidden{% endif %}>
-    {% if (building.sale_summary and (building.sale_summary.sale_listing_count or 0) > 0) or (building.sale_listing_count or 0) > 0 %}
+    {% if (building.sale_listing_count or 0) > 0 %}
     <a class="button button--line" href="{{ line_cta_url }}" target="_blank" rel="noopener" data-line-universal-url="{{ line_cta_url }}" data-line-deep-link="{{ line_deep_link_url }}" onclick="(function(event){var link=event.currentTarget;var deepLink=link.dataset.lineDeepLink;var fallback=link.dataset.lineUniversalUrl;setTimeout(function(){window.location.href=fallback;},700);window.location.href=deepLink;})(event)">この建物の購入相談をする</a>
     <a class="button" href="{{ line_cta_url }}" target="_blank" rel="noopener">この建物の売却査定をする</a>
     {% else %}

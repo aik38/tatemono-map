@@ -100,6 +100,15 @@ def _pick_latest_nonempty_listing_field(rows: list, field: str):
 _SALE_LAYOUT_RE = re.compile(r"\d+\s*(?:SLDK|LDK|SDK|DK|K|R|ワンルーム)", re.IGNORECASE)
 
 
+def _natural_sort_key(value: str) -> tuple:
+    return tuple(int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", value))
+
+
+def _distinct_natural(values: list[str]) -> list[str]:
+    deduped = {normalize_text(v) for v in values if normalize_text(v)}
+    return sorted(deduped, key=_natural_sort_key)
+
+
 def _normalize_sale_row_fields(row: dict) -> dict:
     normalized = dict(row)
     floor_text = normalize_text(normalized.get("floor_text"))
@@ -339,30 +348,23 @@ def rebuild(db_path: str) -> int:
         normalized_sale_items = [_normalize_sale_row_fields(dict(r)) for r in sale_items]
         sale_prices = [int(r["price_yen"]) for r in normalized_sale_items if r["price_yen"] is not None]
         sale_areas = [float(r["area_sqm"]) for r in normalized_sale_items if r["area_sqm"] is not None]
-        sale_layouts = sorted({normalize_text(r["layout"]) for r in normalized_sale_items if r["layout"]})
+        sale_layouts = _distinct_natural([str(r.get("layout") or "") for r in normalized_sale_items])
         sale_mgmt_fees = [int(r["management_fee_yen"]) for r in normalized_sale_items if r["management_fee_yen"] is not None]
         sale_repair_funds = [int(r["repair_fund_yen"]) for r in normalized_sale_items if r["repair_fund_yen"] is not None]
         sale_sqm_unit_prices = [int(r["sqm_unit_price_yen"]) for r in normalized_sale_items if r["sqm_unit_price_yen"] is not None]
-        sale_floors = sorted({normalize_text(r["floor_text"]) for r in normalized_sale_items if normalize_text(r["floor_text"])})
-        sale_directions = sorted({normalize_text(r["direction_text"]) for r in normalized_sale_items if normalize_text(r["direction_text"])})
+        sale_floors = _distinct_natural([str(r.get("floor_text") or "") for r in normalized_sale_items])
+        sale_directions = _distinct_natural([str(r.get("direction_text") or "") for r in normalized_sale_items])
         sale_latest = max((r["updated_at"] for r in sale_items if r["updated_at"]), default=None)
 
-        sale_price_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "price_yen")
-        sale_area_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "area_sqm")
-        sale_layout_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "layout")
-        sale_floor_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "floor_text")
-        sale_direction_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "direction_text")
-        sale_sqm_unit_price_current = _pick_latest_nonempty_listing_field(normalized_sale_items, "sqm_unit_price_yen")
-
-        sale_price_min = sale_price_current if sale_price_current is not None else (min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building else None))
-        sale_price_max = sale_price_current if sale_price_current is not None else (max(sale_prices) if sale_prices else (building["sale_price_yen_max"] if building else None))
-        sale_price_avg = int(sale_price_current) if sale_price_current is not None else ((sum(sale_prices) // len(sale_prices)) if sale_prices else (building["sale_price_yen_avg"] if building else None))
-        sale_area_min = sale_area_current if sale_area_current is not None else (min(sale_areas) if sale_areas else (building["sale_area_sqm_min"] if building else None))
-        sale_area_max = sale_area_current if sale_area_current is not None else (max(sale_areas) if sale_areas else (building["sale_area_sqm_max"] if building else None))
+        sale_price_min = min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building else None)
+        sale_price_max = max(sale_prices) if sale_prices else (building["sale_price_yen_max"] if building else None)
+        sale_price_avg = (sum(sale_prices) // len(sale_prices)) if sale_prices else (building["sale_price_yen_avg"] if building else None)
+        sale_area_min = min(sale_areas) if sale_areas else (building["sale_area_sqm_min"] if building else None)
+        sale_area_max = max(sale_areas) if sale_areas else (building["sale_area_sqm_max"] if building else None)
         sale_layout_types_json = (
-            json.dumps([sale_layout_current], ensure_ascii=False)
-            if sale_layout_current
-            else (json.dumps(sale_layouts, ensure_ascii=False) if sale_layouts else (building["sale_layout_types_json"] if building else None))
+            json.dumps(sale_layouts, ensure_ascii=False)
+            if sale_layouts
+            else (building["sale_layout_types_json"] if building else None)
         )
         sale_listing_count = len(sale_items) if sale_items else (building["sale_listing_count"] if building else None)
 
@@ -499,10 +501,10 @@ def rebuild(db_path: str) -> int:
                     sale_area_min,
                     sale_area_max,
                     sale_layout_types_json or "[]",
-                    sale_floor_current or (", ".join(sale_floors) if sale_floors else None),
-                    sale_direction_current or (", ".join(sale_directions) if sale_directions else None),
-                    sale_sqm_unit_price_current if sale_sqm_unit_price_current is not None else (min(sale_sqm_unit_prices) if sale_sqm_unit_prices else None),
-                    sale_sqm_unit_price_current if sale_sqm_unit_price_current is not None else (max(sale_sqm_unit_prices) if sale_sqm_unit_prices else None),
+                    ", ".join(sale_floors) if sale_floors else None,
+                    ", ".join(sale_directions) if sale_directions else None,
+                    min(sale_sqm_unit_prices) if sale_sqm_unit_prices else None,
+                    max(sale_sqm_unit_prices) if sale_sqm_unit_prices else None,
                     min(sale_mgmt_fees) if sale_mgmt_fees else None,
                     max(sale_mgmt_fees) if sale_mgmt_fees else None,
                     min(sale_repair_funds) if sale_repair_funds else None,
