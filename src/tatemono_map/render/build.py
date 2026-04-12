@@ -215,6 +215,37 @@ def _format_text_label(values: list[object]) -> str | None:
     return f"{labels[0]}〜{labels[-1]}"
 
 
+_SALE_LAYOUT_RE = re.compile(r"\d+\s*(?:SLDK|LDK|SDK|DK|K|R|ワンルーム)", re.IGNORECASE)
+
+
+def _normalize_sale_binding_row(row: dict[str, object]) -> dict[str, object]:
+    normalized = dict(row)
+    floor_text = str(normalized.get("floor_text") or "").strip()
+    direction_text = str(normalized.get("direction_text") or "").strip()
+    layout = str(normalized.get("layout") or "").strip()
+    area_sqm = normalized.get("area_sqm")
+    sqm_unit_price_yen = normalized.get("tsubo_unit_price_yen")
+
+    if area_sqm is None and floor_text and re.search(r"(?:㎡|m2|m²)", floor_text, flags=re.IGNORECASE):
+        area_match = re.search(r"(\d+(?:\.\d+)?)", floor_text.replace(",", ""))
+        if area_match:
+            normalized["area_sqm"] = float(area_match.group(1))
+            normalized["floor_text"] = None
+            floor_text = ""
+
+    if layout and sqm_unit_price_yen is None and "万円" in layout:
+        match = re.search(r"(\d+(?:\.\d+)?)", layout.replace(",", ""))
+        if match:
+            normalized["tsubo_unit_price_yen"] = int(float(match.group(1)) * 10000)
+            if direction_text and _SALE_LAYOUT_RE.search(direction_text):
+                normalized["layout"] = direction_text
+                normalized["direction_text"] = None
+            else:
+                normalized["layout"] = None
+
+    return normalized
+
+
 def _sanitize_text(value: str) -> str:
     sanitized = ROOM_SUFFIX_RE.sub("", value)
     return re.sub(r"\s{2,}", " ", sanitized).strip()
@@ -931,7 +962,8 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         ORDER BY id DESC
         """
     ).fetchall()
-    for row in sale_rows:
+    for raw_row in sale_rows:
+        row = _normalize_sale_binding_row(dict(raw_row))
         building_key = str(row["building_key"] or "").strip()
         if not building_key:
             continue
