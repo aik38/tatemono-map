@@ -8,7 +8,7 @@ from tatemono_map.db.keys import make_building_key
 from tatemono_map.db.repo import ListingRecord, connect, upsert_listing
 from tatemono_map.normalize.building_summaries import rebuild
 from tatemono_map.render.build import build_dist, build_dist_versions
-from tatemono_map.render.build import _sort_area_buildings
+from tatemono_map.render.build import _load_buildings, _sort_area_buildings
 
 
 def _pick_primary_detail_path(detail_dir: Path) -> Path:
@@ -142,6 +142,63 @@ def test_render_dist_sale_section_shows_sqm_floor_and_direction(tmp_path):
     assert "所在階" in detail
     assert "7階" in detail
     assert "向き" in detail
+    assert "南" in detail
+
+
+def test_render_dist_sale_summary_alias_fallback_and_duplicate_suppression(tmp_path):
+    db = tmp_path / "test_sale_alias.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, norm_name, norm_address, updated_at)
+        VALUES
+            ('kokura-empty', '小倉ＤＣタワー', '福岡県北九州市小倉北区浅野1-1-1', '小倉dcタワー', '北九州市小倉北区浅野1-1-1', '2026-04-01'),
+            ('kokura-rich', '小倉ＤＣタワー', '福岡県北九州市小倉北区浅野1-1-1', '小倉dcタワー', '北九州市小倉北区浅野1-1-1', '2026-04-02')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO building_summaries(building_key, name, raw_name, address, has_sale, updated_at)
+        VALUES
+            ('kokura-empty', '小倉ＤＣタワー', '小倉ＤＣタワー', '福岡県北九州市小倉北区浅野1-1-1', 0, '2026-04-01'),
+            ('kokura-rich', '小倉ＤＣタワー', '小倉ＤＣタワー', '福岡県北九州市小倉北区浅野1-1-1', 1, '2026-04-02')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO building_key_aliases(alias_key, canonical_key, updated_at)
+        VALUES ('mr-alias-kokura', 'kokura-rich', '2026-04-02')
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO building_sale_summaries(
+            building_key, sale_listing_count, price_yen_min, price_yen_max,
+            tsubo_unit_price_yen_min, tsubo_unit_price_yen_max, area_sqm_min, area_sqm_max,
+            layout_types_json, floor_summary, direction_summary, updated_at
+        ) VALUES (
+            'mr-alias-kokura', 1, 39800000, 39800000,
+            549000, 549000, 72.5, 72.5, '["3LDK"]', '7階', '南', '2026-04-02'
+        )
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    buildings, *_ = _load_buildings(str(db))
+    assert len([b for b in buildings if b["name"] == "小倉ＤＣタワー"]) == 1
+    kokura = next(b for b in buildings if b["name"] == "小倉ＤＣタワー")
+    assert kokura["building_key"] == "kokura-rich"
+    assert (kokura.get("sale_summary") or {}).get("sale_listing_count") == 1
+
+    build_dist(str(db), str(dist))
+    detail_path = next((dist / "b").glob("*-kokura-rich.html"))
+    detail = detail_path.read_text(encoding="utf-8")
+    assert "1件" in detail
+    assert "3,980万円" in detail
+    assert "54.9万円/㎡" in detail
+    assert "7階" in detail
     assert "南" in detail
 
 

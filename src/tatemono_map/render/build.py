@@ -16,6 +16,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from tatemono_map.db.repo import connect
 from tatemono_map.util.building_age import age_years_from_built_year_month
+from tatemono_map.util.text import normalize_text
 
 FORBIDDEN_PATTERNS = (
     r"mail=",
@@ -273,6 +274,40 @@ def _sanitize_building(building: dict) -> dict:
         elif isinstance(value, list):
             sanitized[key] = [_sanitize_text(item) if isinstance(item, str) else item for item in value]
     return sanitized
+
+
+def _dedupe_building_key(building: dict) -> tuple[str, str]:
+    norm_name = normalize_text(str(building.get("norm_name") or "")) or normalize_text(str(building.get("name") or ""))
+    norm_address = normalize_text(str(building.get("norm_address") or "")) or normalize_text(str(building.get("address") or ""))
+    return (norm_name.lower(), norm_address.lower())
+
+
+def _building_information_score(building: dict) -> tuple[int, int]:
+    sale_summary = building.get("sale_summary") or {}
+    rental_summary = building.get("rental_summary") or {}
+    sale_current = building.get("sale_current") or {}
+    rental_current = building.get("rental_current") or {}
+    score = 0
+    for key in (
+        "address",
+        "access_info",
+        "building_structure",
+        "structure",
+        "building_built_year_month",
+        "building_built_age_years",
+    ):
+        if building.get(key):
+            score += 1
+    score += int(building.get("vacancy_count") or 0)
+    score += int(building.get("has_rental") or 0)
+    score += int(building.get("has_sale") or 0)
+    score += int(rental_summary.get("vacancy_count") or 0)
+    score += int(sale_summary.get("sale_listing_count") or 0)
+    score += int(sale_current.get("listing_count") or 0)
+    score += len(rental_current.get("rents") or [])
+    score += len(rental_current.get("layouts") or [])
+    score += len(sale_current.get("layout_list") or [])
+    return (score, int(building.get("updated_epoch") or -1))
 
 
 def _to_ascii_digits(value: str) -> str:
@@ -850,6 +885,8 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             b.floor_count_text,
             b.total_units,
             b.management_style,
+            b.norm_name,
+            b.norm_address,
             COALESCE(s.updated_at, b.updated_at) AS updated_at
         FROM building_summaries s
         LEFT JOIN buildings b ON b.building_id = s.building_key
@@ -888,6 +925,8 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
             b.floor_count_text,
             b.total_units,
             b.management_style,
+            b.norm_name,
+            b.norm_address,
             b.updated_at AS updated_at
         FROM buildings b
         WHERE COALESCE(b.hidden_from_public, 0) = 0
@@ -1055,14 +1094,26 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     sale_summary_map = merged_sale_summary_map
     conn.close()
     for building in building_list:
+        building_key = str(building.get("building_key"))
+        canonical_key = alias_map.get(building_key, building_key)
         building["sponsor"] = sponsor_map.get(str(building.get("building_key")))
-        building["rental_summary"] = rental_summary_map.get(str(building.get("building_key")))
-        building["sale_summary"] = sale_summary_map.get(str(building.get("building_key")))
-        rental_terms = rental_terms_map.get(str(building.get("building_key")), {"deposit": [], "key_money": []})
+        building["rental_summary"] = rental_summary_map.get(canonical_key) or rental_summary_map.get(building_key)
+        building["sale_summary"] = sale_summary_map.get(canonical_key) or sale_summary_map.get(building_key)
+        rental_terms = rental_terms_map.get(canonical_key) or rental_terms_map.get(building_key) or {"deposit": [], "key_money": []}
         building["rental_deposit_label"] = _format_text_label(rental_terms.get("deposit", []))
         building["rental_key_money_label"] = _format_text_label(rental_terms.get("key_money", []))
-        building["rental_current"] = rental_current_map.get(str(building.get("building_key")), {})
-        building["sale_current"] = sale_current_map.get(str(building.get("building_key")), {})
+        building["rental_current"] = rental_current_map.get(canonical_key) or rental_current_map.get(building_key) or {}
+        building["sale_current"] = sale_current_map.get(canonical_key) or sale_current_map.get(building_key) or {}
+
+    deduped_buildings: dict[tuple[str, str], dict] = {}
+    for building in building_list:
+        dedupe_key = _dedupe_building_key(building)
+        if not dedupe_key[0] and not dedupe_key[1]:
+            dedupe_key = (str(building.get("building_key") or ""), "")
+        current = deduped_buildings.get(dedupe_key)
+        if current is None or _building_information_score(building) > _building_information_score(current):
+            deduped_buildings[dedupe_key] = building
+    building_list = list(deduped_buildings.values())
     print(
         "render_kpi_counts canonical_buildings_count={} summary_buildings_count={} vacancy_total={}".format(
             canonical_buildings_count,
@@ -1387,11 +1438,15 @@ def _build_dist_version(
         b["access_info"] = _format_access_info_for_display(b.get("access_info"))
         b["display_structure"] = _normalize_structure_label(b.get("building_structure") or b.get("structure"))
         sale_current = b.get("sale_current") or {}
-        sale_count = int(sale_current.get("listing_count") or 0)
+        sale_count = int(sale_current.get("listing_count") or sale_summary.get("sale_listing_count") or 0)
         b["sale_listing_count"] = sale_count
         b["sale_status_label"] = f"{sale_count}件" if sale_count > 0 else "現在、販売中の住戸はありません。"
         sale_price_min = sale_current.get("price_min")
+        if sale_price_min is None:
+            sale_price_min = sale_summary.get("price_yen_min")
         sale_price_max = sale_current.get("price_max")
+        if sale_price_max is None:
+            sale_price_max = sale_summary.get("price_yen_max")
         b["sale_price_yen_min"] = sale_price_min
         b["sale_price_yen_max"] = sale_price_max
         b["sale_price_yen_avg"] = int((sale_price_min + sale_price_max) / 2) if sale_price_min is not None and sale_price_max is not None else None
@@ -1401,7 +1456,11 @@ def _build_dist_version(
             suffix="万円",
         )
         sale_area_min = sale_current.get("area_min")
+        if sale_area_min is None:
+            sale_area_min = sale_summary.get("area_sqm_min")
         sale_area_max = sale_current.get("area_max")
+        if sale_area_max is None:
+            sale_area_max = sale_summary.get("area_sqm_max")
         b["sale_area_sqm_min"] = sale_area_min
         b["sale_area_sqm_max"] = sale_area_max
         b["sale_area_label"] = _format_range(
@@ -1409,16 +1468,20 @@ def _build_dist_version(
             sale_area_max,
             suffix="㎡",
         )
-        b["sale_layout_label"] = _format_layout_label(sale_current.get("layout_list") or [])
+        b["sale_layout_label"] = _format_layout_label(sale_current.get("layout_list") or (json.loads(sale_summary.get("layout_types_json") or "[]") if sale_summary else []))
         sqm_price_min = sale_current.get("sqm_price_min")
+        if sqm_price_min is None:
+            sqm_price_min = sale_summary.get("tsubo_unit_price_yen_min")
         sqm_price_max = sale_current.get("sqm_price_max")
+        if sqm_price_max is None:
+            sqm_price_max = sale_summary.get("tsubo_unit_price_yen_max")
         b["sale_sqm_price_label"] = _format_range(
             (sqm_price_min / 10000) if sqm_price_min is not None else None,
             (sqm_price_max / 10000) if sqm_price_max is not None else None,
             suffix="万円/㎡",
         )
-        b["sale_floor_label"] = _format_text_label(sale_current.get("floor_list") or [])
-        b["sale_direction_label"] = _format_text_label(sale_current.get("direction_list") or [])
+        b["sale_floor_label"] = _format_text_label(sale_current.get("floor_list") or [sale_summary.get("floor_summary")])
+        b["sale_direction_label"] = _format_text_label(sale_current.get("direction_list") or [sale_summary.get("direction_summary")])
         seo = _build_building_seo(b, site_origin=site_origin, base_path=base_path)
         detail_path = f"{base_path}/b/{b['detail_filename']}"
         area_hub = None
