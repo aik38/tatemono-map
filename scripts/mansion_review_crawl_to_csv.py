@@ -4,8 +4,10 @@ import argparse
 import csv
 import hashlib
 import json
+import os
 import re
 import time
+from collections import Counter
 from dataclasses import asdict, dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime
@@ -485,6 +487,16 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
     }
 
 
+def _extract_mansion_row_by_type(cols: dict[str, str], cells: list[dict[str, str]], building_name: str) -> tuple[dict[str, str], str]:
+    has_mosaic = any("mosaic_cell" in cell["class"] for cell in cells)
+    if has_mosaic:
+        sale = _extract_mansion_row(cols, cells, building_name)
+        sale["price_or_rent_text"] = ""
+        sale["tsubo_unit_price_text"] = ""
+        return sale, "mosaic"
+    return _extract_mansion_row(cols, cells, building_name), "exact"
+
+
 def _table_context_text(table: Node, card: Node) -> str:
     parts: list[str] = []
     for n in table.css("caption, th"):
@@ -501,7 +513,12 @@ def _table_context_text(table: Node, card: Node) -> str:
 
 def _target_tables(card: Node, *, kind: str) -> list[Node]:
     tables = card.css("table.recommendTable")
-    if kind != "mansion" or len(tables) <= 1:
+    if kind != "mansion":
+        return tables
+    sales_tables = _target_mansion_sales_tables(card)
+    if sales_tables:
+        return sales_tables
+    if len(tables) <= 1:
         return tables
     card_text = normalize_space(card.text(separator=" "))
     has_current_section = "現在販売中" in card_text
@@ -518,24 +535,93 @@ def _target_tables(card: Node, *, kind: str) -> list[Node]:
     return selected or tables[:1]
 
 
+def _table_title_text(table: Node) -> str:
+    header = table.css_first("tr.recommend_head th, tr.recommendHead th")
+    if header:
+        return normalize_space(header.text(separator=" "))
+    for th in table.css("thead th"):
+        text = normalize_space(th.text(separator=" "))
+        if text:
+            return text
+    return ""
+
+
+def _target_mansion_sales_tables(card: Node) -> list[Node]:
+    sections = card.css("div.js_sales_recommend, div.suumoRecommendBlockSearch")
+    candidate_tables: list[Node] = []
+    seen_tables: set[str] = set()
+    for section in sections:
+        for table in section.css("table.recommendTable"):
+            ident = normalize_space(table.html)
+            if ident in seen_tables:
+                continue
+            seen_tables.add(ident)
+            candidate_tables.append(table)
+    matched: list[Node] = []
+    for table in candidate_tables:
+        title = _table_title_text(table)
+        if "このマンションの【中古】販売情報" in title:
+            matched.append(table)
+    return matched
+
+
 def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: int) -> tuple[list[ListRow], dict[str, int]]:
     tree = HTMLParser(html)
     _drop_noise_nodes(tree)
     cards = tree.css("li.property-detail-list-item, section.property-detail-list-item, article.property-detail-list-item")
     rows: list[ListRow] = []
 
+    debug_enabled = os.getenv("MR_DEBUG_MANSION") == "1" and kind == "mansion"
+    drop_reasons: Counter[str] = Counter()
+    js_sales_recommend_count = 0
+    recommend_table_count = 0
+    matched_sales_title_count = 0
+    matched_tbody_counts: list[int] = []
+    matched_tr_counts: list[int] = []
+    sampled_titles: list[str] = []
+
     for card in cards:
+        if kind == "mansion":
+            js_sales_recommend_count += len(card.css("div.js_sales_recommend, div.suumoRecommendBlockSearch"))
+            recommend_table_count += len(card.css("table.recommendTable"))
+            candidate_tables = []
+            seen_tables: set[str] = set()
+            for section in card.css("div.js_sales_recommend, div.suumoRecommendBlockSearch"):
+                for table in section.css("table.recommendTable"):
+                    ident = normalize_space(table.html)
+                    if ident in seen_tables:
+                        continue
+                    seen_tables.add(ident)
+                    candidate_tables.append(table)
+            for table in candidate_tables:
+                title = _table_title_text(table)
+                if title and len(sampled_titles) < 2:
+                    sampled_titles.append(title)
+                if "このマンションの【中古】販売情報" in title:
+                    matched_sales_title_count += 1
+                    tbody_nodes = table.css("tbody.recommend_row")
+                    matched_tbody_counts.append(len(tbody_nodes))
+                    matched_tr_counts.append(sum(len(tbody.css("tr")) for tbody in tbody_nodes))
+                else:
+                    drop_reasons["title_miss"] += 1
         facts = _extract_facts_map(card)
         name_node = card.css_first("h1, h2, h3, .property-name, .mansionName")
         building_name = _normalize_building_name(normalize_space(name_node.text(separator=" ") if name_node else ""), kind=kind)
         detail_url = _extract_detail_url(card, page_url, kind)
         for table in _target_tables(card, kind=kind):
             headers = _table_headers(table)
+            if kind == "mansion" and headers and not any(h in {"価格", "販売価格", "専有面積", "間取り"} for h in headers):
+                drop_reasons["header_mismatch"] += 1
             row_nodes = table.css("tbody.recommend_row tr")
+            if kind == "mansion" and not row_nodes:
+                drop_reasons["no_recommend_row"] += 1
+                row_nodes = table.css("tbody tr")
             for tr in row_nodes:
                 cells = _row_cells(tr)
                 cols = _row_columns(tr, headers, CHINTAI_ORDER if kind == "chintai" else MANSION_ORDER)
                 if not cols and not cells:
+                    if kind == "mansion":
+                        drop_reasons["empty_row"] += 1
                     continue
 
                 if kind == "chintai":
@@ -566,7 +652,14 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                         )
                     )
                 else:
-                    sale = _extract_mansion_row(cols, cells, building_name)
+                    sale, row_type = _extract_mansion_row_by_type(cols, cells, building_name)
+                    if row_type == "mosaic":
+                        drop_reasons["mosaic_supported"] += 1
+                    elif not sale["price_or_rent_text"] and not any(
+                        [sale["area_text"], sale["layout_text"], sale["floor_text"], sale["direction_text"]]
+                    ):
+                        drop_reasons["exact_strict_fail"] += 1
+                        continue
                     rows.append(
                         ListRow(
                             kind=kind,
@@ -592,6 +685,19 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                             direction_text=sale["direction_text"],
                         )
                     )
+
+    if debug_enabled:
+        print(
+            f"[MR_DEBUG] kind={kind} city_id={city_id} page={page_no} "
+            f"js_sales_recommend={js_sales_recommend_count} "
+            f"recommendTable={recommend_table_count} "
+            f"sales_title_matched={matched_sales_title_count} "
+            f"matched_tbody_counts={matched_tbody_counts[:5]} "
+            f"matched_tr_counts={matched_tr_counts[:5]} "
+            f"title_samples={sampled_titles}"
+        )
+        if drop_reasons:
+            print(f"[MR_DEBUG] dropped_reasons={dict(drop_reasons)}")
 
     return rows, {"cards": len(cards), "rows": len(rows)}
 
