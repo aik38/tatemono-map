@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 from collections import Counter
 from datetime import date
@@ -258,6 +259,20 @@ def _load_priority_rank(conn, domain: str) -> dict[str, int]:
 
 def rebuild(db_path: str) -> int:
     conn = connect(db_path)
+    trace_target_names = {
+        "エクレール東新町",
+        "エメラルドハイツ大里3",
+        "パサージュ門司",
+        "門司港レトロハイマート",
+    }
+    trace_records: list[dict] = []
+    def _write_sale_trace() -> None:
+        trace_out = os.environ.get("TATEMONO_TRACE_OUT")
+        trace_path = os.path.abspath(trace_out) if trace_out else "tmp/building_summaries_sale_trace.json"
+        os.makedirs(os.path.dirname(trace_path), exist_ok=True)
+        with open(trace_path, "w", encoding="utf-8") as f:
+            json.dump(trace_records, f, ensure_ascii=False, indent=2)
+
     conn.execute("DELETE FROM building_summaries")
     conn.execute("DELETE FROM building_rental_summaries")
     conn.execute("DELETE FROM building_sale_summaries")
@@ -399,6 +414,8 @@ def rebuild(db_path: str) -> int:
         fallback_property_kind = normalize_text(building["property_kind"]) if building and building["property_kind"] else ""
 
         normalized_sale_items = _filter_latest_valid_sale_items(sale_items)
+        normalized_sale_rows_all = [_normalize_sale_row_fields(dict(r)) for r in sale_items]
+        filtered_sale_items = normalized_sale_items
         sale_prices = [int(r["price_yen"]) for r in normalized_sale_items if r["price_yen"] is not None]
         sale_areas = [float(r["area_sqm"]) for r in normalized_sale_items if r["area_sqm"] is not None]
         sale_layouts = _distinct_natural([str(r.get("layout") or "") for r in normalized_sale_items])
@@ -527,6 +544,17 @@ def rebuild(db_path: str) -> int:
                     latest,
                 ),
             )
+        sale_upsert_payload = {
+            "sale_listing_count": sale_listing_count or 0,
+            "price_yen_min": sale_price_min,
+            "price_yen_max": sale_price_max,
+            "price_yen_avg": sale_price_avg,
+            "area_sqm_min": sale_area_min,
+            "area_sqm_max": sale_area_max,
+            "floor_summary": ", ".join(sale_floors) if sale_floors else None,
+            "direction_summary": ", ".join(sale_directions) if sale_directions else None,
+            "updated_at": max(filter(None, [latest, sale_latest]), default=None),
+        }
         if has_sale:
             conn.execute(
                 """
@@ -562,14 +590,14 @@ def rebuild(db_path: str) -> int:
                 """,
                 (
                     building_key,
-                    sale_listing_count or 0,
+                    sale_upsert_payload["sale_listing_count"],
                     sale_price_min,
                     sale_price_max,
                     sale_area_min,
                     sale_area_max,
                     sale_layout_types_json or "[]",
-                    ", ".join(sale_floors) if sale_floors else None,
-                    ", ".join(sale_directions) if sale_directions else None,
+                    sale_upsert_payload["floor_summary"],
+                    sale_upsert_payload["direction_summary"],
                     min(sale_sqm_unit_prices) if sale_sqm_unit_prices else None,
                     max(sale_sqm_unit_prices) if sale_sqm_unit_prices else None,
                     min(sale_mgmt_fees) if sale_mgmt_fees else None,
@@ -582,9 +610,44 @@ def rebuild(db_path: str) -> int:
                     listing_building_structure or fallback_structure,
                     (building["floor_count_text"] if building else None),
                     (building["total_units"] if building else None),
-                    max(filter(None, [latest, sale_latest]), default=None),
+                    sale_upsert_payload["updated_at"],
                 ),
             )
+        if summary_name in trace_target_names:
+            post_upsert_row = conn.execute(
+                """
+                SELECT *
+                FROM building_sale_summaries
+                WHERE building_key = ?
+                """,
+                (building_key,),
+            ).fetchone()
+            trace_records.append(
+                {
+                    "summary_name": summary_name,
+                    "building_key": building_key,
+                    "sale_rows_raw_count": len(sale_items),
+                    "sale_rows_updated_at_list": [
+                        normalize_text(row.get("updated_at")) for row in sale_items if normalize_text(row.get("updated_at"))
+                    ],
+                    "normalized_sale_items_count": len(normalized_sale_rows_all),
+                    "filtered_sale_items_count": len(filtered_sale_items),
+                    "filtered_rows": [
+                        {
+                            "price_yen": row.get("price_yen"),
+                            "area_sqm": row.get("area_sqm"),
+                            "layout": row.get("layout"),
+                            "floor_text": row.get("floor_text"),
+                            "direction_text": row.get("direction_text"),
+                            "updated_at": row.get("updated_at"),
+                        }
+                        for row in filtered_sale_items
+                    ],
+                    "upsert_payload": sale_upsert_payload,
+                    "post_upsert_row": dict(post_upsert_row) if post_upsert_row else None,
+                }
+            )
+            _write_sale_trace()
 
     total = conn.execute("SELECT COUNT(*) AS c FROM building_summaries").fetchone()["c"]
     print(
@@ -598,6 +661,8 @@ def rebuild(db_path: str) -> int:
     )
 
     conn.commit()
+    if trace_records:
+        _write_sale_trace()
     conn.close()
     return total
 
