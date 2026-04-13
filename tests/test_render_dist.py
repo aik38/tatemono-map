@@ -85,7 +85,7 @@ def test_render_dist_creates_nojekyll_file(tmp_path):
     conn.close()
 
     rebuild(str(db))
-    build_dist(str(db), str(dist))
+    build_dist(str(db), str(dist), template_root="templates_v2")
 
     assert (dist / ".nojekyll").exists()
 
@@ -200,6 +200,42 @@ def test_render_dist_sale_summary_alias_fallback_and_duplicate_suppression(tmp_p
     assert "54.9万円/㎡" in detail
     assert "7階" in detail
     assert "南" in detail
+
+
+def test_render_dist_sale_price_label_is_on_sale_when_only_one_exact_in_total(tmp_path):
+    db = tmp_path / "test_sale_partial.sqlite3"
+    dist = tmp_path / "dist"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, property_kind)
+        VALUES ('b-sale-partial', '分譲モザイクテスト', '福岡県北九州市小倉北区魚町1-1-1', 'bunjo')
+        """
+    )
+    conn.executemany(
+        """
+        INSERT INTO sale_listings(
+            sale_listing_key, building_key, source, source_url, evidence_id,
+            price_yen, area_sqm, layout, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("sale-p1", "b-sale-partial", "mansion_review_mansion", "u1", "e1", 39800000, 72.5, "3LDK", "2026-04-01"),
+            ("sale-p2", "b-sale-partial", "mansion_review_mansion", "u2", "e2", None, 73.0, "3LDK", "2026-04-01"),
+            ("sale-p3", "b-sale-partial", "mansion_review_mansion", "u3", "e3", None, 74.0, "3LDK", "2026-04-01"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+    build_dist(str(db), str(dist), template_root="templates_v2")
+
+    index = (dist / "index.html").read_text(encoding="utf-8")
+    assert "販売価格</span>販売中" in index
+    detail = (dist / "b" / "分譲モザイクテスト-b-sale-partial.html").read_text(encoding="utf-8")
+    assert "<dt>販売状況</dt><dd>3件</dd>" in detail
+    assert "<dt>価格</dt><dd>販売中</dd>" in detail
 
 
 def test_render_dist_fails_when_forbidden_text_exists(tmp_path):
