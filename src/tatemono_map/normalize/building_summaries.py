@@ -628,7 +628,9 @@ def rebuild(db_path: str) -> int:
                     "building_key": building_key,
                     "sale_rows_raw_count": len(sale_items),
                     "sale_rows_updated_at_list": [
-                        normalize_text(row.get("updated_at")) for row in sale_items if normalize_text(row.get("updated_at"))
+                        normalize_text(dict(row).get("updated_at"))
+                        for row in sale_items
+                        if normalize_text(dict(row).get("updated_at"))
                     ],
                     "normalized_sale_items_count": len(normalized_sale_rows_all),
                     "filtered_sale_items_count": len(filtered_sale_items),
