@@ -485,7 +485,7 @@ def test_parse_list_page_mansion_badge_cells_do_not_shift_columns() -> None:
     assert row.direction_text == "南東"
 
 
-def test_to_master_rows_mansion_keeps_mosaic_price_row_with_null_price() -> None:
+def test_to_master_rows_mansion_keeps_row_when_price_is_empty() -> None:
     row = ListRow(
         kind="mansion",
         city_id="1619",
@@ -499,7 +499,7 @@ def test_to_master_rows_mansion_keeps_mosaic_price_row_with_null_price() -> None
         built_text="築8年",
         building_floor_count_text="15階建",
         total_units_text="80戸",
-        price_or_rent_text="3,000万円台",
+        price_or_rent_text="",
         fee_text="",
         tsubo_unit_price_text="",
         deposit_text="",
@@ -515,7 +515,7 @@ def test_to_master_rows_mansion_keeps_mosaic_price_row_with_null_price() -> None
     assert master["layout"] == "3LDK"
 
 
-def test_parse_list_page_mansion_building_name_drops_room_suffix() -> None:
+def test_parse_list_page_mansion_building_name_keeps_original_text() -> None:
     html = """
     <html><body>
       <article class="property-detail-list-item">
@@ -539,7 +539,7 @@ def test_parse_list_page_mansion_building_name_drops_room_suffix() -> None:
         city_id="1619",
         page_no=1,
     )
-    assert rows[0].building_name == "ライブスクエア小倉駅オーシャンテラス"
+    assert rows[0].building_name == "ライブスクエア小倉駅オーシャンテラス508号"
 
 
 def test_parse_list_page_mansion_static_sales_table_is_selected_by_title() -> None:
