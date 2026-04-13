@@ -315,6 +315,14 @@ def rebuild(db_path: str) -> int:
         FROM sale_listings
         WHERE (
             ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
+            OR ingest_run_id = (
+                SELECT ir.id
+                FROM ingest_runs ir
+                WHERE ir.source = sale_listings.source
+                  AND ir.status = 'finished'
+                ORDER BY ir.id DESC
+                LIMIT 1
+            )
             OR (
                 ingest_run_id IS NULL
                 AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)
