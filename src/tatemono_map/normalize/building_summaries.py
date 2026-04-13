@@ -311,25 +311,8 @@ def rebuild(db_path: str) -> int:
     ).fetchall()
     sale_rows = conn.execute(
         """
-        WITH latest_finished_sale_runs AS (
-            SELECT sl.source, MAX(sl.ingest_run_id) AS ingest_run_id
-            FROM sale_listings sl
-            JOIN ingest_runs ir
-              ON ir.id = sl.ingest_run_id
-             AND ir.status = 'finished'
-            WHERE sl.ingest_run_id IS NOT NULL
-            GROUP BY sl.source
-        )
         SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen AS sqm_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
         FROM sale_listings
-        WHERE (
-            ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
-            OR ingest_run_id IN (SELECT ingest_run_id FROM latest_finished_sale_runs)
-            OR (
-                ingest_run_id IS NULL
-                AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)
-            )
-        )
         ORDER BY id DESC
         """
     ).fetchall()
