@@ -541,3 +541,54 @@ def test_sale_summary_hides_single_price_fallback_when_count_is_plural_without_s
     assert sale_summary["sale_listing_count"] == 3
     assert sale_summary["price_yen_min"] is None
     assert sale_summary["price_yen_max"] is None
+
+
+def test_sale_summary_uses_latest_valid_snapshot_rows_only(tmp_path):
+    db = tmp_path / "test_sale_latest_snapshot.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        "INSERT INTO buildings(building_id, canonical_name, canonical_address, property_kind) VALUES ('b-sale','分譲マンション','福岡県北九州市門司区X','bunjo')"
+    )
+    conn.execute("INSERT INTO ingest_runs(id, source, snapshot_key, status) VALUES (30, 'mansion_review_mansion', 'sale-current', 'completed')")
+    conn.execute("INSERT INTO current_ingest_snapshots(source, ingest_run_id) VALUES ('mansion_review_mansion', 30)")
+    conn.executemany(
+        """
+        INSERT INTO sale_listings(
+            sale_listing_key, building_key, source, source_url, evidence_id,
+            price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, ingest_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("old-1", "b-sale", "mansion_review_mansion", "u1", "e1", 16020000, 9000, 6000, 500000, 80.16, "3LDK", "4階", "ワンルーム", "2026/04/10 16:18", 30),
+            ("new-1", "b-sale", "mansion_review_mansion", "u2", "e2", 2200000, 3000, 2000, 370000, 19.35, "1R", "2階", "北", "2026/04/12 20:55", 30),
+            ("new-2", "b-sale", "mansion_review_mansion", "u3", "e3", 3500000, 3500, 2200, 390000, 19.35, "1R", "3階", "南西", "2026/04/12 20:55", 30),
+            ("new-3", "b-sale", "mansion_review_mansion", "u4", "e4", 3000000, 3300, 2100, 380000, 19.35, "1R", "4階", "東", "2026/04/12 20:55", 30),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    summary = conn.execute(
+        "SELECT sale_listing_count, sale_price_yen_min, sale_price_yen_max, sale_area_sqm_min, sale_area_sqm_max FROM building_summaries WHERE building_key='b-sale'"
+    ).fetchone()
+    sale_summary = conn.execute(
+        "SELECT sale_listing_count, price_yen_min, price_yen_max, area_sqm_min, area_sqm_max, floor_summary, direction_summary FROM building_sale_summaries WHERE building_key='b-sale'"
+    ).fetchone()
+    conn.close()
+
+    assert summary["sale_listing_count"] == 3
+    assert summary["sale_price_yen_min"] == 2200000
+    assert summary["sale_price_yen_max"] == 3500000
+    assert summary["sale_area_sqm_min"] == 19.35
+    assert summary["sale_area_sqm_max"] == 19.35
+    assert sale_summary["sale_listing_count"] == 3
+    assert sale_summary["price_yen_min"] == 2200000
+    assert sale_summary["price_yen_max"] == 3500000
+    assert sale_summary["area_sqm_min"] == 19.35
+    assert sale_summary["area_sqm_max"] == 19.35
+    assert set((sale_summary["floor_summary"] or "").split(", ")) == {"2階", "3階", "4階"}
+    assert set((sale_summary["direction_summary"] or "").split(", ")) == {"北", "南西", "東"}
+    assert "ワンルーム" not in (sale_summary["direction_summary"] or "")
