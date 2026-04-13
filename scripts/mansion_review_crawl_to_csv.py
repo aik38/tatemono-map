@@ -121,6 +121,26 @@ def normalize_space(text: str | None) -> str:
     return re.sub(r"\s+", " ", text or "").strip()
 
 
+def _drop_noise_nodes(root: Node) -> None:
+    for node in root.css("script, style, noscript, template"):
+        node.decompose()
+    for node in root.css("[hidden], [aria-hidden='true']"):
+        node.decompose()
+    for node in root.css("[style]"):
+        style = normalize_space(node.attributes.get("style")).lower().replace(" ", "")
+        if "display:none" in style or "visibility:hidden" in style:
+            node.decompose()
+
+
+def _normalize_building_name(name: str, *, kind: str) -> str:
+    normalized = normalize_space(name)
+    if kind != "mansion" or not normalized:
+        return normalized
+    normalized = re.sub(r"\s*(?:[A-Za-z]?\d{1,4})\s*号室?$", "", normalized)
+    normalized = re.sub(r"\s*\d{1,4}\s*号$", "", normalized)
+    return normalize_space(normalized)
+
+
 def parse_csv_arg(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
@@ -231,6 +251,19 @@ def _row_cells(tr: Node) -> list[dict[str, str]]:
         classes = normalize_space(td.attributes.get("class"))
         cells.append({"text": text, "label": label, "class": classes})
     return cells
+
+
+def _is_noise_text(text: str) -> bool:
+    t = normalize_space(text)
+    if not t:
+        return True
+    if "<" in t or "{" in t or "function(" in t or "var " in t or "let " in t or "const " in t:
+        return True
+    if len(t) > 120:
+        return True
+    if any(token in t for token in ("価格評価", "参考相場", "偏差値", "関連物件", "口コミ")):
+        return True
+    return False
 
 
 def _is_area_text(text: str) -> bool:
@@ -430,6 +463,17 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
                 price = text
                 continue
 
+    if price and _is_noise_text(price):
+        price = ""
+    if area and (_is_noise_text(area) or not _is_area_text(area)):
+        area = ""
+    if layout and (_is_noise_text(layout) or not _is_layout_text(layout)):
+        layout = ""
+    if floor and (_is_noise_text(floor) or not _is_floor_text(floor)):
+        floor = ""
+    if direction and (_is_noise_text(direction) or not _is_direction_text(direction)):
+        direction = ""
+
     sqm_unit = _calc_sqm_unit_price_text(price, area)
     return {
         "price_or_rent_text": price,
@@ -441,83 +485,113 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
     }
 
 
+def _table_context_text(table: Node, card: Node) -> str:
+    parts: list[str] = []
+    for n in table.css("caption, th"):
+        parts.append(normalize_space(n.text(separator=" ")))
+    parent = table.parent
+    hop = 0
+    while parent is not None and parent != card and hop < 4:
+        for n in parent.css("h1, h2, h3, h4, h5, dt, strong"):
+            parts.append(normalize_space(n.text(separator=" ")))
+        parent = parent.parent
+        hop += 1
+    return normalize_space(" ".join(parts))
+
+
+def _target_tables(card: Node, *, kind: str) -> list[Node]:
+    tables = card.css("table.recommendTable")
+    if kind != "mansion" or len(tables) <= 1:
+        return tables
+    card_text = normalize_space(card.text(separator=" "))
+    has_current_section = "現在販売中" in card_text
+    include_tokens = ("現在販売中", "販売中住戸", "販売中")
+    exclude_tokens = ("過去販売履歴", "参考相場", "評価", "偏差値", "関連物件", "広告")
+    selected: list[Node] = []
+    for table in tables:
+        context = _table_context_text(table, card)
+        if any(token in context for token in exclude_tokens):
+            continue
+        if has_current_section and not any(token in context for token in include_tokens):
+            continue
+        selected.append(table)
+    return selected or tables[:1]
+
+
 def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: int) -> tuple[list[ListRow], dict[str, int]]:
     tree = HTMLParser(html)
+    _drop_noise_nodes(tree)
     cards = tree.css("li.property-detail-list-item, section.property-detail-list-item, article.property-detail-list-item")
     rows: list[ListRow] = []
 
     for card in cards:
         facts = _extract_facts_map(card)
         name_node = card.css_first("h1, h2, h3, .property-name, .mansionName")
-        building_name = normalize_space(name_node.text(separator=" ") if name_node else "")
+        building_name = _normalize_building_name(normalize_space(name_node.text(separator=" ") if name_node else ""), kind=kind)
         detail_url = _extract_detail_url(card, page_url, kind)
+        for table in _target_tables(card, kind=kind):
+            headers = _table_headers(table)
+            row_nodes = table.css("tbody.recommend_row tr")
+            for tr in row_nodes:
+                cells = _row_cells(tr)
+                cols = _row_columns(tr, headers, CHINTAI_ORDER if kind == "chintai" else MANSION_ORDER)
+                if not cols and not cells:
+                    continue
 
-        table = card.css_first("table.recommendTable")
-        if table is None:
-            continue
-
-        headers = _table_headers(table)
-        row_nodes = table.css("tbody.recommend_row tr")
-        for tr in row_nodes:
-            cells = _row_cells(tr)
-            cols = _row_columns(tr, headers, CHINTAI_ORDER if kind == "chintai" else MANSION_ORDER)
-            if not cols and not cells:
-                continue
-
-            if kind == "chintai":
-                listing = _extract_chintai_row(cols, cells, building_name)
-                rows.append(
-                    ListRow(
-                        kind=kind,
-                        city_id=city_id,
-                        ward=CITY_MAP.get(city_id, ""),
-                        city_page=f"{city_id}_{page_no}",
-                        page_url=page_url,
-                        detail_url=detail_url,
-                        building_name=building_name,
-                        address=_fact(facts, "住所", "所在地"),
-                        access_text=_fact(facts, "交通", "アクセス"),
-                        built_text=_fact(facts, "築年数", "築年月", "築"),
-                        building_floor_count_text=_fact(facts, "階建て", "建物階数"),
-                        total_units_text=_fact(facts, "総戸数"),
-                        price_or_rent_text=listing["price_or_rent_text"],
-                        fee_text=listing["fee_text"],
-                        tsubo_unit_price_text="",
-                        deposit_text=listing["deposit_text"],
-                        key_money_text=listing["key_money_text"],
-                        area_text=listing["area_text"],
-                        layout_text=listing["layout_text"],
-                        floor_text="",
-                        direction_text="",
+                if kind == "chintai":
+                    listing = _extract_chintai_row(cols, cells, building_name)
+                    rows.append(
+                        ListRow(
+                            kind=kind,
+                            city_id=city_id,
+                            ward=CITY_MAP.get(city_id, ""),
+                            city_page=f"{city_id}_{page_no}",
+                            page_url=page_url,
+                            detail_url=detail_url,
+                            building_name=building_name,
+                            address=_fact(facts, "住所", "所在地"),
+                            access_text=_fact(facts, "交通", "アクセス"),
+                            built_text=_fact(facts, "築年数", "築年月", "築"),
+                            building_floor_count_text=_fact(facts, "階建て", "建物階数"),
+                            total_units_text=_fact(facts, "総戸数"),
+                            price_or_rent_text=listing["price_or_rent_text"],
+                            fee_text=listing["fee_text"],
+                            tsubo_unit_price_text="",
+                            deposit_text=listing["deposit_text"],
+                            key_money_text=listing["key_money_text"],
+                            area_text=listing["area_text"],
+                            layout_text=listing["layout_text"],
+                            floor_text="",
+                            direction_text="",
+                        )
                     )
-                )
-            else:
-                sale = _extract_mansion_row(cols, cells, building_name)
-                rows.append(
-                    ListRow(
-                        kind=kind,
-                        city_id=city_id,
-                        ward=CITY_MAP.get(city_id, ""),
-                        city_page=f"{city_id}_{page_no}",
-                        page_url=page_url,
-                        detail_url=detail_url,
-                        building_name=building_name,
-                        address=_fact(facts, "住所", "所在地"),
-                        access_text=_fact(facts, "交通", "アクセス"),
-                        built_text=_fact(facts, "築年数", "築年月", "築"),
-                        building_floor_count_text=_fact(facts, "階建て", "建物階数"),
-                        total_units_text=_fact(facts, "総戸数"),
-                        price_or_rent_text=sale["price_or_rent_text"],
-                        fee_text="",
-                        tsubo_unit_price_text=sale["tsubo_unit_price_text"],
-                        deposit_text="",
-                        key_money_text="",
-                        area_text=sale["area_text"],
-                        layout_text=sale["layout_text"],
-                        floor_text=sale["floor_text"],
-                        direction_text=sale["direction_text"],
+                else:
+                    sale = _extract_mansion_row(cols, cells, building_name)
+                    rows.append(
+                        ListRow(
+                            kind=kind,
+                            city_id=city_id,
+                            ward=CITY_MAP.get(city_id, ""),
+                            city_page=f"{city_id}_{page_no}",
+                            page_url=page_url,
+                            detail_url=detail_url,
+                            building_name=building_name,
+                            address=_fact(facts, "住所", "所在地"),
+                            access_text=_fact(facts, "交通", "アクセス"),
+                            built_text=_fact(facts, "築年数", "築年月", "築"),
+                            building_floor_count_text=_fact(facts, "階建て", "建物階数"),
+                            total_units_text=_fact(facts, "総戸数"),
+                            price_or_rent_text=sale["price_or_rent_text"],
+                            fee_text="",
+                            tsubo_unit_price_text=sale["tsubo_unit_price_text"],
+                            deposit_text="",
+                            key_money_text="",
+                            area_text=sale["area_text"],
+                            layout_text=sale["layout_text"],
+                            floor_text=sale["floor_text"],
+                            direction_text=sale["direction_text"],
+                        )
                     )
-                )
 
     return rows, {"cards": len(cards), "rows": len(rows)}
 
@@ -591,6 +665,8 @@ def _write_facts_csv(rows: list[dict[str, str]], path: Path) -> None:
 def _extract_man_value(text: str) -> str:
     normalized = normalize_space(text).replace(",", "")
     if not normalized:
+        return ""
+    if any(token in normalized for token in ("万円台", "千万円台", "百万円台", "〜", "～", "以上", "以下")):
         return ""
     man = re.search(r"(\d+(?:\.\d+)?)\s*万円", normalized)
     if man:

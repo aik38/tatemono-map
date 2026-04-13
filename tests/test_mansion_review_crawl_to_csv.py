@@ -427,3 +427,116 @@ def test_to_master_rows_sets_empty_fee_when_combined_text_has_nashi_or_mu() -> N
     master_mu = _to_master_rows([row_mu], "2026/04/01 10:00")[0]
     assert master_nashi["fee_man"] == ""
     assert master_mu["fee_man"] == ""
+
+
+def test_parse_list_page_mansion_removes_script_noise_from_cells() -> None:
+    html = """
+    <html><body>
+      <article class="property-detail-list-item">
+        <h3>ノイズテストマンション</h3>
+        <table class="recommendTable"><tbody class="recommend_row">
+          <tr>
+            <td data-th="価格">3,680万円</td>
+            <td data-th="専有面積">71.2㎡</td>
+            <td data-th="間取り">3LDK<script>window.alert('x')</script></td>
+            <td data-th="所在階">10階</td>
+            <td data-th="向き">南</td>
+          </tr>
+        </tbody></table>
+      </article>
+    </body></html>
+    """
+    rows, _ = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/mansion/city/1619.html",
+        kind="mansion",
+        city_id="1619",
+        page_no=1,
+    )
+    assert rows[0].layout_text == "3LDK"
+
+
+def test_parse_list_page_mansion_badge_cells_do_not_shift_columns() -> None:
+    html = """
+    <html><body>
+      <article class="property-detail-list-item">
+        <h3>バッジ混入テスト</h3>
+        <table class="recommendTable"><tbody class="recommend_row">
+          <tr>
+            <td>新着</td><td>割安</td>
+            <td>4,280万円</td><td>72.0㎡</td><td>3LDK</td><td>12階</td><td>南東</td>
+          </tr>
+        </tbody></table>
+      </article>
+    </body></html>
+    """
+    rows, _ = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/mansion/city/1619.html",
+        kind="mansion",
+        city_id="1619",
+        page_no=1,
+    )
+    row = rows[0]
+    assert row.price_or_rent_text == "4,280万円"
+    assert row.area_text == "72.0㎡"
+    assert row.layout_text == "3LDK"
+    assert row.floor_text == "12階"
+    assert row.direction_text == "南東"
+
+
+def test_to_master_rows_mansion_keeps_mosaic_price_row_with_null_price() -> None:
+    row = ListRow(
+        kind="mansion",
+        city_id="1619",
+        ward="小倉北区",
+        city_page="1619_1",
+        page_url="https://www.mansion-review.jp/mansion/city/1619.html",
+        detail_url="https://www.mansion-review.jp/mansion/1",
+        building_name="モザイク価格マンション",
+        address="福岡県北九州市小倉北区1-1-1",
+        access_text="JR徒歩1分",
+        built_text="築8年",
+        building_floor_count_text="15階建",
+        total_units_text="80戸",
+        price_or_rent_text="3,000万円台",
+        fee_text="",
+        tsubo_unit_price_text="",
+        deposit_text="",
+        key_money_text="",
+        area_text="68.0㎡",
+        layout_text="3LDK",
+        floor_text="8階",
+        direction_text="南",
+    )
+    master = _to_master_rows([row], "2026/04/01 10:00")[0]
+    assert master["building_name"] == "モザイク価格マンション"
+    assert master["rent_man"] == ""
+    assert master["layout"] == "3LDK"
+
+
+def test_parse_list_page_mansion_building_name_drops_room_suffix() -> None:
+    html = """
+    <html><body>
+      <article class="property-detail-list-item">
+        <h3>ライブスクエア小倉駅オーシャンテラス508号</h3>
+        <table class="recommendTable"><tbody class="recommend_row">
+          <tr>
+            <td data-th="価格">4,980万円</td>
+            <td data-th="専有面積">81.0㎡</td>
+            <td data-th="間取り">3LDK</td>
+            <td data-th="所在階">5階</td>
+            <td data-th="向き">南</td>
+          </tr>
+        </tbody></table>
+      </article>
+    </body></html>
+    """
+    rows, _ = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/mansion/city/1619.html",
+        kind="mansion",
+        city_id="1619",
+        page_no=1,
+    )
+    assert rows[0].building_name == "ライブスクエア小倉駅オーシャンテラス"
