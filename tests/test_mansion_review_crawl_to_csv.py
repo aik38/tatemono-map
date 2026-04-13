@@ -540,3 +540,75 @@ def test_parse_list_page_mansion_building_name_drops_room_suffix() -> None:
         page_no=1,
     )
     assert rows[0].building_name == "ライブスクエア小倉駅オーシャンテラス"
+
+
+def test_parse_list_page_mansion_static_sales_table_is_selected_by_title() -> None:
+    html = """
+    <html><body>
+      <article class="property-detail-list-item">
+        <h3>門司テストマンション</h3>
+        <div class="js_sales_recommend">
+          <div class="suumoRecommendBlockSearch">
+            <table class="recommendTable">
+              <tr class="recommend_head"><th>このマンションの【中古】販売情報</th></tr>
+              <tbody class="recommend_row">
+                <tr>
+                  <td data-th="価格">2,980万円</td>
+                  <td data-th="専有面積">63.0㎡</td>
+                  <td data-th="間取り">2LDK</td>
+                  <td data-th="所在階">8階</td>
+                  <td data-th="向き">南西</td>
+                </tr>
+              </tbody>
+            </table>
+            <table class="recommendTable">
+              <tr class="recommend_head"><th>この物件の新着が出たら教えて</th></tr>
+              <tbody class="recommend_row"><tr><td>通知</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </article>
+    </body></html>
+    """
+    rows, debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/mansion/city/1616.html",
+        kind="mansion",
+        city_id="1616",
+        page_no=1,
+    )
+    assert debug["rows"] == 1
+    assert rows[0].price_or_rent_text == "2,980万円"
+    assert rows[0].layout_text == "2LDK"
+
+
+def test_parse_list_page_mansion_mosaic_row_is_kept_with_null_price() -> None:
+    html = """
+    <html><body>
+      <article class="property-detail-list-item">
+        <h3>小倉モザイクマンション</h3>
+        <div class="js_sales_recommend">
+          <table class="recommendTable">
+            <tr class="recommend_head"><th>このマンションの【中古】販売情報</th></tr>
+            <tbody class="recommend_row">
+              <tr>
+                <td data-th="価格">3,000万円台</td>
+                <td colspan="5" class="mosaic_cell">無料会員登録でモザイクを消す</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </body></html>
+    """
+    rows, debug = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/mansion/city/1619.html",
+        kind="mansion",
+        city_id="1619",
+        page_no=1,
+    )
+    assert debug["rows"] == 1
+    assert rows[0].price_or_rent_text == ""
+    assert rows[0].area_text == ""
+    assert rows[0].layout_text == ""
