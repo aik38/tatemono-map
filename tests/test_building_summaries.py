@@ -631,3 +631,109 @@ def test_sale_summary_uses_latest_valid_snapshot_rows_only(tmp_path):
     assert set((sale_summary["floor_summary"] or "").split(", ")) == {"2階", "3階", "4階"}
     assert set((sale_summary["direction_summary"] or "").split(", ")) == {"北", "南西", "東"}
     assert "ワンルーム" not in (sale_summary["direction_summary"] or "")
+
+
+def test_sale_summary_does_not_carry_over_old_exact_rows_when_latest_snapshot_is_nonexact_only(tmp_path):
+    db = tmp_path / "test_sale_latest_nonexact_only.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        "INSERT INTO buildings(building_id, canonical_name, canonical_address, property_kind) VALUES ('b-sale','分譲マンション','福岡県北九州市小倉北区X','bunjo')"
+    )
+    conn.executemany(
+        """
+        INSERT INTO sale_listings(
+            sale_listing_key, building_key, source, source_url, evidence_id,
+            price_yen, area_sqm, layout, floor_text, direction_text, updated_at, ingest_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("old-1", "b-sale", "mansion_review_mansion", "u1", "e1", 36980000, 63.67, "2LDK", "5階", "南", "2026-03-01", 30),
+            ("latest-1", "b-sale", "mansion_review_mansion", "u2", "e2", None, None, None, None, None, "2026-04-01", 31),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    summary = conn.execute(
+        """
+        SELECT sale_listing_count, sale_price_yen_min, sale_price_yen_max, sale_area_sqm_min, sale_area_sqm_max, sale_layout_types_json
+        FROM building_summaries
+        WHERE building_key='b-sale'
+        """
+    ).fetchone()
+    sale_summary = conn.execute(
+        """
+        SELECT sale_listing_count, price_yen_min, price_yen_max, area_sqm_min, area_sqm_max, floor_summary, direction_summary
+        FROM building_sale_summaries
+        WHERE building_key='b-sale'
+        """
+    ).fetchone()
+    conn.close()
+
+    assert summary["sale_listing_count"] == 1
+    assert summary["sale_price_yen_min"] is None
+    assert summary["sale_price_yen_max"] is None
+    assert summary["sale_area_sqm_min"] is None
+    assert summary["sale_area_sqm_max"] is None
+    assert summary["sale_layout_types_json"] is None
+    assert sale_summary["sale_listing_count"] == 1
+    assert sale_summary["price_yen_min"] is None
+    assert sale_summary["price_yen_max"] is None
+    assert sale_summary["area_sqm_min"] is None
+    assert sale_summary["area_sqm_max"] is None
+    assert sale_summary["floor_summary"] is None
+    assert sale_summary["direction_summary"] is None
+
+
+def test_sale_summary_aggregates_exact_rows_from_latest_snapshot_only(tmp_path):
+    db = tmp_path / "test_sale_latest_exact_only.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        "INSERT INTO buildings(building_id, canonical_name, canonical_address, property_kind) VALUES ('b-sale','分譲マンション','福岡県北九州市門司区X','bunjo')"
+    )
+    conn.executemany(
+        """
+        INSERT INTO sale_listings(
+            sale_listing_key, building_key, source, source_url, evidence_id,
+            price_yen, area_sqm, layout, floor_text, direction_text, updated_at, ingest_run_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("old-1", "b-sale", "mansion_review_mansion", "u1", "e1", 29000000, 58.0, "2LDK", "3階", "西", "2026-03-01", 40),
+            ("new-1", "b-sale", "mansion_review_mansion", "u2", "e2", 32000000, 62.1, "3LDK", "6階", "南", "2026-04-01", 41),
+            ("new-2", "b-sale", "mansion_review_mansion", "u3", "e3", 34800000, 64.2, "3LDK", "8階", "東", "2026-04-01", 41),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+
+    conn = connect(db)
+    summary = conn.execute(
+        "SELECT sale_listing_count, sale_price_yen_min, sale_price_yen_max, sale_area_sqm_min, sale_area_sqm_max FROM building_summaries WHERE building_key='b-sale'"
+    ).fetchone()
+    sale_summary = conn.execute(
+        """
+        SELECT sale_listing_count, price_yen_min, price_yen_max, area_sqm_min, area_sqm_max, floor_summary, direction_summary
+        FROM building_sale_summaries
+        WHERE building_key='b-sale'
+        """
+    ).fetchone()
+    conn.close()
+
+    assert summary["sale_listing_count"] == 2
+    assert summary["sale_price_yen_min"] == 32000000
+    assert summary["sale_price_yen_max"] == 34800000
+    assert summary["sale_area_sqm_min"] == 62.1
+    assert summary["sale_area_sqm_max"] == 64.2
+    assert sale_summary["sale_listing_count"] == 2
+    assert sale_summary["price_yen_min"] == 32000000
+    assert sale_summary["price_yen_max"] == 34800000
+    assert sale_summary["area_sqm_min"] == 62.1
+    assert sale_summary["area_sqm_max"] == 64.2
+    assert set((sale_summary["floor_summary"] or "").split(", ")) == {"6階", "8階"}
+    assert set((sale_summary["direction_summary"] or "").split(", ")) == {"南", "東"}

@@ -170,23 +170,40 @@ def _is_effective_sale_item(row: dict) -> bool:
 
 def _filter_latest_valid_sale_items(sale_items: list[dict]) -> list[dict]:
     normalized = [_normalize_sale_row_fields(dict(r)) for r in sale_items]
-    effective = [row for row in normalized if _is_effective_sale_item(row)]
-    if not effective:
+    if not normalized:
         return []
 
-    dated = [row for row in effective if normalize_text(row.get("updated_at"))]
-    if not dated:
-        return effective
+    mansion_review_rows = [row for row in normalized if str(row.get("source") or "") == "mansion_review_mansion"]
+    other_source_rows = [row for row in normalized if str(row.get("source") or "") != "mansion_review_mansion"]
+    if not mansion_review_rows:
+        return normalized
 
-    normalized_timestamps = [normalize_text(row.get("updated_at")) or "" for row in dated]
-    distinct_timestamps = sorted(set(normalized_timestamps))
-    has_time_component = all(" " in ts for ts in distinct_timestamps if ts)
-    if not (has_time_component and len(distinct_timestamps) > 1):
-        return effective
+    rows_with_run_id = [row for row in mansion_review_rows if row.get("ingest_run_id") is not None]
+    if rows_with_run_id:
+        latest_run_id = max(int(row["ingest_run_id"]) for row in rows_with_run_id)
+        latest_run_rows = [row for row in mansion_review_rows if int(row["ingest_run_id"] or -1) == latest_run_id]
+        dated_in_latest_run = [row for row in latest_run_rows if normalize_text(row.get("updated_at"))]
+        if dated_in_latest_run:
+            distinct_timestamps = sorted({normalize_text(row.get("updated_at")) or "" for row in dated_in_latest_run})
+            has_time_component = all(" " in ts for ts in distinct_timestamps if ts)
+            if has_time_component and len(distinct_timestamps) > 1:
+                latest_ts = distinct_timestamps[-1]
+                latest_mansion_review_rows = [
+                    row for row in latest_run_rows if (normalize_text(row.get("updated_at")) or "") == latest_ts
+                ]
+            else:
+                latest_mansion_review_rows = latest_run_rows
+        else:
+            latest_mansion_review_rows = latest_run_rows
+    else:
+        dated = [row for row in mansion_review_rows if normalize_text(row.get("updated_at"))]
+        if dated:
+            latest_ts = max(normalize_text(row.get("updated_at")) or "" for row in dated)
+            latest_mansion_review_rows = [row for row in mansion_review_rows if (normalize_text(row.get("updated_at")) or "") == latest_ts]
+        else:
+            latest_mansion_review_rows = mansion_review_rows
 
-    latest_ts = distinct_timestamps[-1]
-    latest_rows = [row for row in dated if (normalize_text(row.get("updated_at")) or "") == latest_ts]
-    return latest_rows or effective
+    return latest_mansion_review_rows + other_source_rows
 
 
 def _nearest_availability_date(items: list) -> str | None:
@@ -311,7 +328,7 @@ def rebuild(db_path: str) -> int:
     ).fetchall()
     sale_rows = conn.execute(
         """
-        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen AS sqm_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source
+        SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen AS sqm_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source, ingest_run_id
         FROM sale_listings
         ORDER BY id DESC
         """
@@ -426,12 +443,12 @@ def rebuild(db_path: str) -> int:
         sale_price_min = min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building and sale_listing_count_total <= 0 else None)
         sale_price_max = max(sale_prices) if sale_prices else (building["sale_price_yen_max"] if building and sale_listing_count_total <= 0 else None)
         sale_price_avg = (sum(sale_prices) // len(sale_prices)) if sale_prices else (building["sale_price_yen_avg"] if building and sale_listing_count_total <= 0 else None)
-        sale_area_min = min(sale_areas) if sale_areas else (building["sale_area_sqm_min"] if building else None)
-        sale_area_max = max(sale_areas) if sale_areas else (building["sale_area_sqm_max"] if building else None)
+        sale_area_min = min(sale_areas) if sale_areas else (building["sale_area_sqm_min"] if building and sale_listing_count_total <= 0 else None)
+        sale_area_max = max(sale_areas) if sale_areas else (building["sale_area_sqm_max"] if building and sale_listing_count_total <= 0 else None)
         sale_layout_types_json = (
             json.dumps(sale_layouts, ensure_ascii=False)
             if sale_layouts
-            else (building["sale_layout_types_json"] if building else None)
+            else (building["sale_layout_types_json"] if building and sale_listing_count_total <= 0 else None)
         )
         sale_listing_count = sale_listing_count_total if normalized_sale_items else (building["sale_listing_count"] if building else None)
         if (
