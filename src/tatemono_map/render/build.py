@@ -199,6 +199,32 @@ def _format_layout_label(layout_types: list[str]) -> str | None:
     return f"{labels[0]}〜{labels[-1]}"
 
 
+def _resolve_sale_price_label(
+    *,
+    sale_listing_count_total: int,
+    sale_price_exact_count: int,
+    sale_price_yen_min: int | None,
+    sale_price_yen_max: int | None,
+) -> str:
+    if sale_listing_count_total <= 0:
+        return "—"
+    if sale_price_exact_count <= 0:
+        return "販売中"
+    if sale_listing_count_total == sale_price_exact_count:
+        return _format_range(
+            (sale_price_yen_min / 10000) if sale_price_yen_min is not None else None,
+            (sale_price_yen_max / 10000) if sale_price_yen_max is not None else None,
+            suffix="万円",
+        ) or "販売中"
+    if sale_price_exact_count == 1:
+        return "販売中"
+    return _format_range(
+        (sale_price_yen_min / 10000) if sale_price_yen_min is not None else None,
+        (sale_price_yen_max / 10000) if sale_price_yen_max is not None else None,
+        suffix="万円",
+    ) or "販売中"
+
+
 def _format_text_label(values: list[object]) -> str | None:
     labels: list[str] = []
     for value in values:
@@ -1053,6 +1079,9 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         direction_list = _distinct_natural_text(current.get("direction_values") or [])
         sale_current_map[canonical_key] = {
             "listing_count": int(current.get("listing_count") or 0),
+            "price_exact_count": len(price_values),
+            "price_nonexact_count": max(0, int(current.get("listing_count") or 0) - len(price_values)),
+            "price_has_nonexact": max(0, int(current.get("listing_count") or 0) - len(price_values)) > 0,
             "price_min": min(price_values) if price_values else None,
             "price_max": max(price_values) if price_values else None,
             "area_min": min(area_values) if area_values else None,
@@ -1296,15 +1325,37 @@ def _build_dist_version(
         b["display_address"] = _build_display_address(b.get("address"))
         b["render_address"] = b.get("display_address") if selected_mode == "short" else b.get("address_full")
         sale_current = b.get("sale_current") or {}
-        sale_count = int(sale_current.get("listing_count") or 0)
+        sale_summary = b.get("sale_summary") or {}
+        sale_count = int(sale_current.get("listing_count") or sale_summary.get("sale_listing_count") or 0)
+        sale_exact_count = int(sale_current.get("price_exact_count") or 0)
+        if sale_exact_count <= 0 and sale_count > 0 and sale_summary.get("price_yen_min") is not None:
+            sale_exact_count = sale_count
+        sale_nonexact_count = int(sale_current.get("price_nonexact_count") or max(0, sale_count - sale_exact_count))
         sale_price_min = sale_current.get("price_min")
+        if sale_price_min is None:
+            sale_price_min = sale_summary.get("price_yen_min")
         sale_price_max = sale_current.get("price_max")
+        if sale_price_max is None:
+            sale_price_max = sale_summary.get("price_yen_max")
         sale_area_min = sale_current.get("area_min")
+        if sale_area_min is None:
+            sale_area_min = sale_summary.get("area_sqm_min")
         sale_area_max = sale_current.get("area_max")
+        if sale_area_max is None:
+            sale_area_max = sale_summary.get("area_sqm_max")
         b["sale_listing_count"] = sale_count
+        b["sale_price_exact_count"] = sale_exact_count
+        b["sale_price_nonexact_count"] = sale_nonexact_count
+        b["sale_price_has_nonexact"] = sale_nonexact_count > 0
         b["sale_price_yen_min"] = sale_price_min
         b["sale_price_yen_max"] = sale_price_max
         b["sale_price_yen_avg"] = int((sale_price_min + sale_price_max) / 2) if sale_price_min is not None and sale_price_max is not None else None
+        b["sale_price_label"] = _resolve_sale_price_label(
+            sale_listing_count_total=sale_count,
+            sale_price_exact_count=sale_exact_count,
+            sale_price_yen_min=sale_price_min,
+            sale_price_yen_max=sale_price_max,
+        )
         b["sale_area_sqm_min"] = sale_area_min
         b["sale_area_sqm_max"] = sale_area_max
         has_sale = bool(b.get("has_sale")) or bool((b.get("sale_listing_count") or 0) > 0)
@@ -1439,7 +1490,14 @@ def _build_dist_version(
         b["display_structure"] = _normalize_structure_label(b.get("building_structure") or b.get("structure"))
         sale_current = b.get("sale_current") or {}
         sale_count = int(sale_current.get("listing_count") or sale_summary.get("sale_listing_count") or 0)
+        sale_exact_count = int(sale_current.get("price_exact_count") or 0)
+        if sale_exact_count <= 0 and sale_count > 0 and sale_summary.get("price_yen_min") is not None:
+            sale_exact_count = sale_count
+        sale_nonexact_count = int(sale_current.get("price_nonexact_count") or max(0, sale_count - sale_exact_count))
         b["sale_listing_count"] = sale_count
+        b["sale_price_exact_count"] = sale_exact_count
+        b["sale_price_nonexact_count"] = sale_nonexact_count
+        b["sale_price_has_nonexact"] = sale_nonexact_count > 0
         b["sale_status_label"] = f"{sale_count}件" if sale_count > 0 else "現在、販売中の住戸はありません。"
         sale_price_min = sale_current.get("price_min")
         if sale_price_min is None:
@@ -1450,10 +1508,11 @@ def _build_dist_version(
         b["sale_price_yen_min"] = sale_price_min
         b["sale_price_yen_max"] = sale_price_max
         b["sale_price_yen_avg"] = int((sale_price_min + sale_price_max) / 2) if sale_price_min is not None and sale_price_max is not None else None
-        b["sale_price_label"] = _format_range(
-            (sale_price_min / 10000) if sale_price_min is not None else None,
-            (sale_price_max / 10000) if sale_price_max is not None else None,
-            suffix="万円",
+        b["sale_price_label"] = _resolve_sale_price_label(
+            sale_listing_count_total=sale_count,
+            sale_price_exact_count=sale_exact_count,
+            sale_price_yen_min=sale_price_min,
+            sale_price_yen_max=sale_price_max,
         )
         sale_area_min = sale_current.get("area_min")
         if sale_area_min is None:

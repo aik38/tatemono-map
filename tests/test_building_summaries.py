@@ -275,6 +275,45 @@ def test_summary_fallbacks_to_buildings_for_zero_vacancy(tmp_path):
     assert row["building_availability_label"] is None
 
 
+def test_sale_summary_uses_total_count_and_exact_only_price_range(tmp_path):
+    db = tmp_path / "sale_summary.sqlite3"
+    conn = connect(db)
+    conn.execute(
+        """
+        INSERT INTO buildings(building_id, canonical_name, canonical_address, property_kind)
+        VALUES ('b-sale', '分譲集計テスト', '福岡県北九州市小倉北区', 'bunjo')
+        """
+    )
+    conn.executemany(
+        """
+        INSERT INTO sale_listings(
+            sale_listing_key, building_key, source, source_url, evidence_id,
+            price_yen, area_sqm, layout, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            ("s1", "b-sale", "mansion_review_mansion", "u1", "e1", 42000000, 70.0, "3LDK", "2026-04-01"),
+            ("s2", "b-sale", "mansion_review_mansion", "u2", "e2", None, 71.0, "3LDK", "2026-04-01"),
+            ("s3", "b-sale", "mansion_review_mansion", "u3", "e3", 45000000, 72.0, "3LDK", "2026-04-01"),
+        ],
+    )
+    conn.commit()
+    conn.close()
+
+    rebuild(str(db))
+    conn = connect(db)
+    row = conn.execute("SELECT sale_listing_count, sale_price_yen_min, sale_price_yen_max FROM building_summaries WHERE building_key='b-sale'").fetchone()
+    sale_row = conn.execute("SELECT sale_listing_count, price_yen_min, price_yen_max FROM building_sale_summaries WHERE building_key='b-sale'").fetchone()
+    conn.close()
+
+    assert row["sale_listing_count"] == 3
+    assert row["sale_price_yen_min"] == 42000000
+    assert row["sale_price_yen_max"] == 45000000
+    assert sale_row["sale_listing_count"] == 3
+    assert sale_row["price_yen_min"] == 42000000
+    assert sale_row["price_yen_max"] == 45000000
+
+
 def test_summary_uses_current_snapshot_only_and_keeps_zero_vacancy_buildings(tmp_path):
     db = tmp_path / "test9.sqlite3"
     conn = connect(db)

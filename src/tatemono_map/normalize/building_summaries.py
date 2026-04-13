@@ -409,7 +409,11 @@ def rebuild(db_path: str) -> int:
         normalized_sale_items = _filter_latest_valid_sale_items(sale_items)
         normalized_sale_rows_all = [_normalize_sale_row_fields(dict(r)) for r in sale_items]
         filtered_sale_items = normalized_sale_items
+        sale_listing_count_total = len(normalized_sale_items)
         sale_prices = [int(r["price_yen"]) for r in normalized_sale_items if r["price_yen"] is not None]
+        sale_price_exact_count = len(sale_prices)
+        sale_price_nonexact_count = max(0, sale_listing_count_total - sale_price_exact_count)
+        sale_price_has_nonexact = sale_price_nonexact_count > 0
         sale_areas = [float(r["area_sqm"]) for r in normalized_sale_items if r["area_sqm"] is not None]
         sale_layouts = _distinct_natural([str(r.get("layout") or "") for r in normalized_sale_items])
         sale_mgmt_fees = [int(r["management_fee_yen"]) for r in normalized_sale_items if r["management_fee_yen"] is not None]
@@ -419,9 +423,9 @@ def rebuild(db_path: str) -> int:
         sale_directions = _distinct_natural([str(r.get("direction_text") or "") for r in normalized_sale_items])
         sale_latest = max((r["updated_at"] for r in normalized_sale_items if r["updated_at"]), default=None)
 
-        sale_price_min = min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building else None)
-        sale_price_max = max(sale_prices) if sale_prices else (building["sale_price_yen_max"] if building else None)
-        sale_price_avg = (sum(sale_prices) // len(sale_prices)) if sale_prices else (building["sale_price_yen_avg"] if building else None)
+        sale_price_min = min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building and sale_listing_count_total <= 0 else None)
+        sale_price_max = max(sale_prices) if sale_prices else (building["sale_price_yen_max"] if building and sale_listing_count_total <= 0 else None)
+        sale_price_avg = (sum(sale_prices) // len(sale_prices)) if sale_prices else (building["sale_price_yen_avg"] if building and sale_listing_count_total <= 0 else None)
         sale_area_min = min(sale_areas) if sale_areas else (building["sale_area_sqm_min"] if building else None)
         sale_area_max = max(sale_areas) if sale_areas else (building["sale_area_sqm_max"] if building else None)
         sale_layout_types_json = (
@@ -429,11 +433,7 @@ def rebuild(db_path: str) -> int:
             if sale_layouts
             else (building["sale_layout_types_json"] if building else None)
         )
-        sale_listing_count = (
-            len(normalized_sale_items)
-            if normalized_sale_items
-            else (building["sale_listing_count"] if building else None)
-        )
+        sale_listing_count = sale_listing_count_total if normalized_sale_items else (building["sale_listing_count"] if building else None)
         if (
             not sale_prices
             and (sale_listing_count or 0) > 1
@@ -539,6 +539,10 @@ def rebuild(db_path: str) -> int:
             )
         sale_upsert_payload = {
             "sale_listing_count": sale_listing_count or 0,
+            "sale_listing_count_total": sale_listing_count_total,
+            "sale_price_exact_count": sale_price_exact_count,
+            "sale_price_nonexact_count": sale_price_nonexact_count,
+            "sale_price_has_nonexact": sale_price_has_nonexact,
             "price_yen_min": sale_price_min,
             "price_yen_max": sale_price_max,
             "price_yen_avg": sale_price_avg,

@@ -164,9 +164,7 @@
             <li class="kpi"><span>販売情報</span>{% if b.sale_listing_count is not none and b.sale_listing_count > 0 %}{{ b.sale_listing_count }}件{% else %}なし{% endif %}</li>
           {% elif b.listing_mode == "sale" %}
             <li class="kpi"><span>販売情報</span>{% if b.sale_listing_count is not none and b.sale_listing_count > 0 %}{{ b.sale_listing_count }}件{% else %}なし{% endif %}</li>
-            {% set sale_price_min = b.sale_price_yen_min if b.sale_price_yen_min is not none and b.sale_price_yen_min > 0 else none %}
-            {% set sale_price_max = b.sale_price_yen_max if b.sale_price_yen_max is not none and b.sale_price_yen_max > 0 else none %}
-            <li class="kpi"><span>販売価格</span>{% if sale_price_min and sale_price_max %}{% if sale_price_min == sale_price_max %}{{ ((sale_price_min / 10000)|int) }}万円{% else %}{{ ((sale_price_min / 10000)|int) }}万円〜{{ ((sale_price_max / 10000)|int) }}万円{% endif %}{% elif sale_price_min %}{{ ((sale_price_min / 10000)|int) }}万円{% elif sale_price_max %}{{ ((sale_price_max / 10000)|int) }}万円{% else %}—{% endif %}</li>
+            <li class="kpi"><span>販売価格</span>{{ b.sale_price_label or "—" }}</li>
           {% else %}
             <li class="kpi"><span>空室</span>{{ b.vacancy_count if b.vacancy_count is not none else "—" }}件</li>
             {% set rent_min = b.rent_yen_min if b.rent_yen_min is not none and b.rent_yen_min > 0 else none %}
