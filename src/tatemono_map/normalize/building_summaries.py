@@ -109,6 +109,18 @@ def _distinct_natural(values: list[str]) -> list[str]:
     return sorted(deduped, key=_natural_sort_key)
 
 
+def _distinct_in_seen_order(values: list[str]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        cleaned = normalize_text(value)
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        result.append(cleaned)
+    return result
+
+
 def _normalize_sale_row_fields(row: dict) -> dict:
     normalized = dict(row)
     floor_text = normalize_text(normalized.get("floor_text"))
@@ -132,7 +144,48 @@ def _normalize_sale_row_fields(row: dict) -> dict:
             if direction_text and _SALE_LAYOUT_RE.search(direction_text):
                 normalized["direction_text"] = None
 
+    normalized_direction = normalize_text(normalized.get("direction_text"))
+    if normalized_direction and _SALE_LAYOUT_RE.search(normalized_direction):
+        normalized["direction_text"] = None
+
     return normalized
+
+
+def _is_effective_sale_item(row: dict) -> bool:
+    return any(
+        row.get(field) is not None and row.get(field) != ""
+        for field in (
+            "price_yen",
+            "area_sqm",
+            "layout",
+            "floor_text",
+            "direction_text",
+            "management_fee_yen",
+            "repair_fund_yen",
+            "sqm_unit_price_yen",
+        )
+    )
+
+
+def _filter_latest_valid_sale_items(sale_items: list[dict]) -> list[dict]:
+    normalized = [_normalize_sale_row_fields(dict(r)) for r in sale_items]
+    effective = [row for row in normalized if _is_effective_sale_item(row)]
+    if not effective:
+        return []
+
+    dated = [row for row in effective if normalize_text(row.get("updated_at"))]
+    if not dated:
+        return effective
+
+    normalized_timestamps = [normalize_text(row.get("updated_at")) or "" for row in dated]
+    distinct_timestamps = sorted(set(normalized_timestamps))
+    has_time_component = all(" " in ts for ts in distinct_timestamps if ts)
+    if not (has_time_component and len(distinct_timestamps) > 1):
+        return effective
+
+    latest_ts = distinct_timestamps[-1]
+    latest_rows = [row for row in dated if (normalize_text(row.get("updated_at")) or "") == latest_ts]
+    return latest_rows or effective
 
 
 def _nearest_availability_date(items: list) -> str | None:
@@ -345,16 +398,16 @@ def rebuild(db_path: str) -> int:
         fallback_availability_label = (normalize_text(building["availability_label"]) if building else "") or None
         fallback_property_kind = normalize_text(building["property_kind"]) if building and building["property_kind"] else ""
 
-        normalized_sale_items = [_normalize_sale_row_fields(dict(r)) for r in sale_items]
+        normalized_sale_items = _filter_latest_valid_sale_items(sale_items)
         sale_prices = [int(r["price_yen"]) for r in normalized_sale_items if r["price_yen"] is not None]
         sale_areas = [float(r["area_sqm"]) for r in normalized_sale_items if r["area_sqm"] is not None]
         sale_layouts = _distinct_natural([str(r.get("layout") or "") for r in normalized_sale_items])
         sale_mgmt_fees = [int(r["management_fee_yen"]) for r in normalized_sale_items if r["management_fee_yen"] is not None]
         sale_repair_funds = [int(r["repair_fund_yen"]) for r in normalized_sale_items if r["repair_fund_yen"] is not None]
         sale_sqm_unit_prices = [int(r["sqm_unit_price_yen"]) for r in normalized_sale_items if r["sqm_unit_price_yen"] is not None]
-        sale_floors = _distinct_natural([str(r.get("floor_text") or "") for r in normalized_sale_items])
+        sale_floors = _distinct_in_seen_order([str(r.get("floor_text") or "") for r in normalized_sale_items])
         sale_directions = _distinct_natural([str(r.get("direction_text") or "") for r in normalized_sale_items])
-        sale_latest = max((r["updated_at"] for r in sale_items if r["updated_at"]), default=None)
+        sale_latest = max((r["updated_at"] for r in normalized_sale_items if r["updated_at"]), default=None)
 
         sale_price_min = min(sale_prices) if sale_prices else (building["sale_price_yen_min"] if building else None)
         sale_price_max = max(sale_prices) if sale_prices else (building["sale_price_yen_max"] if building else None)
@@ -366,7 +419,11 @@ def rebuild(db_path: str) -> int:
             if sale_layouts
             else (building["sale_layout_types_json"] if building else None)
         )
-        sale_listing_count = len(sale_items) if sale_items else (building["sale_listing_count"] if building else None)
+        sale_listing_count = (
+            len(normalized_sale_items)
+            if normalized_sale_items
+            else (building["sale_listing_count"] if building else None)
+        )
         if (
             not sale_prices
             and (sale_listing_count or 0) > 1
