@@ -392,6 +392,12 @@ def _extract_chintai_row(cols: dict[str, str], cells: list[dict[str, str]], buil
 
 
 def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], building_name: str) -> dict[str, str]:
+    def _has_mosaic_hint(value: str) -> bool:
+        text = normalize_space(value)
+        if not text:
+            return False
+        return any(token in text for token in ("万円台", "無料会員", "モザイク", "会員登録", "ログイン"))
+
     price = normalize_space(cols.get("価格") or cols.get("販売価格"))
     area = normalize_space(cols.get("専有面積") or cols.get("面積"))
     layout = normalize_space(cols.get("間取り"))
@@ -408,10 +414,22 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
         floor = ""
     if direction and not _is_direction_text(direction):
         direction = ""
-    if "万円台" in price or "無料会員" in price or "モザイク" in price:
+    if _has_mosaic_hint(price):
         price = ""
 
-    if not all((price, area, layout, floor, direction)):
+    mosaic_detected = any(
+        _has_mosaic_hint(value)
+        for value in (
+            price,
+            area,
+            layout,
+            floor,
+            direction,
+            *(cell["text"] for cell in cells),
+        )
+    )
+
+    if not mosaic_detected and not all((price, area, layout, floor, direction)):
         data_cells = [c for c in cells if not _is_deco_cell(c, building_name)]
         for cell in data_cells:
             text = cell["text"]
@@ -440,6 +458,17 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
             ):
                 price = text
                 continue
+
+    is_exact_row = not mosaic_detected and all((price, area, layout, floor, direction))
+    if not is_exact_row:
+        return {
+            "price_or_rent_text": "",
+            "tsubo_unit_price_text": "",
+            "area_text": "",
+            "layout_text": "",
+            "floor_text": "",
+            "direction_text": "",
+        }
 
     sqm_unit = _calc_sqm_unit_price_text(price, area)
     return {
