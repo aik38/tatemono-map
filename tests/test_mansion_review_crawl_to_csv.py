@@ -202,8 +202,9 @@ def test_parse_list_page_mansion_does_not_treat_layout_as_direction_on_shifted_c
         page_no=1,
     )
     row = rows[0]
-    assert row.layout_text == "1R"
-    assert row.floor_text == "5階"
+    assert row.price_or_rent_text == ""
+    assert row.layout_text == ""
+    assert row.floor_text == ""
     assert row.direction_text == ""
 
 
@@ -485,7 +486,7 @@ def test_parse_list_page_mansion_badge_cells_do_not_shift_columns() -> None:
     assert row.direction_text == "南東"
 
 
-def test_to_master_rows_mansion_keeps_row_when_price_is_empty() -> None:
+def test_to_master_rows_mansion_mosaic_row_stays_empty() -> None:
     row = ListRow(
         kind="mansion",
         city_id="1619",
@@ -513,6 +514,38 @@ def test_to_master_rows_mansion_keeps_row_when_price_is_empty() -> None:
     assert master["building_name"] == "モザイク価格マンション"
     assert master["rent_man"] == ""
     assert master["layout"] == "3LDK"
+
+
+def test_parse_list_page_mansion_partial_row_is_treated_as_mosaic() -> None:
+    html = """
+    <html><body>
+      <article class="property-detail-list-item">
+        <h3>部分欠損マンション</h3>
+        <table class="recommendTable"><tbody class="recommend_row">
+          <tr>
+            <td data-th="価格">4,680万円</td>
+            <td data-th="専有面積">72.5㎡</td>
+            <td data-th="間取り">3LDK</td>
+            <td data-th="所在階"></td>
+            <td data-th="向き">南</td>
+          </tr>
+        </tbody></table>
+      </article>
+    </body></html>
+    """
+    rows, _ = parse_list_page(
+        html,
+        page_url="https://www.mansion-review.jp/mansion/city/1619.html",
+        kind="mansion",
+        city_id="1619",
+        page_no=1,
+    )
+    row = rows[0]
+    assert row.price_or_rent_text == ""
+    assert row.area_text == ""
+    assert row.layout_text == ""
+    assert row.floor_text == ""
+    assert row.direction_text == ""
 
 
 def test_parse_list_page_mansion_building_name_keeps_original_text() -> None:
