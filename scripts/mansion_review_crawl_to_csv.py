@@ -251,9 +251,15 @@ def _is_direction_text(text: str) -> bool:
     t = normalize_space(text)
     if not t:
         return False
-    if re.search(r"(北東|北西|南東|南西|東|西|南|北)(向き)?$", t):
-        return True
-    return "向き" in t and bool(re.search(r"(東|西|南|北)", t))
+    return bool(re.fullmatch(r"(北東|北西|南東|南西|東|西|南|北)(向き)?", t))
+
+
+def _normalize_direction_text(text: str) -> str:
+    t = normalize_space(text).replace(" ", "")
+    m = re.search(r"(北東|北西|南東|南西|東|西|南|北)(?:向き)?", t)
+    if not m:
+        return ""
+    return m.group(1)
 
 
 def _is_tsubo_text(text: str) -> bool:
@@ -262,6 +268,11 @@ def _is_tsubo_text(text: str) -> bool:
 
 def _is_money_text(text: str) -> bool:
     return bool(re.search(r"\d[\d,.]*(?:\.\d+)?\s*(?:万円|円)", text))
+
+
+def _normalize_money_text(text: str) -> str:
+    t = normalize_space(text)
+    return re.sub(r"\s+", "", t) if t else ""
 
 
 def _is_deposit_or_key_text(text: str) -> bool:
@@ -398,12 +409,14 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
             return False
         return any(token in text for token in ("万円台", "無料会員", "モザイク", "会員登録", "ログイン"))
 
-    price = normalize_space(cols.get("価格") or cols.get("販売価格"))
+    price = _normalize_money_text(cols.get("価格") or cols.get("販売価格"))
     area = normalize_space(cols.get("専有面積") or cols.get("面積"))
     layout = normalize_space(cols.get("間取り"))
     floor = normalize_space(cols.get("所在階") or cols.get("階"))
     direction = normalize_space(cols.get("向き") or cols.get("主要採光面"))
+    direction = _normalize_direction_text(direction)
 
+    raw_price = price
     if price and (not _is_money_text(price) or _is_tsubo_text(price)):
         price = ""
     if area and not _is_area_text(area):
@@ -444,7 +457,7 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
                 floor = text
                 continue
             if not direction and _is_direction_text(text):
-                direction = text
+                direction = _normalize_direction_text(text)
                 continue
             if not price and (
                 (("価格" in label or "販売価格" in label) and "万円台" not in text and "無料会員" not in text and "モザイク" not in text)
@@ -456,13 +469,14 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
                     and "モザイク" not in text
                 )
             ):
-                price = text
+                price = _normalize_money_text(text)
                 continue
 
     is_exact_row = not mosaic_detected and all((price, area, layout, floor, direction))
     if not is_exact_row:
+        mosaic_price = raw_price if mosaic_detected else ""
         return {
-            "price_or_rent_text": "",
+            "price_or_rent_text": mosaic_price,
             "tsubo_unit_price_text": "",
             "area_text": "",
             "layout_text": "",
@@ -481,16 +495,45 @@ def _extract_mansion_row(cols: dict[str, str], cells: list[dict[str, str]], buil
     }
 
 
+def _iter_visible_recommend_trs(table: Node, *, max_rows: int = 3) -> list[Node]:
+    visible: list[Node] = []
+    row_bodies = table.css("tbody.recommend_row")
+    if row_bodies:
+        for tbody in row_bodies:
+            tr = tbody.css_first("tr")
+            if tr is None:
+                continue
+            visible.append(tr)
+            if len(visible) >= max_rows:
+                break
+        return visible
+
+    for tr in table.css("tr"):
+        if tr.css_first("th"):
+            continue
+        if tr.parent is not None and normalize_space(tr.parent.attributes.get("class")) == "moreBtn":
+            continue
+        visible.append(tr)
+        if len(visible) >= max_rows:
+            break
+    return visible
+
+
 def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: int) -> tuple[list[ListRow], dict[str, int]]:
     tree = HTMLParser(html)
     cards = tree.css("li.property-detail-list-item, section.property-detail-list-item, article.property-detail-list-item")
     rows: list[ListRow] = []
+    seen_cards: set[tuple[str, str]] = set()
 
     for card in cards:
         facts = _extract_facts_map(card)
         name_node = card.css_first("h1, h2, h3, .property-name, .mansionName")
         building_name = normalize_space(name_node.text(separator=" ") if name_node else "")
         detail_url = _extract_detail_url(card, page_url, kind)
+        card_key = (building_name, detail_url)
+        if card_key in seen_cards:
+            continue
+        seen_cards.add(card_key)
 
         tables = card.css("table.recommendTable")
         if not tables:
@@ -500,17 +543,17 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
         if kind == "mansion":
             preferred = []
             for table in tables:
-                title = normalize_space(" ".join(th.text(separator=" ") for th in table.css("tr.recommend_head th, tr.recommendHead th")))
+                title = normalize_space(" ".join(th.text(separator=" ") for th in table.css("th")))
                 if "中古" in title and "販売情報" in title:
                     preferred.append(table)
             if preferred:
-                target_tables = preferred
+                target_tables = preferred[:1]
 
         for table in target_tables:
             for node in table.css("script, style, noscript, template"):
                 node.decompose()
             headers = _table_headers(table)
-            row_nodes = table.css("tbody.recommend_row tr")
+            row_nodes = _iter_visible_recommend_trs(table)
             for tr in row_nodes:
                 for node in tr.css("script, style, noscript, template"):
                     node.decompose()
@@ -575,6 +618,61 @@ def parse_list_page(html: str, page_url: str, kind: str, city_id: str, page_no: 
                     )
 
     return rows, {"cards": len(cards), "rows": len(rows)}
+
+
+def extract_mansion_sales_rows_from_html(html: str) -> list[dict[str, str | bool]]:
+    tree = HTMLParser(html)
+    card = tree.css_first("li.property-detail-list-item, section.property-detail-list-item, article.property-detail-list-item")
+    if card is None:
+        card = tree.root
+    if card is None:
+        return []
+
+    name_node = card.css_first("h1, h2, h3, .property-name, .mansionName")
+    building_name = normalize_space(name_node.text(separator=" ") if name_node else "")
+    tables = card.css("table.recommendTable")
+    target = None
+    for table in tables:
+        title = normalize_space(" ".join(th.text(separator=" ") for th in table.css("th")))
+        if "中古" in title and "販売情報" in title:
+            target = table
+            break
+    if target is None and tables:
+        target = tables[0]
+    if target is None:
+        return []
+
+    rows: list[dict[str, str | bool]] = []
+    headers = _table_headers(target)
+    for tr in _iter_visible_recommend_trs(target):
+        cells = _row_cells(tr)
+        cols = _row_columns(tr, headers, MANSION_ORDER)
+        if not cols and not cells:
+            continue
+        sale = _extract_mansion_row(cols, cells, building_name)
+        is_mosaic = not all(
+            (
+                sale["price_or_rent_text"],
+                sale["area_text"],
+                sale["layout_text"],
+                sale["floor_text"],
+                sale["direction_text"],
+            )
+        )
+        rows.append(
+            {
+                "price_text": sale["price_or_rent_text"],
+                "area_text": sale["area_text"],
+                "layout": sale["layout_text"],
+                "floor": sale["floor_text"],
+                "direction": sale["direction_text"],
+                "is_mosaic": is_mosaic,
+            }
+        )
+    return rows
+
+
+extract_sales_rows_from_html = extract_mansion_sales_rows_from_html
 
 
 def _cache_path(cache_dir: Path, url: str) -> Path:
