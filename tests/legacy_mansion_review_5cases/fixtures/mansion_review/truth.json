@@ -1,0 +1,86 @@
+{
+  "01_kokura_dc_tower": {
+    "display_name": "小倉ＤＣタワー",
+    "detail_url_suffix": "/mansion/598872.html",
+    "total_count": 1,
+    "exact_count": 0,
+    "mosaic_count": 1,
+    "exact_rows": []
+  },
+  "02_sunpark_kokura_tower_residence": {
+    "display_name": "ザ・サンパーク小倉駅タワーレジデンス",
+    "detail_url_suffix": "/mansion/2175486.html",
+    "total_count": 3,
+    "exact_count": 0,
+    "mosaic_count": 3,
+    "exact_rows": []
+  },
+  "03_live_square_ocean_terrace": {
+    "display_name": "ライブスクエア小倉駅オーシャンテラス",
+    "detail_url_suffix": "/mansion/1638926.html",
+    "total_count": 1,
+    "exact_count": 0,
+    "mosaic_count": 1,
+    "exact_rows": []
+  },
+  "04_sunrelius_kokura_ekiminami": {
+    "display_name": "サンレリウス小倉駅南",
+    "detail_url_suffix": "/mansion/1638299.html",
+    "total_count": 8,
+    "exact_count": 4,
+    "mosaic_count": 4,
+    "exact_rows": [
+      {
+        "price_text": "4,498万円",
+        "area_text": "66.41m²",
+        "layout": "3LDK",
+        "floor": "12階",
+        "direction": "西"
+      },
+      {
+        "price_text": "2,280万円",
+        "area_text": "34.56m²",
+        "layout": "1SLDK",
+        "floor": "9階",
+        "direction": "東"
+      },
+      {
+        "price_text": "3,180万円",
+        "area_text": "58.09m²",
+        "layout": "2LDK",
+        "floor": "6階",
+        "direction": "東"
+      },
+      {
+        "price_text": "4,498万円",
+        "area_text": "69.19m²",
+        "layout": "3LDK",
+        "floor": "12階",
+        "direction": "西"
+      }
+    ]
+  },
+  "05_livio_city_nakai_eastcourt": {
+    "display_name": "リビオシティ小倉中井イーストコート",
+    "detail_url_suffix": "/mansion/758859.html",
+    "total_count": 2,
+    "exact_count": 2,
+    "mosaic_count": 0,
+    "exact_rows": [
+      {
+        "price_text": "3,280万円",
+        "area_text": "82.83m²",
+        "layout": "3SLDK",
+        "floor": "3階",
+        "direction": "南西"
+      },
+      {
+        "price_text": "3,950万円",
+        "area_text": "107.27m²",
+        "layout": "3LDK",
+        "floor": "10階",
+        "direction": "南西"
+      }
+    ]
+  }
+}

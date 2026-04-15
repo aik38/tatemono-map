@@ -1,0 +1,367 @@
+{
+  "version": "top15-manual-2026-04-15",
+  "source_of_truth": {
+    "primary": "fixture_source.html",
+    "secondary": "貼り付けられたテキスト（1 点） (1).txt",
+    "note": "実運用のデータ収集は live URL。これは snapshot 固定用 truth。"
+  },
+  "top15": [
+    {
+      "rank": 1,
+      "building_name": "小倉ＤＣタワー",
+      "visible_row_count": 1,
+      "visible_exact_count": 0,
+      "visible_mosaic_count": 1,
+      "total_count_if_expandable": 1,
+      "rows": [
+        {
+          "price_text": "4,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        }
+      ],
+      "file": "01_598872.html"
+    },
+    {
+      "rank": 2,
+      "building_name": "ザ・サンパーク小倉駅タワーレジデンス",
+      "visible_row_count": 3,
+      "visible_exact_count": 0,
+      "visible_mosaic_count": 3,
+      "total_count_if_expandable": 3,
+      "rows": [
+        {
+          "price_text": "3,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        },
+        {
+          "price_text": "4,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        },
+        {
+          "price_text": "5,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        }
+      ],
+      "file": "02_2175486.html"
+    },
+    {
+      "rank": 3,
+      "building_name": "ポレスターメガシティ小倉ウェストガーデン",
+      "visible_row_count": 2,
+      "visible_exact_count": 2,
+      "visible_mosaic_count": 0,
+      "total_count_if_expandable": 2,
+      "rows": [
+        {
+          "price_text": "3,398万円",
+          "area_text": "100.78m²",
+          "layout": "3LDK",
+          "floor": "12階",
+          "direction": "南東",
+          "is_mosaic": false
+        },
+        {
+          "price_text": "3,398万円",
+          "area_text": "96.07m²",
+          "layout": "3LDK",
+          "floor": "12階",
+          "direction": "南東",
+          "is_mosaic": false
+        }
+      ],
+      "file": "03_53711.html"
+    },
+    {
+      "rank": 4,
+      "building_name": "グランドパレス小倉小文字通り",
+      "visible_row_count": 1,
+      "visible_exact_count": 0,
+      "visible_mosaic_count": 1,
+      "total_count_if_expandable": 1,
+      "rows": [
+        {
+          "price_text": "4,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        }
+      ],
+      "file": "04_1406986.html"
+    },
+    {
+      "rank": 5,
+      "building_name": "ライブスクエア小倉駅オーシャンテラス",
+      "visible_row_count": 1,
+      "visible_exact_count": 0,
+      "visible_mosaic_count": 1,
+      "total_count_if_expandable": 1,
+      "rows": [
+        {
+          "price_text": "3,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        }
+      ],
+      "file": "05_1638926.html"
+    },
+    {
+      "rank": 6,
+      "building_name": "サンレリウス小倉片野",
+      "visible_row_count": 2,
+      "visible_exact_count": 1,
+      "visible_mosaic_count": 1,
+      "total_count_if_expandable": 2,
+      "rows": [
+        {
+          "price_text": "2,290万円",
+          "area_text": "50.22m²",
+          "layout": "2LDK",
+          "floor": "6階",
+          "direction": "東",
+          "is_mosaic": false
+        },
+        {
+          "price_text": "2,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        }
+      ],
+      "file": "06_1427675.html"
+    },
+    {
+      "rank": 7,
+      "building_name": "グランフォーレ小倉シティタワー",
+      "visible_row_count": 1,
+      "visible_exact_count": 0,
+      "visible_mosaic_count": 1,
+      "total_count_if_expandable": 1,
+      "rows": [
+        {
+          "price_text": "1,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        }
+      ],
+      "file": "07_1445564.html"
+    },
+    {
+      "rank": 8,
+      "building_name": "グランドパレス小倉片野",
+      "visible_row_count": 1,
+      "visible_exact_count": 0,
+      "visible_mosaic_count": 1,
+      "total_count_if_expandable": 1,
+      "rows": [
+        {
+          "price_text": "3,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        }
+      ],
+      "file": "08_1932041.html"
+    },
+    {
+      "rank": 9,
+      "building_name": "ポレスタータワー大手町リーモ",
+      "visible_row_count": 1,
+      "visible_exact_count": 0,
+      "visible_mosaic_count": 1,
+      "total_count_if_expandable": 1,
+      "rows": [
+        {
+          "price_text": "3,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        }
+      ],
+      "file": "09_54355.html"
+    },
+    {
+      "rank": 10,
+      "building_name": "サンパーク城野駅前EXIA",
+      "visible_row_count": 1,
+      "visible_exact_count": 1,
+      "visible_mosaic_count": 0,
+      "total_count_if_expandable": 1,
+      "rows": [
+        {
+          "price_text": "2,980万円",
+          "area_text": "76.09m²",
+          "layout": "3LDK",
+          "floor": "2階",
+          "direction": "南東",
+          "is_mosaic": false
+        }
+      ],
+      "file": "10_751673.html"
+    },
+    {
+      "rank": 11,
+      "building_name": "サンレリウス小倉駅南",
+      "visible_row_count": 3,
+      "visible_exact_count": 2,
+      "visible_mosaic_count": 1,
+      "total_count_if_expandable": 8,
+      "rows": [
+        {
+          "price_text": "4,498万円",
+          "area_text": "66.41m²",
+          "layout": "3LDK",
+          "floor": "12階",
+          "direction": "西",
+          "is_mosaic": false
+        },
+        {
+          "price_text": "2,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        },
+        {
+          "price_text": "2,280万円",
+          "area_text": "34.56m²",
+          "layout": "1SLDK",
+          "floor": "9階",
+          "direction": "東",
+          "is_mosaic": false
+        }
+      ],
+      "file": "11_1638299.html"
+    },
+    {
+      "rank": 12,
+      "building_name": "フローレンス大手町グランドアーク",
+      "visible_row_count": 1,
+      "visible_exact_count": 1,
+      "visible_mosaic_count": 0,
+      "total_count_if_expandable": 1,
+      "rows": [
+        {
+          "price_text": "4,280万円",
+          "area_text": "115.41m²",
+          "layout": "4LDK",
+          "floor": "11階",
+          "direction": "南東",
+          "is_mosaic": false
+        }
+      ],
+      "file": "12_53099.html"
+    },
+    {
+      "rank": 13,
+      "building_name": "リビオシティ小倉中井イーストコート",
+      "visible_row_count": 2,
+      "visible_exact_count": 2,
+      "visible_mosaic_count": 0,
+      "total_count_if_expandable": 2,
+      "rows": [
+        {
+          "price_text": "3,280万円",
+          "area_text": "82.83m²",
+          "layout": "3SLDK",
+          "floor": "3階",
+          "direction": "南西",
+          "is_mosaic": false
+        },
+        {
+          "price_text": "3,950万円",
+          "area_text": "107.27m²",
+          "layout": "3LDK",
+          "floor": "10階",
+          "direction": "南西",
+          "is_mosaic": false
+        }
+      ],
+      "file": "13_758859.html"
+    },
+    {
+      "rank": 14,
+      "building_name": "サンライフ片野３",
+      "visible_row_count": 1,
+      "visible_exact_count": 1,
+      "visible_mosaic_count": 0,
+      "total_count_if_expandable": 1,
+      "rows": [
+        {
+          "price_text": "2,280万円",
+          "area_text": "86.78m²",
+          "layout": "4LDK",
+          "floor": "15階",
+          "direction": "南",
+          "is_mosaic": false
+        }
+      ],
+      "file": "14_570970.html"
+    },
+    {
+      "rank": 15,
+      "building_name": "グランドパレスロイヤルコート大手町",
+      "visible_row_count": 3,
+      "visible_exact_count": 2,
+      "visible_mosaic_count": 1,
+      "total_count_if_expandable": 4,
+      "rows": [
+        {
+          "price_text": "2,000万円台",
+          "area_text": "",
+          "layout": "",
+          "floor": "",
+          "direction": "",
+          "is_mosaic": true
+        },
+        {
+          "price_text": "2,700万円",
+          "area_text": "78.68m²",
+          "layout": "2SLDK",
+          "floor": "11階",
+          "direction": "北東",
+          "is_mosaic": false
+        },
+        {
+          "price_text": "2,700万円",
+          "area_text": "77.11m²",
+          "layout": "3LDK",
+          "floor": "11階",
+          "direction": "南東",
+          "is_mosaic": false
+        }
+      ],
+      "file": "15_559275.html"
+    }
+  ]
+}
