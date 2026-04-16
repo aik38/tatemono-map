@@ -161,7 +161,7 @@
 				onOpen:function() {
 					var return_to = "";
 
-										return_to = "https%3A%2F%2Fwww.mansion-review.jp%2Fshinchiku%2Fcity%2F1619.html";
+										return_to = "https%3A%2F%2Fwww.mansion-review.jp%2Fchintai%2Fcity%2F1619.html";
 										
 					if (return_to) {
 						var loginArea_form = $("#loginArea form");
@@ -494,25 +494,25 @@
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/ja_JP/sdk.js#xfbml=1&version=v12.0" nonce="Ii7Be7rB"></script>
 <div id="link_pagetop"></div>
 
-	<div class="mrbgjack is-mrbgjack-fixed js_click_jack_campaign mypagehowto02" style="padding-top: 200px;">
+	<div class="mrbgjack is-mrbgjack-fixed js_click_jack_campaign takauru02" style="padding-top: 200px;">
 		<div class="mrbgjack-media-pc">
 			<div class="mrbgjack-body" >
-				<a href="javascript:void(0);" class="js_click_jack_campaign_link mrbgjack-catch_wrap" data-link-type="mypage_howto" data-banner-id="mypage_howto_02">
+				<a href="javascript:void(0);" class="js_click_jack_campaign_link mrbgjack-catch_wrap" data-link-type="baikyaku" data-banner-id="mr_takaurubanner_02">
 					<picture>
-						<source srcset="https://www.mansion-review.jp/images/mr_bg_jack/_webp/mypage-howto_B.webp" type="image/webp"><!-- WebP用画像 -->
-						<img class="mypagehowto-catch" src="https://www.mansion-review.jp/images/mr_bg_jack/mypage-howto_B.jpg" alt="マイページでわかる！売り時買い時" width="1197" height="200">
+						<source srcset="https://www.mansion-review.jp/images/mr_bg_jack/_webp/takauru02_amazon.webp" type="image/webp"><!-- WebP用画像 -->
+						<img class="takauru-catch" src="https://www.mansion-review.jp/images/mr_bg_jack/takauru02_amazon.jpg" alt="顧客満足度89% 仲介手数料最大無料 仲介、買取、貸出、同時査定" width="1200" height="200">
 					</picture>
 				</a>
 			</div>
 		</div>
 	</div>
-	
+
 	<script>
 		if (typeof gtag  === 'function') {
 			// .mrbgjackがdisplay:noneの場合はイベントを発火しない
 			// baikyaku, keisaiなどのページはcssでdisplay:noneになっている
 			if ($(".mrbgjack").css("display") !== "none") {
-				const banner_id = "mypage_howto_02";
+				const banner_id = "mr_takaurubanner_02";
 				const env = "production";
 				gtag("event", "banner_view", {"banner_id": banner_id, "env": env, "bukken_type": "chuko"});
 			}
@@ -623,7 +623,7 @@
 				<div id="logoArea" class="logo_area">
 					<a href="https://www.mansion-review.jp/" class="hd_logo"><img src="https://www.mansion-review.jp/images/common/logo.png" alt="マンションレビュー" title="マンションレビュー" width="160" height="50"></a>
 					<a href="https://www.mansion-review.jp/questionnaire/" target="_blank">
-						<img src="https://www.mansion-review.jp/images/common/hd_no1_logo_top.png" alt="顧客満足3冠達成" title="顧客満足3冠達成" class="hd_no1_logo" width="70" height="70">
+						<img src="https://www.mansion-review.jp/images/common/hd_no1_logo_top.png" alt="顧客満足3冠達成" title="顧客満足3冠達成" class="hd_no1_logo" width="60" height="60">
 					</a>
 				</div>
 				<div class="status_for_header">
@@ -631,7 +631,7 @@
 	<div class="status_wrap clearfix">
 		<div id="js_status-user" class="status-user">
 
-							<span class="user-text">ログイン･会員登録</span>
+							<span class="user-text no-login_text">ログイン･会員登録</span>
 				<span class="user-icon">
 					<i class="fas fa-lock"></i>
 				</span>
@@ -661,17 +661,17 @@
 
 				<div class="status-viewpage " >
 			<ul class="list-viewpage">
-									<!-- ログアウト時 -->
+																	<!-- ログアウト時 -->
 					<li class="favorite">
 						<!-- お気に入り -->
 																		<span onclick="execPostSalesNoFavoritesFavorites();" class="viewpage_button zero">お気に入り<span class="viewpage_cnt sales_rental_favorites">0</span>件</span>
 					</li><!-- .favorite END -->
-								<li class="history">
+												<li class="history">
 					<!-- 最近見た物件 -->
-															<span onclick="execPostSalesNoHistoriesHistories();" class="viewpage_button " >最近見た物件<span class="viewpage_cnt">0</span>件</span>
+															<span onclick="execPostSalesDBHistories();" class="viewpage_button " >最近見た物件<span class="viewpage_cnt">2</span>件</span>
 
 				</li><!-- .history END -->
-
+				
 				
 									<li class="about_mr js_viewpage_parent_menu viewpage_parent_menu">
 						<span class="viewpage_button"><span class="kerning_s">マンションレビュー</span>とは</span>
@@ -1991,7 +1991,7 @@
 											</li>
 													<li class="">
 													<a href="/chintai/city/1619.html">
-								賃貸物件<span>(2035件)</span>
+								賃貸物件<span>(2031件)</span>
 							</a>
 											</li>
 													<li class="">
@@ -2001,7 +2001,7 @@
 											</li>
 													<li class="">
 													<a href="/land/city/1619.html">
-								土地<span>(88件)</span>
+								土地<span>(90件)</span>
 							</a>
 											</li>
 													<li class="">
@@ -2096,7 +2096,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							</tr>
 							<tr>
 								<td><span>542</span>棟</td>
-								<td><span>313</span>件</td>
+								<td><span>314</span>件</td>
 								<td><span>72</span></td>
 								<td><span>41</span>階</td>
 							</tr>
@@ -3600,7 +3600,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">41397</td>
+												<td class="">41404</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -3873,11 +3873,11 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">相場坪単価</th>
-												<td class="">222万円</td>
+												<td class="">239万円</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">812</td>
+												<td class="">818</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -4189,7 +4189,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">16997</td>
+												<td class="">16999</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -4309,21 +4309,20 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 		</a>
 	</div>
 	<ul class="homes-tie-up-list">
-										<li class="homes-tie-up-list__item pc_sbtn js_trigger_for_sales_bukken_pv__log" data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEyOTQ5NjAwMDQyODgifQ==">
+										<li class="homes-tie-up-list__item pc_sbtn js_trigger_for_sales_bukken_pv__log" data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEyOTQ5NjAwMDQyODcifQ==">
 				<section class="homes-tie-up-list__body">
 					<div class="homes-tie-up-list__head">
 						<span class="homes-tie-up-list__head-tag">おすすめ</span>
-						<h2 class="homes-tie-up-list__head-title"><a href="https://www.mansion-review.jp/chuko/1294960004288.html" target="_blank">朝日プラザ小倉足立　マンション　足立小・足立中学校</a></h2>
-																			<span class="homes-tie-up-list__seal seal_value">割安</span>
-																			<span class="homes-tie-up-list__seal seal_new">新着</span>
+						<h2 class="homes-tie-up-list__head-title"><a href="https://www.mansion-review.jp/chuko/1294960004287.html" target="_blank">ポレスターメガシティ小倉ウエストガーデン</a></h2>
+																									<span class="homes-tie-up-list__seal seal_new">新着</span>
 																	</div>
 					<div class="homes-tie-up-list__detail">
 						<div class="homes-tie-up-list__thumbnail">
 							<img
-								src="/img/?image=https://image4.homes.jp/smallimg/image.php?file=http%3A%2F%2Fimg.homes.jp%2F129496%2Fsale%2F4288%2F2%2F1%2Fyyti.jpg&width=80&height=80"
-								data-original="/img/?image=https://image4.homes.jp/smallimg/image.php?file=http%3A%2F%2Fimg.homes.jp%2F129496%2Fsale%2F4288%2F2%2F1%2Fyyti.jpg&width=80&height=80"
-								alt="朝日プラザ小倉足立　マンション　足立小・足立中学校"
-								title="朝日プラザ小倉足立　マンション　足立小・足立中学校"
+								src="/img/?image=https://image1.homes.jp/smallimg/image.php?file=http%3A%2F%2Fimg.homes.jp%2F129496%2Fsale%2F4287%2F2%2F1%2Feq49.jpg&width=80&height=80"
+								data-original="/img/?image=https://image1.homes.jp/smallimg/image.php?file=http%3A%2F%2Fimg.homes.jp%2F129496%2Fsale%2F4287%2F2%2F1%2Feq49.jpg&width=80&height=80"
+								alt="ポレスターメガシティ小倉ウエストガーデン"
+								title="ポレスターメガシティ小倉ウエストガーデン"
 								class="url_lp_img"
 							>
 						</div>
@@ -4337,19 +4336,19 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 								</tr>
 								<tr>
 									<td class="homes-tie-up-list__spec-body body_kakaku">
-										<span class="spec spec_kakaku">280<span class="unit">万円</span></span>
-																					<span class="spec spec_caption">41万円 割安</span>
+										<span class="spec spec_kakaku">3,398<span class="unit">万円</span></span>
+																					相応
 																			</td>
 									<td class="homes-tie-up-list__spec-body body_add">
-										<span class="spec spec_add">福岡県北九州市小倉北区宇佐町1丁目</span>
+										<span class="spec spec_add">福岡県北九州市小倉北区三萩野1丁目</span>
 									</td>
 									<td class="homes-tie-up-list__spec-body body_kotsu">
-										<span class="spec spec_accesses">北九州都市モノレール小倉線 旦過駅 徒歩16分</span>
+										<span class="spec spec_accesses">北九州都市モノレール小倉線 香春口三萩野駅 徒歩4分</span>
 									</td>
 									<td class="homes-tie-up-list__spec-body body_etc">
-										<span class="spec spec_chikunen">1991年8月（築35年）</span>
-										<span class="spec spec_madori">ワンルーム</span>
-										<span class="spec spec_senyumenseki">31.89m&sup2;</span>
+										<span class="spec spec_chikunen">2008年1月（築19年）</span>
+										<span class="spec spec_madori">3LDK</span>
+										<span class="spec spec_senyumenseki">96.07m&sup2;</span>
 									</td>
 								</tr>
 							</tbody>
@@ -4357,21 +4356,21 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 					</div>
 				</section>
 			</li>
-								<li class="homes-tie-up-list__item pc_sbtn js_trigger_for_sales_bukken_pv__log" data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjE1NjQwNjAwMDAwMDYifQ==">
+								<li class="homes-tie-up-list__item pc_sbtn js_trigger_for_sales_bukken_pv__log" data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEyOTQ5NjAwMDQyODYifQ==">
 				<section class="homes-tie-up-list__body">
 					<div class="homes-tie-up-list__head">
 						<span class="homes-tie-up-list__head-tag">おすすめ</span>
-						<h2 class="homes-tie-up-list__head-title"><a href="https://www.mansion-review.jp/chuko/1564060000006.html" target="_blank">ペルル日明</a></h2>
+						<h2 class="homes-tie-up-list__head-title"><a href="https://www.mansion-review.jp/chuko/1294960004286.html" target="_blank">サンモリッツ小倉III　マンション　足立小・足立中学校</a></h2>
 																			<span class="homes-tie-up-list__seal seal_value">割安</span>
 																			<span class="homes-tie-up-list__seal seal_new">新着</span>
 																	</div>
 					<div class="homes-tie-up-list__detail">
 						<div class="homes-tie-up-list__thumbnail">
 							<img
-								src="/img/?image=https://image3.homes.jp/smallimg/image.php?file=http%3A%2F%2Fimg.homes.jp%2F156406%2Fsale%2F6%2F2%2F2%2Fdtyc.jpg&width=80&height=80"
-								data-original="/img/?image=https://image3.homes.jp/smallimg/image.php?file=http%3A%2F%2Fimg.homes.jp%2F156406%2Fsale%2F6%2F2%2F2%2Fdtyc.jpg&width=80&height=80"
-								alt="ペルル日明"
-								title="ペルル日明"
+								src="/img/?image=https://image1.homes.jp/smallimg/image.php?file=http%3A%2F%2Fimg.homes.jp%2F129496%2Fsale%2F4286%2F2%2F1%2F9wov.jpg&width=80&height=80"
+								data-original="/img/?image=https://image1.homes.jp/smallimg/image.php?file=http%3A%2F%2Fimg.homes.jp%2F129496%2Fsale%2F4286%2F2%2F1%2F9wov.jpg&width=80&height=80"
+								alt="サンモリッツ小倉III　マンション　足立小・足立中学校"
+								title="サンモリッツ小倉III　マンション　足立小・足立中学校"
 								class="url_lp_img"
 							>
 						</div>
@@ -4385,19 +4384,19 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 								</tr>
 								<tr>
 									<td class="homes-tie-up-list__spec-body body_kakaku">
-										<span class="spec spec_kakaku">1,800<span class="unit">万円</span></span>
-																					<span class="spec spec_caption">68万円 割安</span>
+										<span class="spec spec_kakaku">980<span class="unit">万円</span></span>
+																					<span class="spec spec_caption">248万円 割安</span>
 																			</td>
 									<td class="homes-tie-up-list__spec-body body_add">
-										<span class="spec spec_add">福岡県北九州市小倉北区日明4丁目</span>
+										<span class="spec spec_add">福岡県北九州市小倉北区明和町</span>
 									</td>
 									<td class="homes-tie-up-list__spec-body body_kotsu">
-										<span class="spec spec_accesses">JR鹿児島本線 西小倉駅 徒歩20分</span>
+										<span class="spec spec_accesses">北九州都市モノレール小倉線 香春口三萩野駅 徒歩12分</span>
 									</td>
 									<td class="homes-tie-up-list__spec-body body_etc">
-										<span class="spec spec_chikunen">1995年8月（築31年）</span>
-										<span class="spec spec_madori">2SLDK</span>
-										<span class="spec spec_senyumenseki">71.98m&sup2;</span>
+										<span class="spec spec_chikunen">1993年4月（築34年）</span>
+										<span class="spec spec_madori">3LDK</span>
+										<span class="spec spec_senyumenseki">68.09m&sup2;</span>
 									</td>
 								</tr>
 							</tbody>
@@ -4639,8 +4638,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 													</td>
 						<td>
 							<div class="logo_seal_wrap">
-																									<span class="seal seal_new">新着</span>
-																															</div>
+																																							</div>
 																								<a class="pr_bukken_link js_pr_bukken_link js_trig_modal_for_mansion cboxElement" onclick="javascript:apply_regist_item_id(1406986);" href="#modal_for_mansion_other_sales_bukken" data-anchor="sales_recommend_1406986">
 										グランドパレス小倉小文字通り									</a>
 																					</td>
@@ -4651,8 +4649,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 												<td>
 															相応
 													</td>
-													<td class="recommend_update_row">
-								情報取得日:2026年04月04日							</td>
+													<td class="recommend_update_row"></td>
 											</tr>
 				</tbody>
 						<tbody class="moreBtn" style="display: none;">
@@ -4875,7 +4872,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">4528</td>
+												<td class="">4539</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -4902,6 +4899,30 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 			</tr>
 
 														<tbody class="recommend_row">
+										<tr data-pv_log_keys="">
+						<td width="100">
+															<img loading="lazy" src="/mansion/images/public_property_list.png" alt="ネット公開物件" title="ネット公開物件" class="url_lp_img"/>
+													</td>
+						<td>
+							<div class="logo_seal_wrap">
+																	<span class="seal seal_value">高資産価値・割安</span>
+																									<span class="seal seal_new">新着</span>
+																															</div>
+																								<a class="pr_bukken_link js_pr_bukken_link js_trig_modal_for_mansion cboxElement" onclick="javascript:apply_regist_item_id(1638926);" href="#modal_for_mansion_other_sales_bukken" data-anchor="sales_recommend_1638926">
+										ライブスクエア小倉駅オーシャンテラス									</a>
+																					</td>
+													<td><span class="price-bold">3,000<span>万円台</span></span></td>
+							<td colspan="5" class="mosaic_cell">
+								<a class="js_trig_modal_for_mansion js_pr_bukken_link cta_em_btn_a" onclick="javascript:apply_regist_item_id(1638926);" href="#modal_for_mansion_other_sales_bukken" data-anchor="sales_recommend_1638926"><span class="em">無料会員登録</span>でモザイクを消す</a>
+							</td>
+												<td>
+															<span class="seal-bold">1,200万円<br>割安</span>
+													</td>
+													<td class="recommend_update_row">
+								情報取得日:2026年04月15日							</td>
+											</tr>
+				</tbody>
+											<tbody class="recommend_row">
 										<tr data-pv_log_keys="">
 						<td width="100">
 															<img loading="lazy" src="/mansion/images/public_property_list.png" alt="ネット公開物件" title="ネット公開物件" class="url_lp_img"/>
@@ -5143,7 +5164,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">4063</td>
+												<td class="">4066</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -5190,7 +5211,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>6階</td>
 							<td>東</td>
 												<td>
-															<span class="seal-bold">64万円<br>割安</span>
+															<span class="seal-bold">62万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -5436,7 +5457,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">2556</td>
+												<td class="">2557</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -5698,7 +5719,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">556</td>
+												<td class="">557</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -5961,7 +5982,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">19226</td>
+												<td class="">19229</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -6226,11 +6247,11 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">相場坪単価</th>
-												<td class="">142万円</td>
+												<td class="">136万円</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">14367</td>
+												<td class="">14369</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -6504,7 +6525,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">1870</td>
+												<td class="">1875</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -6553,7 +6574,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>12階</td>
 							<td>西</td>
 												<td>
-															<span class="seal-bold">151万円<br>割安</span>
+															<span class="seal-bold">154万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row">
 								情報取得日:2026年04月12日							</td>
@@ -6601,7 +6622,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>9階</td>
 							<td>東</td>
 												<td>
-															<span class="seal-bold">96万円<br>割安</span>
+															<span class="seal-bold">98万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -6627,7 +6648,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>6階</td>
 							<td>東</td>
 												<td>
-															<span class="seal-bold">798万円<br>割安</span>
+															<span class="seal-bold">801万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -6696,7 +6717,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>12階</td>
 							<td>西</td>
 												<td>
-															<span class="seal-bold">363万円<br>割安</span>
+															<span class="seal-bold">366万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -6943,7 +6964,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">15185</td>
+												<td class="">15196</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -7213,7 +7234,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">20168</td>
+												<td class="">20169</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -7284,7 +7305,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>10階</td>
 							<td>南西</td>
 												<td>
-															<span class="seal-bold">301万円<br>割安</span>
+															<span class="seal-bold">292万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -7509,7 +7530,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">7841</td>
+												<td class="">7844</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -7784,7 +7805,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">19350</td>
+												<td class="">19353</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -8128,7 +8149,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">9037</td>
+												<td class="">9040</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -8717,7 +8738,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">平均価格</th>
-												<td class="">3819万円</td>
+												<td class="">3808万円</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">口コミ数</th>
@@ -8729,7 +8750,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">2993</td>
+												<td class="">2997</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -8772,7 +8793,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 								<a class="js_trig_modal_for_mansion js_pr_bukken_link cta_em_btn_a" onclick="javascript:apply_regist_item_id(1639000);" href="#modal_for_mansion_other_sales_bukken" data-anchor="sales_recommend_1639000"><span class="em">無料会員登録</span>でモザイクを消す</a>
 							</td>
 												<td>
-															<span class="seal-bold">213万円<br>割安</span>
+															<span class="seal-bold">197万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -8996,7 +9017,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">1488</td>
+												<td class="">1493</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -9531,7 +9552,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">8351</td>
+												<td class="">8355</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -10068,7 +10089,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">7658</td>
+												<td class="">7662</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -10342,7 +10363,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">7549</td>
+												<td class="">7550</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -10390,7 +10411,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>5階</td>
 							<td>東</td>
 												<td>
-															<span class="seal-bold">230万円<br>割安</span>
+															<span class="seal-bold">221万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row">
 								情報取得日:2026年04月11日							</td>
@@ -10419,10 +10440,32 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>5階</td>
 							<td>東</td>
 												<td>
-															<span class="seal-bold">80万円<br>割安</span>
+															<span class="seal-bold">72万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row">
-								情報取得日:2026年04月05日							</td>
+								情報取得日:2026年04月15日							</td>
+											</tr>
+				</tbody>
+											<tbody class="recommend_row">
+										<tr data-pv_log_keys="">
+						<td width="100">
+															<img loading="lazy" src="/mansion/images/public_property_list.png" alt="ネット公開物件" title="ネット公開物件" class="url_lp_img"/>
+													</td>
+						<td>
+							<div class="logo_seal_wrap">
+																	<span class="seal seal_value">割安</span>
+																																							</div>
+																								<a class="pr_bukken_link js_pr_bukken_link js_trig_modal_for_mansion cboxElement" onclick="javascript:apply_regist_item_id(1386060);" href="#modal_for_mansion_other_sales_bukken" data-anchor="sales_recommend_1386060">
+										シティガーデンＢＯＮＪＯＮＯテラス									</a>
+																					</td>
+													<td><span class="price-bold">2,000<span>万円台</span></span></td>
+							<td colspan="5" class="mosaic_cell">
+								<a class="js_trig_modal_for_mansion js_pr_bukken_link cta_em_btn_a" onclick="javascript:apply_regist_item_id(1386060);" href="#modal_for_mansion_other_sales_bukken" data-anchor="sales_recommend_1386060"><span class="em">無料会員登録</span>でモザイクを消す</a>
+							</td>
+												<td>
+															<span class="seal-bold">115万円<br>割安</span>
+													</td>
+													<td class="recommend_update_row"></td>
 											</tr>
 				</tbody>
 											<tbody class="recommend_row">
@@ -10492,7 +10535,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>3階</td>
 							<td>東</td>
 												<td>
-															<span class="seal-bold">283万円<br>割安</span>
+															<span class="seal-bold">274万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -11253,7 +11296,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">12514</td>
+												<td class="">12520</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -11580,7 +11623,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">9469</td>
+												<td class="">9477</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -11607,6 +11650,35 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 			</tr>
 
 														<tbody class="recommend_row">
+										<tr data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEyNjk3MzAwMjQyMzcifQ==">
+						<td width="100">
+																																															<img src="/img/common/floorplan-preparing-list.png" data-original="/img/?image=https%3A%2F%2Fimage2.homes.jp%2Fsmallimg%2Fimage.php%3Ffile%3Dhttp%253A%252F%252Fimg.homes.jp%252F126973%252Fsale%252F24237%252F1%252F2%252Fg161.jpg&width=100&height=100" alt="リヴィエール大手町オーナーズレジデンス" title="リヴィエール大手町オーナーズレジデンス" />
+													</td>
+						<td>
+							<div class="logo_seal_wrap">
+																	<span class="seal seal_value">割安</span>
+																									<span class="seal seal_kakakuhenko">価格値下げ</span>
+																									<span class="seal seal_renove">リノベ<span>or</span>リフォーム済み</span>
+																							</div>
+															<a class="js_pr_bukken_link js_trigger_for_sales_bukken_pv__log" href="https://www.mansion-review.jp/chuko/1269730024237.html" data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEyNjk3MzAwMjQyMzcifQ==" target="_blank" >
+									リヴィエール大手町オーナーズレジデンス								</a>
+													</td>
+													<td><span class="price-bold">3,090<span>万円</span></span></td>
+							<td>
+																	<span class="seal-bold">142.6万円</span>
+															</td>
+							<td>71.59m&sup2;</td>
+							<td>3LDK</td>
+							<td>9階</td>
+							<td>南東</td>
+												<td>
+															<span class="seal-bold">321万円<br>割安</span>
+													</td>
+													<td class="recommend_update_row">
+								価格更新日:2026年04月15日							</td>
+											</tr>
+				</tbody>
+											<tbody class="recommend_row">
 										<tr data-pv_log_keys="">
 						<td width="100">
 															<img loading="lazy" src="/mansion/images/public_property_list.png" alt="ネット公開物件" title="ネット公開物件" class="url_lp_img"/>
@@ -11628,16 +11700,16 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 				</tbody>
 											<tbody class="recommend_row">
-										<tr data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEyNjk3MzAwMjQyMzcifQ==">
+										<tr data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEzNDA0MzAwMDE5MjAifQ==">
 						<td width="100">
-																																															<img src="/img/common/floorplan-preparing-list.png" data-original="/img/?image=https%3A%2F%2Fimage2.homes.jp%2Fsmallimg%2Fimage.php%3Ffile%3Dhttp%253A%252F%252Fimg.homes.jp%252F126973%252Fsale%252F24237%252F1%252F2%252Fg161.jpg&width=100&height=100" alt="リヴィエール大手町オーナーズレジデンス" title="リヴィエール大手町オーナーズレジデンス" />
+																																															<img src="/img/common/floorplan-preparing-list.png" data-original="/img/?image=https%3A%2F%2Fimage2.homes.jp%2Fsmallimg%2Fimage.php%3Ffile%3Dhttp%253A%252F%252Fimg.homes.jp%252F134043%252Fsale%252F1920%252F1%252F2%252Fxh5x.jpg&width=100&height=100" alt="リヴィエール大手町オーナーズレジデンス" title="リヴィエール大手町オーナーズレジデンス" />
 													</td>
 						<td>
 							<div class="logo_seal_wrap">
 																	<span class="seal seal_value">割安</span>
 																																	<span class="seal seal_renove">リノベ<span>or</span>リフォーム済み</span>
 																							</div>
-															<a class="js_pr_bukken_link js_trigger_for_sales_bukken_pv__log" href="https://www.mansion-review.jp/chuko/1269730024237.html" data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEyNjk3MzAwMjQyMzcifQ==" target="_blank" >
+															<a class="js_pr_bukken_link js_trigger_for_sales_bukken_pv__log" href="https://www.mansion-review.jp/chuko/1340430001920.html" data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEzNDA0MzAwMDE5MjAifQ==" target="_blank" >
 									リヴィエール大手町オーナーズレジデンス								</a>
 													</td>
 													<td><span class="price-bold">3,190<span>万円</span></span></td>
@@ -11649,7 +11721,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>9階</td>
 							<td>南東</td>
 												<td>
-															<span class="seal-bold">242万円<br>割安</span>
+															<span class="seal-bold">221万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -12189,7 +12261,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">1840</td>
+												<td class="">1841</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -12451,7 +12523,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">平均価格</th>
-												<td class="">263万円</td>
+												<td class="">264万円</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">口コミ数</th>
@@ -12506,7 +12578,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 								<a class="js_trig_modal_for_mansion js_pr_bukken_link cta_em_btn_a" onclick="javascript:apply_regist_item_id(520643);" href="#modal_for_mansion_other_sales_bukken" data-anchor="sales_recommend_520643"><span class="em">無料会員登録</span>でモザイクを消す</a>
 							</td>
 												<td>
-															<span class="seal-bold">35万円<br>割安</span>
+															<span class="seal-bold">45万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -12751,7 +12823,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">6947</td>
+												<td class="">6950</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -13054,10 +13126,38 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 						<td>
 							<div class="logo_seal_wrap">
 																	<span class="seal seal_value">割安</span>
-																																	<span class="seal seal_renove">リノベ<span>or</span>リフォーム済み</span>
+																									<span class="seal seal_kakakuhenko">価格値下げ</span>
+																									<span class="seal seal_renove">リノベ<span>or</span>リフォーム済み</span>
 																							</div>
 															<a class="js_pr_bukken_link js_trigger_for_sales_bukken_pv__log" href="https://www.mansion-review.jp/chuko/1384200009899.html" data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEzODQyMDAwMDk4OTkifQ==" target="_blank" >
 									ヴィセント到津								</a>
+													</td>
+													<td><span class="price-bold">3,190<span>万円</span></span></td>
+							<td>
+																	<span class="seal-bold">116.9万円</span>
+															</td>
+							<td>90.18m&sup2;</td>
+							<td>4LDK</td>
+							<td>8階</td>
+							<td>南西</td>
+												<td>
+															<span class="seal-bold">175万円<br>割安</span>
+													</td>
+													<td class="recommend_update_row">
+								価格更新日:2026年04月15日							</td>
+											</tr>
+				</tbody>
+											<tbody class="recommend_row">
+										<tr data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEzNDA0MzAwMDIwMDEifQ==">
+						<td width="100">
+																																															<img src="/img/common/floorplan-preparing-list.png" data-original="/img/?image=https%3A%2F%2Fimage1.homes.jp%2Fsmallimg%2Fimage.php%3Ffile%3Dhttp%253A%252F%252Fimg.homes.jp%252F134043%252Fsale%252F2001%252F1%252F2%252Forwj.jpg&width=100&height=100" alt="ヴィセント到津 801" title="ヴィセント到津 801" />
+													</td>
+						<td>
+							<div class="logo_seal_wrap">
+																	<span class="seal seal_value">割安</span>
+																																							</div>
+															<a class="js_pr_bukken_link js_trigger_for_sales_bukken_pv__log" href="https://www.mansion-review.jp/chuko/1340430002001.html" data-pv_log_keys="eyJidWtrZW5fdHlwZSI6MSwiY29tcGFueSI6MCwiY29kZSI6IjEzNDA0MzAwMDIwMDEifQ==" target="_blank" >
+									ヴィセント到津 801								</a>
 													</td>
 													<td><span class="price-bold">3,290<span>万円</span></span></td>
 							<td>
@@ -13068,7 +13168,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>8階</td>
 							<td>南西</td>
 												<td>
-															<span class="seal-bold">97万円<br>割安</span>
+															<span class="seal-bold">75万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -13707,7 +13807,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 							<td>3階</td>
 							<td>南東</td>
 												<td>
-															<span class="seal-bold">22万円<br>割安</span>
+															<span class="seal-bold">25万円<br>割安</span>
 													</td>
 													<td class="recommend_update_row"></td>
 											</tr>
@@ -14550,7 +14650,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">4590</td>
+												<td class="">4596</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -14882,7 +14982,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">9718</td>
+												<td class="">9721</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -15180,7 +15280,7 @@ function souba__jump_to_baibai_lp (strJumpTo) {
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">アクセス数</th>
-												<td class="">5490</td>
+												<td class="">5491</td>
 											</tr>
 											<tr>
 												<th class="property-detail-content_sub__title ">騰落率</th>
@@ -15924,7 +16024,7 @@ $(document).on('click', '.js-myproperty-btn', function() {
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/6.html">タワーマンション・高層マンション</a><span class="num">(3)</span></li>
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/7.html">低層マンション</a><span class="num">(49)</span></li>
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/8.html">ペット可・ペット相談</a><span class="num">(28)</span></li>
-															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/9.html">リフォーム・リノベーション済</a><span class="num">(52)</span></li>
+															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/9.html">リフォーム・リノベーション済</a><span class="num">(53)</span></li>
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/10.html">オール電化</a><span class="num">(8)</span></li>
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/11.html">専用庭付き</a><span class="num">(4)</span></li>
 													</ul>
@@ -15937,12 +16037,12 @@ $(document).on('click', '.js-myproperty-btn', function() {
 					<div class="listContentSimple">
 						<ul class="c-another-list">
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/12.html">1LDK</a><span class="num">(16)</span></li>
-															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/13.html">2LDK</a><span class="num">(47)</span></li>
-															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/14.html">3LDK</a><span class="num">(106)</span></li>
+															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/13.html">2LDK</a><span class="num">(49)</span></li>
+															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/14.html">3LDK</a><span class="num">(107)</span></li>
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/15.html">4LDK</a><span class="num">(51)</span></li>
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/16.html">シングル向け（ワンルーム/1K/1DK/1LDK）</a><span class="num">(35)</span></li>
-															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/17.html">DINKS向け（2K/2DK/2LDK）</a><span class="num">(51)</span></li>
-															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/18.html">ファミリー向け（2DK以上）</a><span class="num">(191)</span></li>
+															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/17.html">DINKS向け（2K/2DK/2LDK）</a><span class="num">(53)</span></li>
+															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/18.html">ファミリー向け（2DK以上）</a><span class="num">(195)</span></li>
 													</ul>
 					</div>
 				</div>
@@ -15952,7 +16052,7 @@ $(document).on('click', '.js-myproperty-btn', function() {
 					<h3 class="sideContentArea_sub_title"><span>価格</span></h3>
 					<div class="listContentSimple">
 						<ul class="c-another-list">
-															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/19.html">2000万円未満</a><span class="num">(176)</span></li>
+															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/19.html">2000万円未満</a><span class="num">(179)</span></li>
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/20.html">2000万円台</a><span class="num">(30)</span></li>
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/21.html">3000万円台</a><span class="num">(28)</span></li>
 															<li class=""><a href="https://www.mansion-review.jp/mansion/city/1619/kodawari/22.html">4000万円台</a><span class="num">(5)</span></li>
@@ -16060,14 +16160,26 @@ $(document).on('click', '.js-myproperty-btn', function() {
 											<li class="clearfix pc_sbtn">
 					<section>
 						<p class="photo">
-							<a href="https://www.mansion-review.jp/knowhow/manga/7.html" target="_blank">
-								<img class="js_lazy_for_side_column" src="/img/common/blank_071x100.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2Fmanga%2Fimage%2F%3Fid%3D20&width=100&height=100" />
+							<a href="https://www.mansion-review.jp/knowhow/manga/11.html" target="_blank">
+								<img class="js_lazy_for_side_column" src="/img/common/blank_071x100.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2Fmanga%2Fimage%2F%3Fid%3D36&width=100&height=100" />
 							</a>
 						</p>
-						<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/manga/7.html" target="_blank">『中古マンションの設備保証』</a></h3>
-						<p>中古マンションを購入したときの保証はご存じでしょうか？
+						<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/manga/11.html" target="_blank">『日当たり良好！でも将来は？』</a></h3>
+						<p>「3階部分ですが、目の前に建物は無く、日あたり、通風良好です！」
  
- 仲介業者が事前に説明する義...</p>
+ というような謳い文...</p>
+					</section>
+				</li>
+											<li class="clearfix pc_sbtn">
+					<section>
+						<p class="photo">
+							<a href="https://www.mansion-review.jp/knowhow/manga/16.html" target="_blank">
+								<img class="js_lazy_for_side_column" src="/img/common/blank_071x100.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2Fmanga%2Fimage%2F%3Fid%3D56&width=100&height=100" />
+							</a>
+						</p>
+						<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/manga/16.html" target="_blank">『戸建派？マンション派？』</a></h3>
+						<p>家を買おうと思ったときには、いろいろと選択肢があります。
+ 都心派か郊外派か、中古派か...</p>
 					</section>
 				</li>
 											<li class="clearfix pc_sbtn">
@@ -16086,26 +16198,12 @@ $(document).on('click', '.js-myproperty-btn', function() {
 											<li class="clearfix pc_sbtn">
 					<section>
 						<p class="photo">
-							<a href="https://www.mansion-review.jp/knowhow/manga/6.html" target="_blank">
-								<img class="js_lazy_for_side_column" src="/img/common/blank_071x100.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2Fmanga%2Fimage%2F%3Fid%3D16&width=100&height=100" />
+							<a href="https://www.mansion-review.jp/knowhow/manga/25.html" target="_blank">
+								<img class="js_lazy_for_side_column" src="/img/common/blank_071x100.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2Fmanga%2Fimage%2F%3Fid%3D93&width=100&height=100" />
 							</a>
 						</p>
-						<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/manga/6.html" target="_blank">『マンション売却　内覧のコツと注意点』</a></h3>
-						<p>マンションを売却する際、重要な決め手となり得るのが内覧です。
- 高値売却や早期売却した...</p>
-					</section>
-				</li>
-											<li class="clearfix pc_sbtn">
-					<section>
-						<p class="photo">
-							<a href="https://www.mansion-review.jp/knowhow/manga/28.html" target="_blank">
-								<img class="js_lazy_for_side_column" src="/img/common/blank_071x100.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2Fmanga%2Fimage%2F%3Fid%3D106&width=100&height=100" />
-							</a>
-						</p>
-						<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/manga/28.html" target="_blank">『持分は正確に・・・・』</a></h3>
-						<p>今日は、2人以上で不動産を買った場合に、決めなければいけない持分についての話です。
- 
- ...</p>
+						<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/manga/25.html" target="_blank">『マンションの買い替え　失敗例』</a></h3>
+						<p>結婚や子育てなど、ライフスタイルが変化したとき、不動産の購入・売却を検討される人が...</p>
 					</section>
 				</li>
 					</ul>
@@ -16122,52 +16220,56 @@ $(document).on('click', '.js-myproperty-btn', function() {
 						<section>
 							<div class="photo">
 								<div class="img">
-									<a href="https://www.mansion-review.jp/knowhow/taiken/397.html" target="_blank">
-										<img class="js_lazy_for_side_column" src="/img/common/blank_135x090.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2F%2Fimage%2Fknowhow%2Ftaiken%2F40e486bed3f785c7c7f41d9999817768c2e0ea02.jpg&height=90" height="90" />
+									<a href="https://www.mansion-review.jp/knowhow/taiken/46.html" target="_blank">
+										<img class="js_lazy_for_side_column" src="/img/common/blank_135x090.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2F%2Fimage%2Fknowhow%2Ftaiken%2F74495f14687fbf98862b8cc0cb58fc9d75ab5bc7.jpg&height=90" height="90" />
 									</a>
 								</div>
 							</div>
-							<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/taiken/397.html" target="_blank">【購入体験記】ほぼ土地値でリフォーム済戸建...</a></h3>
-							<p>予算を限定して探した結果、ほぼ土地値のリフォーム済み戸建てを偶...</p>
+							<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/taiken/46.html" target="_blank">【購入体験記】期限が迫っている物件はねらい...</a></h3>
+							<p>価格交渉して安く買えるかどうか、非常に気になるところです。
+ 
+ 人...</p>
 						</section>
 					</li>
 																			<li class="clearfix pc_sbtn">
 						<section>
 							<div class="photo">
 								<div class="img">
-									<a href="https://www.mansion-review.jp/knowhow/taiken/546.html" target="_blank">
-										<img class="js_lazy_for_side_column" src="/img/common/blank_135x090.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2F%2Fimage%2Fknowhow%2Ftaiken%2F5ddec46b6b2a2e33107b00a425f41d82c395403a.jpg&height=90" height="90" />
+									<a href="https://www.mansion-review.jp/knowhow/taiken/344.html" target="_blank">
+										<img class="js_lazy_for_side_column" src="/img/common/blank_135x090.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2F%2Fimage%2Fknowhow%2Ftaiken%2F55ed357d66944f7854e5dbe2487d52462e86a599.jpg&height=90" height="90" />
 									</a>
 								</div>
 							</div>
-							<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/taiken/546.html" target="_blank">【購入体験記】実家の親と同居のため一戸建て...</a></h3>
-							<p>自身が高齢になった時に賃貸の住まいだと不安が残り、親とも同居も...</p>
+							<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/taiken/344.html" target="_blank">【購入体験記】交通便が悪いのは致命的！築浅...</a></h3>
+							<p>不動産購入の失敗体験記です。
+ 
+ 団地住まいへの不満と義両親の転居...</p>
 						</section>
 					</li>
 																			<li class="clearfix pc_sbtn">
 						<section>
 							<div class="photo">
 								<div class="img">
-									<a href="https://www.mansion-review.jp/knowhow/taiken/424.html" target="_blank">
-										<img class="js_lazy_for_side_column" src="/img/common/blank_135x090.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2F%2Fimage%2Fknowhow%2Ftaiken%2Fb0a881c5cbb202bed24e201dfd9d6aabc9ef586f.jpg&height=90" height="90" />
+									<a href="https://www.mansion-review.jp/knowhow/taiken/576.html" target="_blank">
+										<img class="js_lazy_for_side_column" src="/img/common/blank_135x090.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2F%2Fimage%2Fknowhow%2Ftaiken%2F124063145e60405c353897ccf000bde9ad0b8b18.jpg&height=90" height="90" />
 									</a>
 								</div>
 							</div>
-							<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/taiken/424.html" target="_blank">【購入体験記】こだわりの土地に憧れの一戸建...</a></h3>
-							<p>永く住み続けるには地に足の着いたイメージの一戸建てという考えか...</p>
+							<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/taiken/576.html" target="_blank">【購入体験記】新築マンションの最上階購入！...</a></h3>
+							<p>最近の建売住宅密集度にプライバシー保護の不安を感じ、新築マンシ...</p>
 						</section>
 					</li>
 																			<li class="clearfix pc_sbtn">
 						<section>
 							<div class="photo">
 								<div class="img">
-									<a href="https://www.mansion-review.jp/knowhow/taiken/365.html" target="_blank">
-										<img class="js_lazy_for_side_column" src="/img/common/blank_135x090.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2F%2Fimage%2Fknowhow%2Ftaiken%2F31072e7835c9cf56eb48cdc10ae83bc3c615dd11.jpg&height=90" height="90" />
+									<a href="https://www.mansion-review.jp/knowhow/taiken/304.html" target="_blank">
+										<img class="js_lazy_for_side_column" src="/img/common/blank_135x090.gif" data-sidecolumn="/img/?image=https%3A%2F%2Fwww.mansion-review.jp%2F%2Fimage%2Fknowhow%2Ftaiken%2F1d45947acbcdf24615ff5d35bedf67825cd57982.jpg&height=90" height="90" />
 									</a>
 								</div>
 							</div>
-							<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/taiken/365.html" target="_blank">【購入体験記】利便性と水回りへの気持ち的な...</a></h3>
-							<p>セキュリティー等の安全面や、管理の手間、利便性などを考慮してマ...</p>
+							<h3 class="sideContent_list_title"><a href="https://www.mansion-review.jp/knowhow/taiken/304.html" target="_blank">【購入体験記】予算的にも希望的にも中古マン...</a></h3>
+							<p>理想の住まいを求めて、行きついたのは立地条件の良い中古マンショ...</p>
 						</section>
 					</li>
 									</ul>
@@ -17190,6 +17292,11 @@ $(document).on('click', '.js-myproperty-btn', function() {
 			trigger:".db_favorites_delete_ver2",
 			toast:"#global_toast",
 			report_to:".sales_rental_favorites",
+			end:"end"
+		});
+		app.sales.histories_delete({
+			trigger:".histories_delete",
+			toast:"#global_toast",
 			end:"end"
 		});
 			});
