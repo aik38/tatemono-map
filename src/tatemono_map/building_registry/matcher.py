@@ -109,6 +109,27 @@ def _pick_strong_unique(candidates: list[tuple[str, float, float, float]], varia
     return MatchResult(None, "address_candidates_low_confidence", top_ids, top_scores, variant)
 
 
+def _pick_equivalent_duplicate(
+    candidates: list[tuple[str, str, str]],
+    *,
+    normalized_name: str,
+    normalized_address: str,
+    variant: str,
+) -> MatchResult | None:
+    if len(candidates) < 2:
+        return None
+    if not normalized_name or not normalized_address:
+        return None
+    if any((name or "") != normalized_name for _building_id, name, _addr in candidates):
+        return None
+    if any((addr or "") != normalized_address for _building_id, _name, addr in candidates):
+        return None
+    picked_id = sorted(building_id for building_id, _name, _addr in candidates)[0]
+    candidate_ids = [building_id for building_id, _name, _addr in sorted(candidates, key=lambda row: row[0])[:3]]
+    candidate_scores = [1.0 for _ in candidate_ids]
+    return MatchResult(picked_id, "address_equivalent_duplicate", candidate_ids, candidate_scores, variant)
+
+
 def match_building(conn: Any, normalized_name: str, normalized_address: str) -> MatchResult:
     if _has_multi_lot_or_range(normalized_address):
         return MatchResult(None, "address_multi_or_range", [], [])
@@ -142,6 +163,14 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str) -> 
         matched = [row for row in addr_rows if normalize_address_for_matching(row[2] or "") == variant]
         if not matched:
             continue
+        equivalent_duplicate = _pick_equivalent_duplicate(
+            [(row[0], row[1] or "", normalize_address_for_matching(row[2] or "")) for row in matched],
+            normalized_name=normalized_name,
+            normalized_address=variant,
+            variant=variant if idx > 0 else "",
+        )
+        if equivalent_duplicate is not None:
+            return equivalent_duplicate
         if len(matched) == 1:
             name_score = _score_name(normalized_name, matched[0][1] or "")
             if _has_series_suffix_conflict(normalized_name, matched[0][1] or ""):

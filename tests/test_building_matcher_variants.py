@@ -192,3 +192,55 @@ def test_matcher_blocks_suffix_conflict_even_when_address_exact(tmp_path: Path) 
 
     assert result.building_id is None
     assert result.reason == "name_suffix_conflict"
+
+
+def test_ingest_facts_attaches_when_canonical_is_split_only_by_chome_notation(tmp_path: Path) -> None:
+    db_path = tmp_path / "split_chome.sqlite3"
+    _seed(db_path, "サンレリウス小倉駅南,福岡県北九州市小倉北区鍛冶町2丁目5番8号,ui:a,\n")
+
+    conn = connect(str(db_path))
+    conn.execute(
+        """
+        INSERT INTO buildings(
+            building_id, canonical_name, canonical_address, norm_name, norm_address, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """,
+        (
+            "manual-split",
+            "サンレリウス小倉駅南",
+            "北九州市小倉北区鍛冶町二丁目5番8号",
+            "サンレリウス小倉駅南",
+            "北九州市小倉北区鍛冶町2-5-8",
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    csv_path = tmp_path / "facts.csv"
+    csv_path.write_text(
+        "building_name,address,evidence_id,structure,built_year_month,property_kind\n"
+        "サンレリウス小倉駅南,福岡県北九州市小倉北区鍛冶町2丁目5番8号,mansion_review:https://www.mansion-review.jp/mansion/1638299.html,RC,2009-02,bunjo\n",
+        encoding="utf-8",
+    )
+    report = ingest_building_facts_csv(str(db_path), str(csv_path), source="mansion_review_facts", merge="fill_only")
+    assert report.matched == 1
+    assert report.unresolved == 0
+
+    conn = connect(str(db_path))
+    attached = conn.execute(
+        """
+        SELECT b.canonical_name, b.structure, b.built_year_month, b.property_kind
+        FROM building_sources s
+        JOIN buildings b ON b.building_id = s.building_id
+        WHERE s.source='mansion_review_facts'
+          AND s.evidence_id='mansion_review:https://www.mansion-review.jp/mansion/1638299.html'
+        """
+    ).fetchone()
+    conn.close()
+
+    assert attached is not None
+    assert attached["canonical_name"] == "サンレリウス小倉駅南"
+    assert attached["structure"] == "RC"
+    assert attached["built_year_month"] == "2009-02"
+    assert attached["property_kind"] == "bunjo"
