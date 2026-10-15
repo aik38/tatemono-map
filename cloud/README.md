@@ -6,7 +6,9 @@
 
 ## 変更対象・権限・影響
 
-初回セットアップは既定で読み取り専用です。`--apply` の場合だけ、表示した変更一覧に従って次を実施します。
+初回セットアップは既定で読み取り専用です。**`--apply` だけではIAM準備に限定**し、runtime/deployer/publisher SA・WIF・公開領域の読み取り権限・既存Ulucks login Secretのruntime権限だけを用意します。正本/公開DBへの書き込み、デプロイ権限、旧SAのactAs、bucket保護変更、Scheduler変更、GitHub変数変更・dispatchは実施しません。
+
+以下のデータ更新・本番連携は、正本照合とコードレビュー後に **`--apply --activate --reviewed-commit <レビュー済みmain SHA>`** を明示した場合だけ実施します。checkoutと実際のmainがレビュー済みSHAと一致し、追跡ファイルに変更がなく、選定正本のSHA・DB検査が成功しない限り有効化できません。既存GCS headがある場合も選定正本とのSHA一致を必須にします。
 
 | 対象 | 変更・影響 |
 | --- | --- |
@@ -28,11 +30,30 @@
 
 Cloud Schedulerはresource.nameによる条件をサポートするサービス一覧に含まれないため、単一Jobだけに効くIAM条件を仮定しません。デプロイSAにはプロジェクト内Schedulerの `cloudscheduler.jobs.get` / `cloudscheduler.jobs.enable` の2権限だけをcustom roleで付与し、コードでは設定した1つのJobのみを参照・再開します。他のSchedulerもIAM上は参照・再開可能になることが初回接続の権限上の影響です。作成・編集・削除・即時実行権限はありません。[IAM resource属性の対応一覧](https://docs.cloud.google.com/iam/docs/conditions-resource-attributes)、[Scheduler IAM](https://docs.cloud.google.com/scheduler/docs/access-control) を参照してください。
 
-## 本人操作をまとめた初回接続
+## 正本未確定のまま実行できる初回接続
+
+`cloud/first_connect.sh` はPRブランチでも実行可能です。本番更新・Job実行・Secret値取得を行わず、既存GCP資産、Ulucks Secretのバージョン/状態/IAM、project内の全bucketと**過去世代を含むSQLite候補**、Cloud Shellの既存PoC配下・private入力配下を一括調査します。環境変数・HTTPヘッダー・Secret payloadは取得しません。CLIエラーの生出力は公開ログへ出しません。
+
+必要権限は対象projectの資産メタデータ参照、IAMポリシー参照、Secret名・バージョン状態参照、bucket一覧・object一覧/取得です。Secret Accessor、Job実行、データ書き込みは不要です。Google APIが無効、権限不足、取得予算超過なら調査不完全として報告し、成功扱いにしません。
+
+1. Cloud Shellでレビュー対象PRのcommitを独立したcheckoutへ取得します。既存PoCディレクトリを上書きしません。
+2. `work/initial-input/` へ提供CSVと、Windowsから持ち込む**独立した正本候補/backup**をまとめてアップロードします。CSV名は `buildings_master.csv` / `building_key_aliases.csv`。PR checkout側の `scripts/inspect_master_candidates.ps1 -RepoPath <既存Windows repo> -ExportSnapshots` は既存Pythonを使い、元DBを変更せずWALの確定分も含む独立コピーと照合結果をPR checkoutのprivate `work/` へ保存します。既存 `data/` / `backups/` / `tmp/backups/` が既定の探索範囲です。別の保存先には `-CandidateRoots` を指定できます。Windowsへ接続できない環境では、Cloud Shellの調査だけで最新正常版を断定しません。
+3. 認証済みCloud Shellで以下を1回実行します。
+
+   ```bash
+   bash cloud/first_connect.sh
+   ```
+
+   IAM準備も同じ作業で行う場合だけ、`gh auth login --web` で本人のGitHub CLIを認証し、`bash cloud/first_connect.sh --prepare-iam` を実行します。初回作業者には追加でService Usage Admin / Workload Identity Pool Admin / Service Account Admin、既存bucketと `tm-ulucks-login` のIAM設定権限が必要です。引継ぎの既存bucket/Job/registryを照合してから準備し、違う資産は作り直しません。GitHubの `CLOUD_ENABLED=true` が既に設定されていれば、権限追加による自動更新を避けるため準備を停止します。
+4. `work/first-connect/report.private.json` と（IAM準備を実施した場合）`work/gcp-setup/inventory.json` をCloud Shellのダウンロード操作で取得します。Secret/PDF/DB本体をチャットへ貼り付ける必要はありません。報告書と候補本体をpublic GitHubへ保存しません。
+
+GCS候補はgeneration指定・checksum検査でprivate `work/first-connect/candidates/` に保存します。1候補200MiB・合計1GiBの取得予算を超える場合は黙って省略せず、要確認として記録します。候補のSHA、ID fingerprint、件数、完了run、alias解決を比較し、公開DB・整合性不良・未完了current・WAL分離ファイルを除外します。名前や日時だけの自動選定はしません。**調査完了と正本確定は別の状態です。**
+
+## 正本・コードレビュー完了後の本番有効化
 
 このPRのコードがレビューされmainに入った後に実施します。引継ぎPR #351のPoCをそのままデプロイしません。
 
-1. 通常Chromeで [Secret Manager](https://console.cloud.google.com/security/secret-manager?project=tatemono-map) を開き、プロジェクト `tatemono-map` で **`tm-ulucks-login`** を新規作成します。値は下記JSONです。チャット、GitHub、Actions変数へ値を貼り付けません。自動レプリケーション・既定のGoogle管理暗号化で登録できます。既存2件は開いて変更する必要がありません。
+1. **登録済みの `tm-ulucks-login` は再登録不要です。** setupは有効なバージョンの存在とIAMだけを確認し、値を取得・表示しません。実行時のJSON契約は次の2項目です。未登録環境だけ通常Chromeの [Secret Manager](https://console.cloud.google.com/security/secret-manager?project=tatemono-map) で登録します。チャット、GitHub、Actions変数へ値を貼り付けません。既存2件は変更しません。
 
    ```json
    {"username":"実際のUlucksログインID","password":"実際のUlucksパスワード"}
@@ -66,7 +87,8 @@ Cloud Schedulerはresource.nameによる条件をサポートするサービス�
 
    ```bash
    bash cloud/bootstrap.sh --config work/setup.private.json \
-     --apply --expected-job-image '<inventoryの現行image>' \
+     --apply --activate --reviewed-commit '<レビュー済みmain SHA>' \
+     --expected-job-image '<inventoryの現行image>' \
      --collection-file work/collection.private.json \
      --master work/verified-master.sqlite3 --master-sha256 '<照合済みSHA-256>'
    ```

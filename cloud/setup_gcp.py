@@ -2,7 +2,8 @@
 """One-time, inspect-first GCP/GitHub binding. Default is read-only inventory.
 
 No service-account keys. No bucket/project recreation. No container deployment.
-Every mutation is an explicit --apply; existing provider/scheduler conflicts stop.
+--apply prepares identities and read-only publication access only. Data writes,
+deployment privileges and collection require --activate with a reviewed commit.
 """
 from __future__ import annotations
 
@@ -58,6 +59,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True, help="private infrastructure JSON; see cloud/setup.example.json")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--activate", action="store_true", help="after safety/master review only: bootstrap and enable production")
+    parser.add_argument("--reviewed-commit", help="exact reviewed checkout AND main SHA required for activation")
     parser.add_argument("--expected-job-image", help="exact image from inspected inventory; prevents adopting an unexpected Job")
     parser.add_argument("--login-file", type=Path, help="new Secret only: private JSON username/password")
     parser.add_argument("--collection-file", type=Path, help="new Secret only: private collection contract")
@@ -65,6 +68,15 @@ def main():
     parser.add_argument("--master-sha256")
     parser.add_argument("--output", type=Path, default=Path("work/gcp-setup"))
     args = parser.parse_args()
+    if args.activate and not args.apply:
+        raise SetupError("activation_requires_apply")
+    if args.activate:
+        checkout = command(["git", "rev-parse", "HEAD"])
+        main_sha = command(["gh", "api", f"repos/{REPOSITORY}/git/ref/heads/main", "--jq", ".object.sha"])
+        if not args.reviewed_commit or args.reviewed_commit != checkout or checkout != main_sha:
+            raise SetupError("activation_requires_exact_reviewed_main_commit")
+        if command(["git", "status", "--porcelain", "--untracked-files=no"]):
+            raise SetupError("activation_requires_clean_reviewed_checkout")
     config = json.loads(args.config.read_text())
     for field in ("project", "region", "bucket", "job", "artifact_repository", "login_secret", "collection_secret", "scheduler_job"):
         if not isinstance(config.get(field), str) or not config[field]:
@@ -142,25 +154,31 @@ def main():
     inventory = {"project": project_info, "bucket": bucket, "bucket_protection": {k: bucket_info.get(k) for k in ("uniform_bucket_level_access", "public_access_prevention", "versioning_enabled")}, "job": job_info, "artifact_repository": repository_info, "scheduler_present": bool(scheduler), "other_active_job_triggers": other_triggers, "wif_present": bool(provider), "secret_names": [row["name"] for row in secret_inventory], "gcs_database_candidates": gcs_candidates, "needs_bootstrap": needs_bootstrap}
     (args.output / "inventory.json").write_text(json.dumps(inventory, indent=2))
     plan = {
-        "mode": "apply" if args.apply else "read_only",
+        "mode": "activate" if args.activate else "prepare_iam" if args.apply else "read_only",
         "existing_job_image": image,
-        "rollback_service_account_act_as": previous_account,
-        "changes": ["enable required APIs", "create missing dedicated service accounts and WIF pool/provider", "add resource-scoped IAM bindings", "enable bucket versioning and public access prevention", "create missing private Secrets from local input files", "bootstrap GCS head only if missing", "create weekly Scheduler in PAUSED state", "set GitHub Actions variables and enable cloud mode last", "dispatch tested main workflow for first collection and Pages verification"],
+        "rollback_service_account_act_as": previous_account if args.activate else None,
+        "changes": ["enable identity/Secret/Storage APIs", "create missing runtime/deployer/publisher service accounts and WIF pool/provider", "bind existing enabled Ulucks login Secret to runtime only", "grant publisher read-only public/state access"],
+        "activation_only": ["grant runtime storage writes and deployer Job/registry/actAs permissions", "enable bucket protection", "create collection Secret and paused Scheduler", "bootstrap reviewed master only if head missing", "set GitHub variables, enable cloud mode and dispatch reviewed main"],
         "job_impact": "No image/config update or execution in setup. GitHub cloud_deploy later adopts only the inspected image, retains existing environment and records the old Job spec privately before updating.",
-        "permissions_required": ["Service Usage Admin", "Workload Identity Pool Admin", "Service Account Admin", "Project IAM Admin (create limited Scheduler role)", "Storage Admin on existing bucket", "Secret Manager Admin on selected secrets", "Cloud Scheduler Admin", "Cloud Run Admin on existing Job", "GitHub repository Actions variable write permission"],
+        "permissions_required": ["read existing GCP assets and GitHub Actions variables", "Service Usage Admin", "Workload Identity Pool Admin", "Service Account Admin", "set IAM policy on selected bucket and Ulucks login Secret"] + (["Project IAM Admin (limited Scheduler role)", "Cloud Scheduler Admin", "Cloud Run Admin on existing Job", "Artifact Registry IAM", "GitHub Actions variable write and workflow dispatch"] if args.activate else []),
         "non_changes": ["no project/bucket/registry recreation", "no public bucket or SA key", "no RealPro secret access", "no website/template/URL/SEO changes"],
     }
     print(json.dumps(plan, ensure_ascii=False, indent=2))
     (args.output / "changes.json").write_text(json.dumps(plan, ensure_ascii=False, indent=2))
     if not args.apply:
         return
+    # Preparation must remain harmless even if main is already cloud-enabled.
+    # Do not create new deployer privileges that an existing workflow could use.
+    variables = command(["gh", "variable", "list", "--repo", REPOSITORY, "--json", "name,value"], json_output=True)
+    if not args.activate and any(v["name"] == "CLOUD_ENABLED" and v["value"] == "true" for v in variables):
+        raise SetupError("cloud_already_enabled_review_before_iam_preparation")
     if other_triggers:
         raise SetupError("other_active_schedulers_target_existing_job_review_inventory")
-    command(["gh", "api", f"repos/{REPOSITORY}/contents/.github/workflows/cloud_deploy.yml?ref=main", "--jq", ".sha"])
-    if args.expected_job_image != image:
+    if args.activate and args.expected_job_image != image:
         raise SetupError("expected_job_image_does_not_match_inventory")
     # Validate private inputs before any write. Existing secret values are not read.
-    for field, path in (("login_secret", args.login_file), ("collection_secret", args.collection_file)):
+    secret_inputs = (("login_secret", args.login_file), ("collection_secret", args.collection_file)) if args.activate else (("login_secret", args.login_file),)
+    for field, path in secret_inputs:
         existing = gc("secrets", "describe", config[field], "--format=json(name)", missing=True, json_output=True)
         if existing:
             versions = gc("secrets", "versions", "list", config[field], "--filter=state:ENABLED", "--limit=1", "--format=json(name)", json_output=True)
@@ -168,6 +186,8 @@ def main():
                 raise SetupError("existing_secret_has_no_enabled_version: " + field)
             if path:
                 raise SetupError("existing_secret_is_reused_supply_no_file: " + field)
+        elif not args.activate:
+            raise SetupError("register_ulucks_login_in_console_before_preparation")
         elif not path or not path.is_file():
             raise SetupError("new_secret_requires_local_file: " + field)
         if path:
@@ -177,7 +197,7 @@ def main():
                 validate_config(value)
             elif not value.get("username") or not value.get("password"):
                 raise SetupError("login_json_incomplete")
-    if needs_bootstrap:
+    if args.activate:
         from tatemono_map.cloud.pipeline import validate_master
         from tatemono_map.cloud.public_db import sha256
         if not args.master or not args.master_sha256 or sha256(args.master) != args.master_sha256:
@@ -185,8 +205,12 @@ def main():
         validate_master(args.master)
         if Path(str(args.master) + "-wal").exists():
             raise SetupError("close_and_checkpoint_master_before_transfer")
-    gc("services", "enable", *APIS)
+        if not needs_bootstrap and existing_head["master"]["sha256"] != args.master_sha256:
+            raise SetupError("reviewed_master_does_not_match_existing_head")
+    gc("services", "enable", *(APIS if args.activate else ("iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com", "secretmanager.googleapis.com", "storage.googleapis.com")))
     for role, name in ACCOUNTS.items():
+        if role == "scheduler" and not args.activate:
+            continue
         if gc("iam", "service-accounts", "describe", email[role], "--format=json(email)", missing=True, json_output=True) is None:
             gc("iam", "service-accounts", "create", name, "--display-name", f"Tatemono {role}")
     pool = gc("iam", "workload-identity-pools", "describe", POOL, "--location=global", "--format=json", missing=True, json_output=True)
@@ -204,8 +228,12 @@ def main():
     prefix = f"projects/_/buckets/{bucket}/objects/"
     runtime_condition = "expression=" + " || ".join(f"resource.name.startsWith('{prefix}{path}')" for path in ("masters/", "backups/", "private-runs/", "public/", "state/")) + ",title=tatemono-cloud-runtime"
     public_condition = f"expression=resource.name == '{prefix}state/current.json' || resource.name.startsWith('{prefix}public/'),title=tatemono-public-reader"
-    gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["runtime"], "--role=roles/storage.objectAdmin", "--condition", runtime_condition)
     gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["publisher"], "--role=roles/storage.objectViewer", "--condition", public_condition)
+    if not args.activate:
+        gc("secrets", "add-iam-policy-binding", config["login_secret"], "--member=serviceAccount:" + email["runtime"], "--role=roles/secretmanager.secretAccessor")
+        print("IAM prepared only. No master/public write, Job change/run, Scheduler change, GitHub variable change or dispatch. Existing Secret values were not read.")
+        return
+    gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["runtime"], "--role=roles/storage.objectAdmin", "--condition", runtime_condition)
     gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["deployer"], "--role=roles/storage.objectCreator", "--condition", f"expression=resource.name.startsWith('{prefix}deployment-backups/'),title=tatemono-job-config-backup")
     gc("storage", "buckets", "update", "gs://" + bucket, "--versioning", "--public-access-prevention")
     for field, path in (("login_secret", args.login_file), ("collection_secret", args.collection_file)):
