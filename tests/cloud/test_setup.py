@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import json
 import sys
 from pathlib import Path
@@ -28,6 +29,9 @@ class FakeCloud:
         self.accounts = set()
         self.role = None
         self.variables = []
+        # Synthetic Storage JSON API response, not gcloud display aliases.
+        # https://github.com/googleapis/google-api-go-client/blob/main/storage/v1/storage-api.json
+        self.bucket = json.loads((ROOT / "tests/cloud/fixtures/gcloud_bucket_raw.json").read_text())
         self.contract = module("setup_gcp").provider_contract("123", "456", "789")
 
     def __call__(self, argv, **kw):
@@ -42,11 +46,12 @@ class FakeCloud:
         if "projects describe" in words:
             return {"projectId": "tatemono-map", "projectNumber": "123"}
         if "buckets describe" in words:
-            return {"project_number": "123", "uniform_bucket_level_access": True}
+            assert "--raw" in argv and "--format=json" in argv
+            return copy.deepcopy(self.bucket)
         if "buckets get-iam-policy" in words:
             return {"bindings": []}
         if "jobs describe" in words and "scheduler" not in words:
-            return {"metadata": {"name": "tatemono-collection-poc"}, "spec": {"template": {"spec": {"template": {"spec": {"containers": [{"image": "approved-image"}]}}}}}}
+            return {"apiVersion": "run.googleapis.com/v1", "kind": "Job", "metadata": {"name": "tatemono-collection-poc"}, "spec": {"template": {"spec": {"template": {"spec": {"containers": [{"image": "approved-image"}], "serviceAccountName": "existing-job@tatemono-map.iam.gserviceaccount.com"}}}}}}
         if "repositories describe" in words:
             return {"name": "registry", "format": "DOCKER"}
         if "repositories list" in words:
@@ -85,12 +90,14 @@ class FakeCloud:
 
 
 @pytest.mark.parametrize("head_present", [True, False])
-def test_setup_is_read_only_by_default_then_prepares_iam_without_production_permissions(tmp_path, monkeypatch, master, head_present):
+@pytest.mark.parametrize("project_number_type", [str, int])
+def test_setup_is_read_only_by_default_then_prepares_iam_without_production_permissions(tmp_path, monkeypatch, master, head_present, project_number_type):
     mod = module("setup_gcp")
     config = tmp_path / "config.json"
     settings = json.loads((ROOT / "cloud/setup.example.json").read_text())
     config.write_text(json.dumps(settings))
     fake = FakeCloud()
+    fake.bucket["projectNumber"] = project_number_type(123)
     class Bucket:
         def list_blobs(self):
             return []
@@ -109,6 +116,12 @@ def test_setup_is_read_only_by_default_then_prepares_iam_without_production_perm
     args = ["setup_gcp.py", "--config", str(config), "--output", str(tmp_path / "inventory")]
     monkeypatch.setattr(sys, "argv", args)
     mod.main()
+    inventory = json.loads((tmp_path / "inventory/inventory.json").read_text())
+    assert inventory["bucket_protection"] == {
+        "iamConfiguration": {"uniformBucketLevelAccess": {"enabled": True}, "publicAccessPrevention": "enforced"},
+        "versioning": {"enabled": True},
+    }
+    assert inventory["job"]["spec"]["template"]["spec"]["template"]["spec"]["serviceAccountName"] == "existing-job@tatemono-map.iam.gserviceaccount.com"
     assert not any(word in ("create", "create-oidc", "update", "set", "add-iam-policy-binding", "enable", "pause", "execute") for call in fake.calls for word in call)
     for _ in range(2):
         monkeypatch.setattr(sys, "argv", args + ["--apply", "--expected-job-image", "approved-image"])
@@ -122,6 +135,19 @@ def test_setup_is_read_only_by_default_then_prepares_iam_without_production_perm
     assert not any("run jobs update" in call or "run jobs execute" in call for call in calls)
     assert any("attribute.role/deployer" in call for call in mutations)
     assert any("attribute.role/publisher" in call for call in mutations)
+    # Storage omits versioning when it has never been configured. Do not report
+    # unknown display aliases as None or mistake missing versioning for enabled.
+    monkeypatch.setattr(sys, "argv", args)
+    for enabled in (False, None):
+        if enabled is None:
+            fake.bucket.pop("versioning")
+        else:
+            fake.bucket["versioning"] = {"enabled": enabled}
+        fake.bucket["iamConfiguration"]["publicAccessPrevention"] = "inherited"
+        mod.main()
+        protection = json.loads((tmp_path / "inventory/inventory.json").read_text())["bucket_protection"]
+        assert protection["versioning"] == {"enabled": False}
+        assert protection["iamConfiguration"]["publicAccessPrevention"] == "inherited"
     fake.variables = [{"name": "CLOUD_ENABLED", "value": "true"}]
     before = len(fake.calls)
     monkeypatch.setattr(sys, "argv", args + ["--apply"])
@@ -145,6 +171,29 @@ def test_setup_is_read_only_by_default_then_prepares_iam_without_production_perm
     assert sum("scheduler jobs create" in call for call in calls) == 1
     assert any("workflow run" in call for call in calls)
     assert not any("secrets versions access" in call for call in calls)
+    assert json.loads((tmp_path / "inventory/changes.json").read_text())["rollback_service_account_act_as"] == "existing-job@tatemono-map.iam.gserviceaccount.com"
+
+
+@pytest.mark.parametrize("change,expected_error", [
+    ({"projectNumber": "999"}, "bucket_project_mismatch"),
+    ({"projectNumber": None, "project_number": "123"}, "bucket_project_mismatch"),
+    ({"iamConfiguration": {}}, "bucket_requires_uniform_access_review"),
+    ({"iamConfiguration": {"uniformBucketLevelAccess": {"enabled": False}}}, "bucket_requires_uniform_access_review"),
+    ({"iamConfiguration": {"uniformBucketLevelAccess": {"enabled": "true"}}}, "bucket_requires_uniform_access_review"),
+    ({"acl": [{"entity": "allUsers", "role": "READER"}]}, "bucket_has_public_acl"),
+    ({"defaultObjectAcl": [{"entity": "allAuthenticatedUsers", "role": "READER"}]}, "bucket_has_public_acl"),
+])
+def test_raw_bucket_safety_checks_reject_mismatch_or_public_access_before_mutations(tmp_path, monkeypatch, change, expected_error):
+    mod = module("setup_gcp")
+    config = tmp_path / "config.json"
+    config.write_text((ROOT / "cloud/setup.example.json").read_text())
+    fake = FakeCloud()
+    fake.bucket.update(change)
+    monkeypatch.setattr(mod, "command", fake)
+    monkeypatch.setattr(sys, "argv", ["setup_gcp.py", "--config", str(config), "--apply", "--output", str(tmp_path / "inventory")])
+    with pytest.raises(mod.SetupError, match=expected_error):
+        mod.main()
+    assert not any(word in ("create", "enable", "add-iam-policy-binding", "update", "set", "execute") for call in fake.calls for word in call)
 
 
 @pytest.mark.parametrize("options", [["--activate"], ["--apply", "--activate"], ["--apply", "--activate", "--reviewed-commit", "b" * 40]])

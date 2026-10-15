@@ -94,17 +94,19 @@ def main():
 
     project_info = gc("projects", "describe", project, "--format=json(projectId,projectNumber)", json_output=True)
     number = str(project_info["projectNumber"])
-    bucket_info = gc("storage", "buckets", "describe", "gs://" + bucket, "--format=json", json_output=True)
+    # --format=json alone can serialize gcloud's display-oriented resource.
+    # --raw fixes this contract to the Storage JSON API's camelCase schema.
+    bucket_info = gc("storage", "buckets", "describe", "gs://" + bucket, "--raw", "--format=json", json_output=True)
     bucket_iam = gc("storage", "buckets", "get-iam-policy", "gs://" + bucket, "--format=json", json_output=True)
     if any(member in ("allUsers", "allAuthenticatedUsers") for binding in bucket_iam.get("bindings", []) for member in binding.get("members", [])):
         raise SetupError("bucket_has_public_iam_binding")
-    acl_members = [entry.get("entity", "") for entry in bucket_info.get("acl", []) + bucket_info.get("default_acl", [])]
+    acl_members = [entry.get("entity", "") for entry in bucket_info.get("acl", []) + bucket_info.get("defaultObjectAcl", [])]
     if any(member in ("allUsers", "allAuthenticatedUsers") for member in acl_members):
         raise SetupError("bucket_has_public_acl")
-    if str(bucket_info.get("project_number", "")) != number:
+    if str(bucket_info.get("projectNumber", "")) != number:
         raise SetupError("bucket_project_mismatch")
-    # gcloud storage uses snake_case metadata; require explicit private/uniform bucket.
-    if not bucket_info.get("uniform_bucket_level_access"):
+    iam_configuration = bucket_info.get("iamConfiguration", {})
+    if iam_configuration.get("uniformBucketLevelAccess", {}).get("enabled") is not True:
         raise SetupError("bucket_requires_uniform_access_review")
     job_info = gc("run", "jobs", "describe", job, "--region", region, "--format=json(metadata.name,metadata.labels,spec.template.spec.template.spec.containers.image,spec.template.spec.template.spec.serviceAccountName)", json_output=True)
     image = job_info["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["image"]
@@ -151,7 +153,7 @@ def main():
     except NotFound:
         needs_bootstrap = True
     gcs_candidates = [{"object": blob.name, "bytes": blob.size, "generation": int(blob.generation), "updated": blob.updated.isoformat() if blob.updated else None} for blob in store.bucket.list_blobs() if blob.name.endswith((".sqlite3", ".db"))]
-    inventory = {"project": project_info, "bucket": bucket, "bucket_protection": {k: bucket_info.get(k) for k in ("uniform_bucket_level_access", "public_access_prevention", "versioning_enabled")}, "job": job_info, "artifact_repository": repository_info, "scheduler_present": bool(scheduler), "other_active_job_triggers": other_triggers, "wif_present": bool(provider), "secret_names": [row["name"] for row in secret_inventory], "gcs_database_candidates": gcs_candidates, "needs_bootstrap": needs_bootstrap}
+    inventory = {"project": project_info, "bucket": bucket, "bucket_protection": {"iamConfiguration": iam_configuration, "versioning": bucket_info.get("versioning", {"enabled": False})}, "job": job_info, "artifact_repository": repository_info, "scheduler_present": bool(scheduler), "other_active_job_triggers": other_triggers, "wif_present": bool(provider), "secret_names": [row["name"] for row in secret_inventory], "gcs_database_candidates": gcs_candidates, "needs_bootstrap": needs_bootstrap}
     (args.output / "inventory.json").write_text(json.dumps(inventory, indent=2))
     plan = {
         "mode": "activate" if args.activate else "prepare_iam" if args.apply else "read_only",

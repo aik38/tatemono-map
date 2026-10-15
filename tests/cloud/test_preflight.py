@@ -66,6 +66,8 @@ def test_readonly_audit_downloads_exact_generations_and_rejects_public_and_wal(t
     def reader(argv):
         calls.append(argv)
         assert sum(arg.startswith("--format=") for arg in argv) == 1
+        if argv[1:4] == ["storage", "buckets", "describe"]:
+            assert "--raw" in argv
         assert not any(arg in {"access", "execute", "update", "enable", "add-iam-policy-binding", "create", "set", "upload"} for arg in argv)
         if "versions" in argv:
             assert "tm-ulucks-login" in argv

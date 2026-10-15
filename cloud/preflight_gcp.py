@@ -83,7 +83,7 @@ def inventory(client, output, roots, canonical=None, aliases=None, *, reader=com
     for bucket in buckets:
         info = {"name": bucket.name, "candidates": 0}
         report["buckets"].append(info)
-        gc("bucket_" + bucket.name, "storage", "buckets", "describe", "gs://" + bucket.name)
+        gc("bucket_" + bucket.name, "storage", "buckets", "describe", "gs://" + bucket.name, "--raw", "--format=json")
         gc("bucket_iam_" + bucket.name, "storage", "buckets", "get-iam-policy", "gs://" + bucket.name)
         sidecars = set()
         bucket_candidates = []
