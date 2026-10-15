@@ -23,7 +23,11 @@ def failures(path: Path) -> set[str]:
 
 def run_tests(root: Path, args: list[str], output: Path, name: str):
     report = output / f"{name}.xml"
-    result = subprocess.run([sys.executable, "-m", "pytest", "-q", *args, f"--junitxml={report}"], cwd=root, text=True, capture_output=True, env={**os.environ, "PYTHONPATH": str(root / "src")})
+    test_env = dict(os.environ)
+    # Each tree's pytest.ini supplies its own src path. Existing subprocess
+    # tests set PYTHONPATH themselves; an inherited value breaks one on main.
+    test_env.pop("PYTHONPATH", None)
+    result = subprocess.run([sys.executable, "-m", "pytest", "-q", *args, f"--junitxml={report}"], cwd=root, text=True, capture_output=True, env=test_env)
     (output / f"{name}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
     if result.returncode not in (0, 1) or not report.is_file():
         raise RuntimeError(f"{name}_test_execution_failed")
