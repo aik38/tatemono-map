@@ -30,6 +30,7 @@ def run_tests(root: Path, args: list[str], output: Path, name: str):
     result = subprocess.run([sys.executable, "-m", "pytest", "-q", *args, f"--junitxml={report}"], cwd=root, text=True, capture_output=True, env=test_env)
     (output / f"{name}.log").write_text(result.stdout + result.stderr, encoding="utf-8")
     if result.returncode not in (0, 1) or not report.is_file():
+        print((result.stdout + result.stderr)[-20000:])
         raise RuntimeError(f"{name}_test_execution_failed")
     return result.returncode, failures(report)
 
@@ -47,6 +48,7 @@ def main():
         raise SystemExit("base must be the pre-change commit")
     code, required = run_tests(root, CORE, output, "required")
     if code or required:
+        print((output / "required.log").read_text(encoding="utf-8")[-20000:])
         raise SystemExit("required cloud/core tests failed; see private work/test-comparison/required.log")
     baseline = output / "baseline"
     subprocess.run(["git", "worktree", "add", "--detach", str(baseline), base_sha], check=True, capture_output=True)

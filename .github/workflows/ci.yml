@@ -20,6 +20,15 @@ jobs:
         env:
           TEST_BASE: ${{ github.event.pull_request.base.sha }}
         run: python cloud/check_tests.py --base "$TEST_BASE"
+      - name: Save synthetic test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-test-diagnostics
+          path: |
+            work/test-comparison/*.log
+            work/test-comparison/*.xml
+          retention-days: 3
       - name: Build collector container (no deployment on PRs)
         run: docker build -f cloud/Dockerfile -t tatemono-collector-test .
       - name: Verify collector browser in container

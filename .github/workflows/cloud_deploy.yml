@@ -40,6 +40,15 @@ jobs:
             base="$(git rev-parse HEAD^1)"
           fi
           python cloud/check_tests.py --base "$base"
+      - name: Save synthetic test diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-test-diagnostics
+          path: |
+            work/test-comparison/*.log
+            work/test-comparison/*.xml
+          retention-days: 3
 
   deploy:
     needs: test
