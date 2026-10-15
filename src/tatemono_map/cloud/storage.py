@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from tatemono_map.cloud.collector import CollectionError
-from tatemono_map.cloud.public_db import sha256
+from tatemono_map.cloud.public_db import sha256, snapshot_sqlite
 
 HEAD = "state/current.json"
 RUN_RE = re.compile(r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
@@ -51,7 +51,11 @@ def validate_head(head: dict) -> None:
 def commit_release(store, work: Path, run_id: str, generation: int, report: dict, source_commit: str) -> dict:
     if not RUN_RE.fullmatch(run_id) or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
         raise CollectionError("invalid_release_identity")
-    master = store.upload(work / "master.sqlite3", f"masters/{run_id}.sqlite3")
+    # Upload a SQLite backup, not a bare file copy that could omit committed
+    # WAL pages when the imported Windows master retains WAL journal mode.
+    standalone = work / "master-upload.sqlite3"
+    snapshot_sqlite(work / "master.sqlite3", standalone)
+    master = store.upload(standalone, f"masters/{run_id}.sqlite3")
     public = store.upload(work / "public.sqlite3", f"public/releases/{run_id}/public.sqlite3")
     head = {"schema": 1, "qc": "passed", "run_id": run_id, "source_commit": source_commit, "master": master, "public": public, "report": report}
     validate_head(head)

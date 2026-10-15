@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sqlite3
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 REQUIRED = ("buildings", "building_summaries")
@@ -16,10 +17,25 @@ def sha256(path: Path) -> str:
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def readonly(path: Path) -> sqlite3.Connection:
+@contextmanager
+def readonly(path: Path):
     if not path.is_file():
         raise ValueError("database_missing")
-    return sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
+    with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)) as conn:
+        yield conn
+
+
+def snapshot_sqlite(source: Path, output: Path) -> None:
+    """Include committed WAL pages in the single standalone uploaded file."""
+    if source.resolve() == output.resolve():
+        raise ValueError("snapshot_paths_must_differ")
+    output.unlink(missing_ok=True)
+    with readonly(source) as src, closing(sqlite3.connect(output)) as dst:
+        src.backup(dst)
+        dst.commit()
+        dst.execute("PRAGMA journal_mode=DELETE").fetchone()
+        if dst.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+            raise ValueError("snapshot_integrity_failed")
 
 
 def validate_public(path: Path) -> dict:
@@ -48,7 +64,7 @@ def export_public(master: Path, output: Path) -> dict:
     temporary.unlink(missing_ok=True)
     # Copy precisely the same required/optional tables as publish_public.ps1.
     # Never back up the whole master into a public file (deleted pages can leak).
-    with readonly(master) as src, sqlite3.connect(temporary) as dst:
+    with readonly(master) as src, closing(sqlite3.connect(temporary)) as dst:
         for table in REQUIRED + OPTIONAL:
             row = src.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
             if row is None:

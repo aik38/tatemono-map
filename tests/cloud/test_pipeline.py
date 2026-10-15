@@ -179,3 +179,24 @@ def test_existing_renderer_produces_proof_matching_json(store, config, pdf, tmp_
     from tatemono_map.cloud.verify_public import compare
     compare(marker, json.loads((dist / "data/buildings.json").read_text()))
     assert (dist / "index.html").is_file()
+
+
+def test_committed_wal_pages_are_included_in_uploaded_standalone_master(store, master, tmp_path):
+    from tatemono_map.cloud.public_db import export_public, validate_public
+    work = tmp_path / "wal-run"
+    work.mkdir()
+    shutil.copyfile(master, work / "master.sqlite3")
+    export_public(work / "master.sqlite3", work / "public.sqlite3")
+    held = sqlite3.connect(work / "master.sqlite3")
+    try:
+        assert held.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        held.execute("INSERT INTO raw_sources(provider,source_kind,source_url,content) VALUES ('ulucks','master','file:test','wal-only-private-marker')")
+        held.commit()
+        assert (work / "master.sqlite3-wal").stat().st_size > 0
+        result = commit_release(store, work, "20261016T010101Z-111111111111", store.generation, {"public_counts": validate_public(work / "public.sqlite3")}, "a" * 40)
+        uploaded = store.objects[result["master"]["object"]][1]
+        with readonly(uploaded) as conn:
+            assert conn.execute("SELECT COUNT(*) FROM raw_sources WHERE content='wal-only-private-marker'").fetchone()[0] == 1
+            assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    finally:
+        held.close()
