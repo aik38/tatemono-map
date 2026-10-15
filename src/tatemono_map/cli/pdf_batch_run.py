@@ -387,6 +387,8 @@ def complement_address_with_ward(address: str, ward_hint: str) -> str:
         return addr
     if re.search(rf"北九州市(?:{WARD_RE})", addr):
         return addr
+    if re.match(rf"(?:{WARD_RE})", addr):
+        return f"北九州市{addr}"
     if not ward:
         return addr
     if addr.startswith("北九州市") and ward in addr:
@@ -413,14 +415,34 @@ class UlucksParser:
 
     def parse(self, pdf_path: Path) -> ParseResult:
         rows: List[Dict[str, Any]] = []
+        current_ward = ""
         with pdfplumber.open(str(pdf_path)) as pdf:
             for pi, page in enumerate(pdf.pages, start=1):
                 text = page.extract_text() or ""
                 text = normalize_pdf_text(text)
                 updated = parse_updated_at(text)
-                ward_hint = extract_ward_hint(text)
-                tables = page.extract_tables() or []
-                for tb in tables:
+                ward_hint = current_ward or extract_ward_hint(text)
+                # The area/property print repeats the company's address only
+                # on page 1, and area headings can change within a page. Use
+                # the heading immediately above each table, retaining it for
+                # continuation pages; never use the office address as every
+                # property's ward.
+                if hasattr(page, "find_tables"):
+                    positioned = page.find_tables() or []
+                    tables_with_hints = []
+                    previous_bottom = 0
+                    for table in positioned:
+                        top = table.bbox[1]
+                        if top > previous_bottom:
+                            heading = page.crop((0, previous_bottom, page.width, top)).extract_text() or ""
+                            areas = re.findall(rf"(?:^|\n)\s*({WARD_RE})\s+\S", heading)
+                            if areas:
+                                current_ward = areas[-1]
+                        tables_with_hints.append((table.extract(), current_ward or ward_hint))
+                        previous_bottom = table.bbox[3]
+                else:
+                    tables_with_hints = [(table, ward_hint) for table in (page.extract_tables() or [])]
+                for tb, table_ward in tables_with_hints:
                     if not tb or len(tb) < 2:
                         continue
                     header = [normalize_pdf_text(c) for c in tb[0]]
@@ -433,7 +455,7 @@ class UlucksParser:
                         r = list(r) + [None] * (len(header) - len(r))
                         building = get_cell_text(r, idx, ["物件名"])
                         address = get_cell_text(r, idx, ["所在地"])
-                        address = complement_address_with_ward(address, ward_hint)
+                        address = complement_address_with_ward(address, table_ward)
                         room = get_cell_text(r, idx, ["号室"])
                         room = re.sub(r"\s*《.*?》\s*", "", room).strip()
                         layout_detail = get_cell_text(r, idx, ["間取詳細"])
@@ -446,6 +468,7 @@ class UlucksParser:
                                 ["退予", "入居", "入居時期", "入居可能", "退去予定", "状態"],
                             )
                         built_raw = get_cell_text(r, idx, ["築年", "築年月"])
+                        built_raw = built_raw.replace("\\n", " ")
                         built_raw = re.sub(r"\s+", " ", built_raw).strip()
                         structure_raw = get_cell_text(r, idx, ["構造"])
                         raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")

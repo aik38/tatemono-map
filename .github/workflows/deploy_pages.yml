@@ -3,6 +3,12 @@ name: Deploy GitHub Pages
 on:
   push:
     branches: ["main"]
+  schedule:
+    - cron: '23 * * * *'
+  workflow_run:
+    workflows: ["Deploy Ulucks cloud collector"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       address_mode:
@@ -33,7 +39,37 @@ permissions:
   id-token: write
 
 jobs:
+  release_check:
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: google-github-actions/auth@v2
+        if: vars.CLOUD_ENABLED == 'true'
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PAGES_SERVICE_ACCOUNT }}
+      - if: vars.CLOUD_ENABLED == 'true'
+        run: pip install -e . -r requirements-cloud.txt
+      - id: check
+        env:
+          CLOUD_ENABLED: ${{ vars.CLOUD_ENABLED }}
+          GCP_BUCKET: ${{ vars.GCP_BUCKET }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: python cloud/check_release.py
+
   build:
+    needs: release_check
+    if: needs.release_check.outputs.build == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -50,6 +86,21 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install -e .
+
+      - name: Authenticate for validated public DB only
+        if: vars.CLOUD_ENABLED == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PAGES_SERVICE_ACCOUNT }}
+
+      - name: Fetch generation-pinned validated public DB from GCS
+        if: vars.CLOUD_ENABLED == 'true'
+        env:
+          GCP_BUCKET: ${{ vars.GCP_BUCKET }}
+        run: |
+          pip install -r requirements-cloud.txt
+          python -m tatemono_map.cloud.fetch_public --bucket "$GCP_BUCKET"
 
       - name: Verify public DB is present and non-empty
         run: |
@@ -187,6 +238,20 @@ jobs:
           set -e
           ! grep -RInE "(\.pdf\b|号室|参照元|管理会社|元付|PDF)" dist || (echo "Forbidden content detected in dist/"; exit 1)
 
+      - name: Verify updated buildings against cloud release proof
+        if: vars.CLOUD_ENABLED == 'true'
+        run: |
+          python -m tatemono_map.cloud.verify_public --dist dist
+          cp work/cloud_release.json dist/cloud_release.json
+
+      - name: Save public verification marker for post-deploy check
+        if: vars.CLOUD_ENABLED == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-public-verification
+          path: work/cloud_release.json
+          retention-days: 7
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 
@@ -205,3 +270,20 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - uses: actions/checkout@v4
+        if: vars.CLOUD_ENABLED == 'true'
+      - uses: actions/setup-python@v5
+        if: vars.CLOUD_ENABLED == 'true'
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        if: vars.CLOUD_ENABLED == 'true'
+        with:
+          name: cloud-public-verification
+          path: work
+      - name: Verify production Web reflects the committed release and data
+        if: vars.CLOUD_ENABLED == 'true'
+        env:
+          PYTHONPATH: src
+        run: python -m tatemono_map.cloud.verify_public --production

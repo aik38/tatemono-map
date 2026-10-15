@@ -83,3 +83,10 @@ dist/
 *.bak2
 *.swp
 tmp/pdf_pipeline/
+
+# Private cloud setup inputs, build context and local verification
+work/
+cloud/*.private.json
+cloud/*.private.env
+gha-creds-*.json
+*.pdf

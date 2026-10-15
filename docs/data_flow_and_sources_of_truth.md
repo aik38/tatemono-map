@@ -154,3 +154,7 @@
   - A. いいえ。例外・監査対象の抽出結果です。確定反映には人手判断が必要です。
 - **Q. auto-seed された建物はどこで追うか？**
   - A. `new_buildings_*.csv`（`ingest_run_id` / `source_evidence_id` / `building_id`）と `building_sources` で追跡します。
+
+## Cloud scoped snapshots
+
+Ulucks cloud jobs retain `listings.source_kind=ulucks` and the existing rental/sale priority contract. A successful company/area update adds a `current_ingest_snapshots.source=ulucks:<scope-hash>` pointer. Existing source pointers remain active. `cloud_scope_bindings` records the immutable target identity; `cloud_baseline_ownership` contains explicitly reviewed legacy listing keys. Only after the corresponding cloud scope has a current pointer does aggregation exclude its owned legacy rows. Historical rows and canonical building IDs are retained. See `cloud/README.md` for private bootstrap and atomic GCS master/public release details.

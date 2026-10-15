@@ -1,5 +1,9 @@
 # tatemono-map
 
+## Ulucksクラウド自動化（実装・初回接続）
+
+会社8／小倉北区の実画面操作、Private GCS正本、対象別更新、WIF、週次Job、既存Pagesへの検証済み公開DB受け渡しは [cloud/README.md](cloud/README.md) を参照してください。GCP認証・最新正常正本の初期移管・実画面での収集・本番確認は初回接続後の実証が必要です。提供された公開DBを正本へ転用せず、PR #351のPoCを無条件デプロイしません。
+
 ## 現状の正解（先にここだけ確認）
 
 - 本番公開 URL（custom domain / root 配信）: **https://www.tatemono-map.com/**

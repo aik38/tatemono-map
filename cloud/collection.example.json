@@ -1,0 +1,14 @@
+{
+  "login_url": "https://kitakyushu.ulucks.jp/",
+  "search_url": "https://kitakyushu.ulucks.jp/company/lists/8",
+  "company_id": "8",
+  "company_label": "株式会社不動産中央情報センター",
+  "area_id": "kokurakita",
+  "area_label": "小倉北区",
+  "address_contains": "小倉北区",
+  "baseline_listing_keys": [],
+  "baseline_reviewed": false,
+  "max_rows": 5000,
+  "max_drop_ratio": 0.25,
+  "auto_seed_high_confidence": false
+}

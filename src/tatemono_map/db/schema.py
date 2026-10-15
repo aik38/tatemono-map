@@ -14,6 +14,27 @@ class TableSchema:
 
 TABLE_SCHEMAS: tuple[TableSchema, ...] = (
     TableSchema(
+        name="cloud_scope_bindings",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS cloud_scope_bindings (
+            scope_key TEXT PRIMARY KEY,
+            identity_sha256 TEXT NOT NULL,
+            baseline_sha256 TEXT NOT NULL
+        )
+        """,
+        columns=("scope_key", "identity_sha256", "baseline_sha256"),
+    ),
+    TableSchema(
+        name="cloud_baseline_ownership",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS cloud_baseline_ownership (
+            listing_key TEXT PRIMARY KEY,
+            scope_key TEXT NOT NULL
+        )
+        """,
+        columns=("listing_key", "scope_key"),
+    ),
+    TableSchema(
         name="buildings",
         ddl="""
         CREATE TABLE IF NOT EXISTS buildings (

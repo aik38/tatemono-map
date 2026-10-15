@@ -1,0 +1,10 @@
+{
+  "project": "tatemono-map",
+  "region": "asia-northeast1",
+  "bucket": "tatemono-map-poc-523194690131",
+  "job": "tatemono-collection-poc",
+  "artifact_repository": "REPLACE_WITH_EXISTING_DOCKER_REPOSITORY",
+  "login_secret": "tm-ulucks-login",
+  "collection_secret": "tm-ulucks-config",
+  "scheduler_job": "tatemono-ulucks-weekly"
+}

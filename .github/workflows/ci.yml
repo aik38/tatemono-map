@@ -8,9 +8,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: python -m pip install -U pip
-      - run: pip install -r requirements.txt -r requirements-dev.txt -r requirements-pdf.txt
-      - run: python -m pytest -q
+      - run: pip install -r requirements.txt -r requirements-dev.txt -r requirements-cloud-test.txt
+      - run: python -m playwright install --with-deps chromium
+      - name: Required tests and full-suite regression comparison
+        env:
+          TEST_BASE: ${{ github.event.pull_request.base.sha }}
+        run: python cloud/check_tests.py --base "$TEST_BASE"
+      - name: Build collector container (no deployment on PRs)
+        run: docker build -f cloud/Dockerfile -t tatemono-collector-test .
+      - name: Verify collector browser in container
+        run: >-
+          docker run --rm --network none --entrypoint python tatemono-collector-test
+          -c 'import os; from playwright.sync_api import sync_playwright; p=sync_playwright().start(); b=p.chromium.launch(headless=True, executable_path=os.environ["TATEMONO_CHROMIUM_EXECUTABLE"]); page=b.new_page(); page.set_content("<h1>ok</h1>"); assert page.locator("h1").inner_text()=="ok"; b.close(); p.stop()'
