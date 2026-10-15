@@ -44,6 +44,8 @@ class FakeCloud:
             return {"metadata": {"name": "tatemono-collection-poc"}, "spec": {"template": {"spec": {"template": {"spec": {"containers": [{"image": "approved-image"}]}}}}}}
         if "repositories describe" in words:
             return {"name": "registry", "format": "DOCKER"}
+        if "repositories list" in words:
+            return [{"name": "projects/tatemono-map/locations/asia-northeast1/repositories/existing-registry", "format": "DOCKER"}]
         if "providers describe" in words:
             return self.provider
         if "providers create-oidc" in words:
@@ -81,7 +83,6 @@ def test_setup_is_read_only_by_default_then_idempotent_and_never_touches_old_sec
     mod = module("setup_gcp")
     config = tmp_path / "config.json"
     settings = json.loads((ROOT / "cloud/setup.example.json").read_text())
-    settings["artifact_repository"] = "existing-registry"
     config.write_text(json.dumps(settings))
     fake = FakeCloud()
     class Bucket:

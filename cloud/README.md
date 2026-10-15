@@ -50,7 +50,7 @@ Cloud Schedulerはresource.nameによる条件をサポートするサービス�
 
 3. 同じ初回作業内でCloud Shellにmainを取得し、`work/` に次を置きます（public GitHubへpushしない）。
 
-   - `work/setup.private.json`: `cloud/setup.example.json` をコピーし、**既存**Docker repository名を指定。
+   - `work/setup.private.json`: `cloud/setup.example.json` をコピー。`artifact_repository: AUTO` は現行Job imageが参照する既存registry、またはregion内に唯一あるDocker repositoryを選びます。複数候補で確定できない場合はprivate一覧を出して停止し、既存名を指定できます。新規作成はしません。
    - `work/collection.private.json`: `cloud/collection.example.json` をコピー。正本内で、この会社・このエリアに属する旧Ulucks listingsの **listing_key全件** を `baseline_listing_keys` に設定し、確認後 `baseline_reviewed: true` にする。該当する旧明細が本当に無い場合に限り空配列。エリアだけで他社の行を推測して所有権を移さない。
    - 選定したprivate正本。必要に応じWindowsの照合結果・canonical/alias CSVもprivate `work/` 配下へ。
 

@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -96,6 +97,17 @@ def main():
     job_info = gc("run", "jobs", "describe", job, "--region", region, "--format=json(metadata.name,metadata.labels,spec.template.spec.template.spec.containers.image,spec.template.spec.template.spec.serviceAccountName)", json_output=True)
     image = job_info["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["image"]
     previous_account = job_info["spec"]["template"]["spec"]["template"]["spec"].get("serviceAccountName") or f"{number}-compute@developer.gserviceaccount.com"
+    if registry == "AUTO":
+        repositories = gc("artifacts", "repositories", "list", "--location", region, "--format=json(name,format)", json_output=True)
+        candidates = [item["name"].rsplit("/", 1)[-1] for item in repositories if item.get("format") == "DOCKER"]
+        observed = re.match(re.escape(f"{region}-docker.pkg.dev/{project}/") + r"([^/]+)/", image)
+        if observed and observed[1] in candidates:
+            registry = observed[1]
+        elif len(candidates) == 1:
+            registry = candidates[0]
+        else:
+            (args.output / "artifact-repositories.json").write_text(json.dumps(repositories, indent=2))
+            raise SetupError("existing_docker_repository_ambiguous_select_from_private_inventory")
     repository_info = gc("artifacts", "repositories", "describe", registry, "--location", region, "--format=json(name,format)", json_output=True)
     if repository_info.get("format") != "DOCKER":
         raise SetupError("existing_artifact_repository_is_not_docker")
