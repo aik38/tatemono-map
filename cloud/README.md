@@ -16,13 +16,15 @@
 | `tatemono-collection-poc` | setupではイメージを変更・実行しない。初回に確認したimageと一致する場合のみGitHubが引き継ぐ。変更前の全Job設定をprivate GCSへ退避し、テスト済みimageへ更新 |
 | GitHub → GCP | WIF。repository ID・owner ID・main ref・2つのworkflowを限定。SA鍵を発行・保存しない |
 | 実行SA | `tm-ulucks-runtime@tatemono-map.iam.gserviceaccount.com`。Ulucksの2つのSecretと専用GCS prefixだけに権限 |
-| デプロイSA | 既存Job上のRun Developer、実行SA上のService Account User、既存registry上のWriter、private Job設定backupのCreator、Schedulerのget/enableのみ（project単位。下記参照） |
+| デプロイSA | 既存Job上のRun Developer、実行SAおよび初回復元用の旧Job SA上のService Account User、既存registry上のWriter、private Job設定backupのCreator、Schedulerのget/enableのみ（project単位。下記参照） |
 | Pages SA | `state/current.json` と `public/` のObject Viewerのみ。正本・PDF・Job設定のbackupを読めない |
 | Scheduler | 月曜04:00 Asia/Tokyo。新規作成時は将来の時刻で作成→pause→週次時刻へ変更。初回収集成功後にGitHubがresume |
 | 既存Secret | `tm-poc-gmail-token` / `tm-poc-realpro-login` は値取得・更新・削除・権限変更をしない |
 | Web | 既存のテンプレート・デザイン・URL・SEO・テーマ・住所表示条件を変更しない |
 
 セットアップ実行者には Service Usage Admin / Workload Identity Pool Admin / Service Account Admin、必要なSAへのactAs、IAMポリシー設定権限、既存bucketのStorage Admin、指定Secretの管理権限、Cloud Scheduler Admin、既存JobのRun Admin、registryのIAM設定権限、GitHubのActions変数設定・workflow実行権限が必要です。これらは**初回作業者**の権限であり、GitHub実行SAへ一括付与しません。
+
+初回引継ぎが失敗した際に旧Job設定を復元するには、デプロイSAが**旧JobのサービスアカウントでもactAsできる権限**を必要とします。setupはその実アカウントを `rollback_service_account_act_as` として適用前に表示し、そのアカウント上のService Account Userだけを追加します。これは旧アカウントの権限でワークロードを実行可能になる影響があります。新collector SAへ旧アカウントのSecret権限をコピーせず、既存SecretのIAMや値は変更しません。
 
 Cloud Schedulerはresource.nameによる条件をサポートするサービス一覧に含まれないため、単一Jobだけに効くIAM条件を仮定しません。デプロイSAにはプロジェクト内Schedulerの `cloudscheduler.jobs.get` / `cloudscheduler.jobs.enable` の2権限だけをcustom roleで付与し、コードでは設定した1つのJobのみを参照・再開します。他のSchedulerもIAM上は参照・再開可能になることが初回接続の権限上の影響です。作成・編集・削除・即時実行権限はありません。[IAM resource属性の対応一覧](https://docs.cloud.google.com/iam/docs/conditions-resource-attributes)、[Scheduler IAM](https://docs.cloud.google.com/scheduler/docs/access-control) を参照してください。
 

@@ -95,6 +95,7 @@ def main():
         raise SetupError("bucket_requires_uniform_access_review")
     job_info = gc("run", "jobs", "describe", job, "--region", region, "--format=json(metadata.name,metadata.labels,spec.template.spec.template.spec.containers.image,spec.template.spec.template.spec.serviceAccountName)", json_output=True)
     image = job_info["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["image"]
+    previous_account = job_info["spec"]["template"]["spec"]["template"]["spec"].get("serviceAccountName") or f"{number}-compute@developer.gserviceaccount.com"
     repository_info = gc("artifacts", "repositories", "describe", registry, "--location", region, "--format=json(name,format)", json_output=True)
     if repository_info.get("format") != "DOCKER":
         raise SetupError("existing_artifact_repository_is_not_docker")
@@ -131,6 +132,7 @@ def main():
     plan = {
         "mode": "apply" if args.apply else "read_only",
         "existing_job_image": image,
+        "rollback_service_account_act_as": previous_account,
         "changes": ["enable required APIs", "create missing dedicated service accounts and WIF pool/provider", "add resource-scoped IAM bindings", "enable bucket versioning and public access prevention", "create missing private Secrets from local input files", "bootstrap GCS head only if missing", "create weekly Scheduler in PAUSED state", "set GitHub Actions variables and enable cloud mode last", "dispatch tested main workflow for first collection and Pages verification"],
         "job_impact": "No image/config update or execution in setup. GitHub cloud_deploy later adopts only the inspected image, retains existing environment and records the old Job spec privately before updating.",
         "permissions_required": ["Service Usage Admin", "Workload Identity Pool Admin", "Service Account Admin", "Project IAM Admin (create limited Scheduler role)", "Storage Admin on existing bucket", "Secret Manager Admin on selected secrets", "Cloud Scheduler Admin", "Cloud Run Admin on existing Job", "GitHub repository Actions variable write permission"],
@@ -202,6 +204,11 @@ def main():
     gc("run", "jobs", "add-iam-policy-binding", job, "--region", region, "--member=serviceAccount:" + email["deployer"], "--role=roles/run.developer")
     gc("run", "jobs", "add-iam-policy-binding", job, "--region", region, "--member=serviceAccount:" + email["scheduler"], "--role=roles/run.invoker")
     gc("iam", "service-accounts", "add-iam-policy-binding", email["runtime"], "--member=serviceAccount:" + email["deployer"], "--role=roles/iam.serviceAccountUser")
+    if previous_account != email["runtime"]:
+        # Replacing the previous Job spec on a failed first adoption requires
+        # actAs on that spec's original identity too. Explicitly show this
+        # permission in the pre-apply plan; never grant it to the collector.
+        gc("iam", "service-accounts", "add-iam-policy-binding", previous_account, "--member=serviceAccount:" + email["deployer"], "--role=roles/iam.serviceAccountUser")
     gc("artifacts", "repositories", "add-iam-policy-binding", registry, "--location", region, "--member=serviceAccount:" + email["deployer"], "--role=roles/artifactregistry.writer")
     # Scheduler has project-level IAM and does not support resource.name
     # conditions. Grant exactly get+enable (not update/create/run/admin), and
