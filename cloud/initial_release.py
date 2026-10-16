@@ -137,6 +137,17 @@ def main():
         args.config.write_text(Path('cloud/setup.example.json').read_text())
     config = json.loads(args.config.read_text())
     if not state.get('setup_complete'):
+        # A merge also triggers cloud_deploy on push. Finish that run while cloud
+        # mode is still disabled, before enabling it and issuing one dispatch.
+        if not state.get('activation_started'):
+            variables = command(['gh', 'variable', 'list', '--repo', REPO, '--json', 'name,value'], json_output=True)
+            if any(v['name'] == 'CLOUD_ENABLED' and v['value'] == 'true' for v in variables):
+                raise RuntimeError('cloud_already_enabled_requires_existing_state_review')
+            pushes = command(['gh', 'api', f'repos/{REPO}/actions/workflows/cloud_deploy.yml/runs?event=push&head_sha={commit}&per_page=100'], json_output=True)['workflow_runs']
+            if not pushes:
+                raise RuntimeError('main_push_workflow_not_visible_resume_later')
+            for push in pushes:
+                command(['gh', 'run', 'watch', str(push['id']), '--repo', REPO, '--exit-status'])
         # Read-only infrastructure plan captures image without reading Secret payloads.
         setup = [sys.executable, 'cloud/setup_gcp.py', '--config', str(args.config), '--output', str(directory / 'setup')]
         command(setup)

@@ -82,3 +82,26 @@ def test_room_normalization_is_exact_and_does_not_use_rent_or_area():
     assert unit_room('１０１号室') == unit_room('101')
     assert unit_room('ａ１０１') == unit_room('A101')
     assert unit_room('101') != unit_room('102')
+
+
+def test_first_activation_waits_for_main_push_before_enabling_cloud(tmp_path, monkeypatch):
+    mod = module('initial_release')
+    monkeypatch.chdir(tmp_path)
+    (tmp_path/'cloud').mkdir()
+    (tmp_path/'cloud/collection.example.json').write_text((ROOT/'cloud/collection.example.json').read_text())
+    settings=tmp_path/'setup.json'
+    settings.write_text((ROOT/'cloud/setup.example.json').read_text())
+    calls=[]
+    def command(args, **kwargs):
+        calls.append(args)
+        if 'rev-parse' in args or '.object.sha' in args: return 'a'*40
+        if 'status' in args: return ''
+        if args[1:3] == ['variable','list']: return []
+        if 'event=push' in ' '.join(args): return {'workflow_runs':[]}
+        pytest.fail('unexpected operation before push run appears')
+    monkeypatch.setattr(mod,'command',command)
+    monkeypatch.setattr(mod,'check_inputs',lambda *_: {})
+    monkeypatch.setattr(sys,'argv',['initial_release','--activate','--reviewed-commit','a'*40,'--config',str(settings)])
+    with pytest.raises(RuntimeError,match='main_push_workflow_not_visible'):
+        mod.main()
+    assert not any(args[0] == 'gcloud' or args[0] == sys.executable for args in calls)
