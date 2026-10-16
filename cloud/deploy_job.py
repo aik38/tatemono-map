@@ -89,8 +89,11 @@ def main():
         actual_generation = gc("run", "jobs", "describe", job, "--region", region, "--format=value(metadata.generation)")
         if actual_generation != generation:
             raise SystemExit("collection failed and Job changed concurrently; private backup retained, automatic rollback refused") from None
-        gc("run", "jobs", "replace", str(snapshot), "--region", region)
-        raise SystemExit("collection failed; previous Job configuration restored; release requires verification") from None
+        # The live job update already succeeded; replacing the old exported YAML
+        # is neither guaranteed to work nor safe after an execution has started.
+        # Keep the approved new job, immutable backup, and paused Scheduler.
+        # A later reviewed release may update it once, after observing this run.
+        raise DeploymentError("collection_failed_new_job_retained_backup_preserved") from None
     finally:
         snapshot.unlink(missing_ok=True)
     print("Collection committed successfully. Pages verifies production before enabling the weekly Scheduler.")
