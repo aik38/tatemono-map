@@ -18,6 +18,8 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from tatemono_map.cloud.gcp_inventory import job_inventory
+
 REPOSITORY = "aik38/tatemono-map"
 POOL = "tatemono-github"
 PROVIDER = "github-main"
@@ -32,7 +34,7 @@ class SetupError(RuntimeError):
 def command(argv, *, missing=False, json_output=False, stdin=None):
     result = subprocess.run(argv, input=stdin, text=True, capture_output=True)
     if result.returncode:
-        if missing and ("NOT_FOUND" in result.stderr or "not found" in result.stderr.lower() or "SERVICE_DISABLED" in result.stderr):
+        if missing and ("NOT_FOUND" in result.stderr or "not found" in result.stderr.lower()):
             return None
         # Do not echo raw CLI errors or private settings into public logs.
         raise SetupError("command_failed: " + " ".join(argv[:4]))
@@ -108,7 +110,11 @@ def main():
     iam_configuration = bucket_info.get("iamConfiguration", {})
     if iam_configuration.get("uniformBucketLevelAccess", {}).get("enabled") is not True:
         raise SetupError("bucket_requires_uniform_access_review")
-    job_info = gc("run", "jobs", "describe", job, "--region", region, "--format=json(metadata.name,metadata.labels,spec.template.spec.template.spec.containers.image,spec.template.spec.template.spec.serviceAccountName)", json_output=True)
+    # Read the real resource, not a projection through the containers array.
+    # Persist only allowlisted metadata, never env/args/annotations.
+    job_info = job_inventory(gc("run", "jobs", "describe", job, "--region", region, "--format=json", json_output=True))
+    if len(job_info["spec"]["template"]["spec"]["template"]["spec"]["containers"]) != 1:
+        raise SetupError("existing_job_requires_exactly_one_container")
     image = job_info["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["image"]
     previous_account = job_info["spec"]["template"]["spec"]["template"]["spec"].get("serviceAccountName") or f"{number}-compute@developer.gserviceaccount.com"
     if registry == "AUTO":
@@ -137,6 +143,17 @@ def main():
     provider = gc("iam", "workload-identity-pools", "providers", "describe", PROVIDER, "--workload-identity-pool", POOL, "--location=global", "--format=json", missing=True, json_output=True)
     if provider and (provider.get("attributeMapping") != contract["attributeMapping"] or provider.get("attributeCondition") != contract["attributeCondition"] or provider.get("oidc", {}).get("issuerUri") != contract["issuerUri"] or provider.get("disabled") or provider.get("state") != "ACTIVE"):
         raise SetupError("existing_wif_provider_conflicts")
+    pool = gc("iam", "workload-identity-pools", "describe", POOL, "--location=global", "--format=json", missing=True, json_output=True)
+    if pool is not None and (pool.get("state") != "ACTIVE" or pool.get("disabled")):
+        raise SetupError("existing_wif_pool_not_active")
+    accounts = {}
+    for role in ACCOUNTS:
+        if role == "scheduler" and not args.activate:
+            continue
+        account = gc("iam", "service-accounts", "describe", email[role], "--format=json(email,disabled)", missing=True, json_output=True)
+        if account is not None and (account.get("email") != email[role] or account.get("disabled")):
+            raise SetupError("existing_service_account_conflicts: " + role)
+        accounts[role] = account
     secret_inventory = gc("secrets", "list", "--format=json(name)", json_output=True)
     # Use the already-authenticated gcloud operator in-memory. Cloud Shell need
     # not create ADC credentials or copy tokens through the chat.
@@ -213,13 +230,10 @@ def main():
     for role, name in ACCOUNTS.items():
         if role == "scheduler" and not args.activate:
             continue
-        if gc("iam", "service-accounts", "describe", email[role], "--format=json(email)", missing=True, json_output=True) is None:
+        if accounts[role] is None:
             gc("iam", "service-accounts", "create", name, "--display-name", f"Tatemono {role}")
-    pool = gc("iam", "workload-identity-pools", "describe", POOL, "--location=global", "--format=json", missing=True, json_output=True)
     if pool is None:
         gc("iam", "workload-identity-pools", "create", POOL, "--location=global", "--display-name=Tatemono GitHub main")
-    elif pool.get("state") != "ACTIVE" or pool.get("disabled"):
-        raise SetupError("existing_wif_pool_not_active")
     if provider is None:
         # gcloud dictionary delimiter avoids commas inside CEL expressions.
         mapping = "^~^" + "~".join(f"{k}={v}" for k, v in contract["attributeMapping"].items())

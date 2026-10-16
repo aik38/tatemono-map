@@ -85,7 +85,8 @@ def test_readonly_audit_downloads_exact_generations_and_rejects_public_and_wal(t
     assert sha256(master) == before
     assert json.loads((output / "report.private.json").read_text())["mode"] == "read_only"
     jobs = next(c for c in calls if c[1:4] == ["run", "jobs", "list"])
-    assert "containers.image" in " ".join(jobs) and "containers.env" not in " ".join(jobs)
+    assert "--format=json" in jobs
+    assert not any(arg.startswith("--format=json(") for arg in jobs)
 
 
 @pytest.mark.parametrize("failure", ["download", "metadata", "budget"])
@@ -129,3 +130,23 @@ def test_master_with_uncheckpointed_wal_requires_consistent_copy_and_keeps_sourc
         assert sha256(master) == before
         assert Path(str(master) + "-wal").stat().st_size > 0
         assert any(r["decision"] == "standalone_snapshot_failed" for r in snapshots["candidates"])
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_job_inventory_discards_private_fields_or_marks_report_incomplete(tmp_path, malformed):
+    mod = load()
+    resource = {"apiVersion": "run.googleapis.com/v1", "kind": "Job", "metadata": {"name": "existing-job", "annotations": {"private": "DO_NOT_RETAIN"}}, "spec": {"template": {"spec": {"template": {"spec": {"containers": [{"image": "approved-image", "env": [{"name": "private", "value": "DO_NOT_RETAIN"}]}]}}}}}}
+    if malformed:
+        del resource["spec"]["template"]["spec"]["template"]["spec"]["containers"]
+    def reader(argv):
+        if argv[1:4] == ["run", "jobs", "list"]:
+            assert "--format=json" in argv
+            return [resource]
+        return []
+    report = mod.inventory(Client([]), tmp_path / "out", [], reader=reader)
+    assert report["complete"] is not malformed
+    assert "DO_NOT_RETAIN" not in (tmp_path / "out/report.private.json").read_text()
+    if malformed:
+        assert "jobs: unreadable_or_api_disabled" in report["errors"]
+    else:
+        assert report["assets"]["jobs"][0]["spec"]["template"]["spec"]["template"]["spec"]["containers"] == [{"image": "approved-image"}]

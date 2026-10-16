@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from audit_master import audit, read_keys
+from tatemono_map.cloud.gcp_inventory import job_inventory
 
 PROJECT = "tatemono-map"
 REGION = "asia-northeast1"
@@ -38,21 +39,24 @@ def inventory(client, output, roots, canonical=None, aliases=None, *, reader=com
               "generated_at": datetime.now(timezone.utc).isoformat(),
               "errors": [], "assets": {}, "buckets": [], "candidates": [], "local_code_fingerprints": []}
 
-    def gc(key, *args):
+    def gc(key, *args, sanitize=None):
         try:
             formatting = [] if any(arg.startswith("--format=") for arg in args) else ["--format=json"]
             value = reader(["gcloud", *args, "--project", PROJECT, "--quiet", *formatting])
+            if sanitize:
+                value = sanitize(value)
             report["assets"][key] = value
             return value
-        except RuntimeError:
+        except (RuntimeError, ValueError, KeyError, TypeError):
             report["errors"].append(key + ": unreadable_or_api_disabled")
             return None
 
     gc("project", "projects", "describe", PROJECT, "--format=json(projectId,projectNumber)")
     gc("enabled_apis", "services", "list", "--enabled", "--format=json(config.name)")
-    # Explicit projections exclude environment variables, headers and payloads.
+    # Projections through repeated fields can change JSON structure. Read full
+    # Jobs in memory and immediately discard env/args/annotations before saving.
     jobs = gc("jobs", "run", "jobs", "list", "--region", REGION,
-       "--format=json(metadata.name,metadata.labels,spec.template.spec.template.spec.containers.image,spec.template.spec.template.spec.serviceAccountName)")
+       "--format=json", sanitize=lambda rows: [job_inventory(row) for row in rows])
     for job in jobs or []:
         name = job["metadata"]["name"].rsplit("/", 1)[-1]
         gc("job_iam_" + name, "run", "jobs", "get-iam-policy", name, "--region", REGION)

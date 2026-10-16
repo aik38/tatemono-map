@@ -32,9 +32,13 @@ Cloud Schedulerはresource.nameによる条件をサポートするサービス�
 
 ## 正本未確定のまま実行できる初回接続
 
-`cloud/first_connect.sh` はPRブランチでも実行可能です。本番更新・Job実行・Secret値取得を行わず、既存GCP資産、Ulucks Secretのバージョン/状態/IAM、project内の全bucketと**過去世代を含むSQLite候補**、Cloud Shellの既存PoC配下・private入力配下を一括調査します。環境変数・HTTPヘッダー・Secret payloadは取得しません。CLIエラーの生出力は公開ログへ出しません。
+`cloud/first_connect.sh` はPRブランチでも実行可能です。本番更新・Job実行・Secret値取得を行わず、既存GCP資産、Ulucks Secretのバージョン/状態/IAM、project内の全bucketと**過去世代を含むSQLite候補**、Cloud Shellの既存PoC配下・private入力配下を一括調査します。Jobの環境変数・引数は保存せず、SchedulerのHTTPヘッダー・Secret payloadは取得しません。CLIエラーの生出力は公開ログへ出しません。
 
 必要権限は対象projectの資産メタデータ参照、IAMポリシー参照、Secret名・バージョン状態参照、bucket一覧・object一覧/取得です。Secret Accessor、Job実行、データ書き込みは不要です。Google APIが無効、権限不足、取得予算超過なら調査不完全として報告し、成功扱いにしません。
+
+Cloud Run Jobは `--format=json` の完全なv1応答をメモリ内で読み、`spec.template.spec.template.spec.containers` と実行SAを検査します。配列を通るフィールド投影JSONを完全なリソースとして扱いません。保存するJob情報は名前・ラベル・image・実行SAに限定し、環境変数・引数・annotationsは破棄します。Secret Managerの値取得は行いません。API無効や権限不足を「資産なし」として作成処理へ進めません。無効な既存WIF pool・専用SAもIAM変更前に拒否します。
+
+`src/tatemono_map.egg-info/` はpipが生成する情報のため追跡対象から除外します（既存のignore設定を使用）。依存導入後も、この生成物によって本番有効化のclean checkout条件を壊しません。
 
 1. Cloud Shellでレビュー対象PRのcommitを独立したcheckoutへ取得します。既存PoCディレクトリを上書きしません。
 2. `work/initial-input/` へ提供CSVと、Windowsから持ち込む**独立した正本候補/backup**をまとめてアップロードします。CSV名は `buildings_master.csv` / `building_key_aliases.csv`。PR checkout側の `scripts/inspect_master_candidates.ps1 -RepoPath <既存Windows repo> -ExportSnapshots` は既存Pythonを使い、元DBを変更せずWALの確定分も含む独立コピーと照合結果をPR checkoutのprivate `work/` へ保存します。既存 `data/` / `backups/` / `tmp/backups/` が既定の探索範囲です。別の保存先には `-CandidateRoots` を指定できます。Windowsへ接続できない環境では、Cloud Shellの調査だけで最新正常版を断定しません。

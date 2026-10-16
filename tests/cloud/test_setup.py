@@ -51,6 +51,8 @@ class FakeCloud:
         if "buckets get-iam-policy" in words:
             return {"bindings": []}
         if "jobs describe" in words and "scheduler" not in words:
+            assert "--format=json" in argv
+            assert not any(arg.startswith("--format=json(") for arg in argv)
             return {"apiVersion": "run.googleapis.com/v1", "kind": "Job", "metadata": {"name": "tatemono-collection-poc"}, "spec": {"template": {"spec": {"template": {"spec": {"containers": [{"image": "approved-image"}], "serviceAccountName": "existing-job@tatemono-map.iam.gserviceaccount.com"}}}}}}
         if "repositories describe" in words:
             return {"name": "registry", "format": "DOCKER"}
@@ -65,7 +67,7 @@ class FakeCloud:
         if "workload-identity-pools create" in words:
             self.pool = {"state": "ACTIVE"}
         if "service-accounts describe" in words:
-            return {} if argv[4] in self.accounts else None
+            return {"email": argv[4]} if argv[4] in self.accounts else None
         if "service-accounts create" in words:
             self.accounts.add(argv[4] + "@tatemono-map.iam.gserviceaccount.com")
         if "scheduler jobs describe" in words:
@@ -216,3 +218,55 @@ def test_setup_refuses_binding_realpro_secret(tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["setup_gcp.py", "--config", str(config)])
     with pytest.raises(mod.SetupError, match="only_dedicated"):
         mod.main()
+
+
+@pytest.mark.parametrize("error", ["SERVICE_DISABLED: API has not been used", "PERMISSION_DENIED"])
+def test_disabled_api_or_permission_error_is_not_a_missing_resource(error):
+    mod = module("setup_gcp")
+    import subprocess
+    with patch.object(mod.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, "", error)):
+        with pytest.raises(mod.SetupError, match="command_failed"):
+            mod.command(["gcloud", "scheduler", "jobs", "describe", "test"], missing=True, json_output=True)
+
+
+@pytest.mark.parametrize("resource,error", [
+    ({"spec": {"template": {"spec": {"template": {"spec": {"image": ["old-projected-image"]}}}}}}, "invalid_cloud_run"),
+    ({"apiVersion": "run.googleapis.com/v1", "kind": "Job", "metadata": {"name": "job"}, "spec": {"template": {"spec": {"template": {"spec": {"containers": [{"image": "a"}, {"image": "b"}]}}}}}}, "exactly_one_container"),
+])
+def test_bad_or_multi_container_job_is_rejected_before_iam_changes(tmp_path, monkeypatch, resource, error):
+    mod = module("setup_gcp")
+    config = tmp_path / "config.json"
+    config.write_text((ROOT / "cloud/setup.example.json").read_text())
+    fake = FakeCloud()
+    def command(argv, **kw):
+        if argv[1:4] == ["run", "jobs", "describe"]:
+            return resource
+        return fake(argv, **kw)
+    monkeypatch.setattr(mod, "command", command)
+    monkeypatch.setattr(sys, "argv", ["setup_gcp.py", "--config", str(config), "--apply", "--output", str(tmp_path / "out")])
+    with pytest.raises((ValueError, mod.SetupError), match=error):
+        mod.main()
+    assert not any(word in ("create", "enable", "add-iam-policy-binding", "update", "set") for call in fake.calls for word in call)
+
+
+@pytest.mark.parametrize("target,response,error", [
+    (["artifacts", "repositories", "describe"], {"format": "MAVEN"}, "not_docker"),
+    (["iam", "workload-identity-pools", "providers", "describe"], {"state": "DELETED"}, "wif_provider_conflicts"),
+    (["iam", "workload-identity-pools", "describe"], {"state": "DELETED"}, "wif_pool_not_active"),
+    (["iam", "service-accounts", "describe"], {"email": "unexpected", "disabled": True}, "service_account_conflicts"),
+    (["scheduler", "jobs", "describe"], {"httpTarget": {"uri": "unexpected"}}, "scheduler_configuration_conflicts"),
+])
+def test_conflicting_assets_stop_before_any_mutation(tmp_path, monkeypatch, target, response, error):
+    mod = module("setup_gcp")
+    config = tmp_path / "config.json"
+    config.write_text((ROOT / "cloud/setup.example.json").read_text())
+    fake = FakeCloud()
+    def command(argv, **kw):
+        if argv[1:1 + len(target)] == target:
+            return response
+        return fake(argv, **kw)
+    monkeypatch.setattr(mod, "command", command)
+    monkeypatch.setattr(sys, "argv", ["setup_gcp.py", "--config", str(config), "--apply", "--output", str(tmp_path / "out")])
+    with pytest.raises(mod.SetupError, match=error):
+        mod.main()
+    assert not any(word in ("create", "enable", "add-iam-policy-binding", "update", "set") for call in fake.calls for word in call)
