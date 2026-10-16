@@ -236,15 +236,27 @@ def _observed_search_action(page, root: Path, form=None):
                     exact, commonSearch, searchText, attributeHint, submit, inForm});
             }
         });
+        // The live ID-8 page has navigation links named "物件検索" outside
+        // the search form. Prefer observed actions belonging to the exact form
+        // that contains the verified Kokurakita checkbox. Never choose its
+        // navigation link over a unique search-labelled form submit.
+        const scoped = matches.filter(x => x.inForm);
         const groups = [
-            ['exact_label', matches.filter(x => x.exact)],
-            ['common_search_label', matches.filter(x => x.commonSearch)],
-            ['search_label', matches.filter(x => x.searchText)],
-            ['search_attribute', matches.filter(x => x.attributeHint && x.tag !== 'div')],
-            ['unique_form_submit', matches.filter(x => x.submit)]
+            ['form_exact_label', scoped.filter(x => x.exact)],
+            ['form_common_search_label', scoped.filter(x => x.commonSearch)],
+            ['form_search_label', scoped.filter(x => x.searchText)],
+            ['form_search_attribute', scoped.filter(x => x.attributeHint && x.tag !== 'div')],
+            ['form_unique_submit', scoped.filter(x => x.submit)]
         ];
-        // A strong, unique observed label takes precedence. Ambiguous labels
-        // must not silently fall back to a different unlabeled control.
+        if (scoped.length === 0) {
+            const external = matches.filter(x => !x.inForm);
+            groups.push(
+                ['external_exact_label', external.filter(x => x.exact)],
+                ['external_common_search_label', external.filter(x => x.commonSearch)],
+                ['external_search_label', external.filter(x => x.searchText)],
+                ['external_search_attribute', external.filter(x => x.attributeHint && x.tag !== 'div')]
+            );
+        }
         let chosen = null, reason = 'none';
         for (const [kind, entries] of groups) {
             if (entries.length > 1) {reason = 'ambiguous_' + kind; break;}
