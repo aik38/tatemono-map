@@ -22,6 +22,7 @@ def save():
     tmp=report.with_suffix('.tmp')
     tmp.write_text(json.dumps(state,ensure_ascii=False,indent=2));tmp.chmod(0o600);tmp.replace(report)
 def run(name,args,capture=True):
+    print('Stage: '+name,flush=True)
     result=subprocess.run(args,text=True,capture_output=True)
     state['stages'].append({'name':name,'returncode':result.returncode,'stdout':result.stdout if capture else '', 'stderr':result.stderr})
     save()
@@ -42,20 +43,22 @@ try:
     if not python.exists(): run('venv',['python3','-m','venv',str(python.parent.parent)])
     run('dependencies',[str(python),'-m','pip','install','--quiet','-e','.', '-r','requirements-cloud.txt'])
     env=dict(os.environ);env['PYTHONPATH']=str(root/'src')
+    print('Stage: initial_release (private checkpoint, transfer, collection and production verification)',flush=True)
+    operation_started=datetime.datetime.now(datetime.timezone.utc).timestamp()
     result=subprocess.run([str(python),'cloud/initial_release.py','--activate','--reviewed-commit',expected],env=env,text=True,capture_output=True)
     state['stages'].append({'name':'initial_release','returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})
     progress=root/'work/initial-release/progress.private.json'
     if progress.exists():state['progress']=json.loads(progress.read_text())
-    for name in ('audit.private.json','expected-release.private.json','completed-evidence.private.json'):
+    for name in ('audit.private.json','expected-release.private.json','completed-evidence.private.json','setup/bootstrap/bootstrap-progress.private.json'):
         path=root/'work/initial-release'/name
         if path.exists():state[name]=json.loads(path.read_text())
     error=root/'work/initial-release/last-error.private.log'
-    if result.returncode and error.exists():state['last_command_error']=error.read_text()
+    if result.returncode and error.exists() and error.stat().st_mtime>=operation_started:state['last_command_error']=error.read_text()
     if result.returncode:
         settings=root/'work/setup.private.json'
         if settings.exists():
             cfg=json.loads(settings.read_text())
-            query=f'resource.type="cloud_run_job" AND resource.labels.job_name="{cfg["job"]}" AND timestamp>="{state["started_at"]}"'
+            query=f'resource.type="cloud_run_job" AND resource.labels.job_name="{cfg["job"]}" AND timestamp>="{state["started_at"]}" AND (log_id("run.googleapis.com/stdout") OR log_id("run.googleapis.com/stderr"))'
             logs=subprocess.run(['gcloud','logging','read',query,'--project',cfg['project'],'--limit=30','--format=json'],text=True,capture_output=True)
             state['cloud_run_diagnostic']={'returncode':logs.returncode,'stderr':logs.stderr}
             if logs.returncode==0:

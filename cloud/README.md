@@ -175,3 +175,32 @@ PYTHONPATH=src work/gcp-setup-venv/bin/python cloud/initial_release.py --activat
 
 成功の判定は末尾の `Verified: real collection/QC...` と進捗ファイルの
 `production_verified=true` です。CI成功・dispatch成功だけを完成として扱いません。
+
+## Interrupted initial master transfer
+
+The first master registration now uses 8 MiB Storage SDK chunks, separate
+20-second connect / 180-second I/O timeouts, CRC32C checks and a 600-second
+conditional retry window. Every upload remains create-only (`if_generation_match=0`).
+
+`work/initial-release/setup/bootstrap/` retains staged files and
+`bootstrap-progress.private.json` before remote writes. A retry reuses the same
+run and immutable object names. Completed objects are reused only after a
+generation-pinned download and SHA-256 comparison with the reviewed local
+snapshot. A response lost after the head commit is reconciled only if the entire
+head equals this registration's receipt; a different head is preserved.
+
+A pre-journal interrupted activation may recover one matching `masters/<run>`
+object and its optional public pair. Their actual bytes must match the reviewed
+input's derived files. Unknown paths, multiple candidate masters, differing
+bytes or a conflicting active head stop without deletion or overwrite.
+
+A reviewed descendant of the previously attempted main may resume an activation
+only before setup completion or any dispatch intent. The runner checks ancestry,
+cloud-disabled state and absence of the previous correlated dispatch, retains
+the old commit and expected Job image, and waits for the new main-push tests.
+It never clears progress to make a failed collection run again. Short dispatch
+visibility lag is observed automatically without sending another dispatch.
+
+The consolidated handoff includes the bootstrap stage, byte counts and transfer
+settings. Current runtime stdout/stderr is distinguished from Cloud Run IAM audit
+activity, and stale command stderr is not presented as the new failure.

@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -93,6 +94,36 @@ def deployment_run(runs, nonce, commit):
     return matching[0] if matching else None
 
 
+def observe_deployment(endpoint, nonce, commit, attempts=13):
+    for attempt in range(attempts):
+        runs = command(['gh', 'api', endpoint], json_output=True)['workflow_runs']
+        run = deployment_run(runs, nonce, commit)
+        if run:
+            return run
+        if attempt + 1 < attempts:
+            time.sleep(5)
+    return None
+
+
+def resume_reviewed_code(state, commit):
+    """A fix may replace code only before setup/dispatch has completed."""
+    previous = state.get('commit', commit)
+    if previous == commit:
+        return
+    if any(state.get(k) for k in ('setup_complete','dispatch_intent','deployment_run_id','collection_workflow_success','production_verified','run_id')):
+        raise RuntimeError('resume_commit_changed_after_dispatch_or_setup')
+    command(['git', 'merge-base', '--is-ancestor', previous, commit])
+    variables = command(['gh', 'variable', 'list', '--repo', REPO, '--json', 'name,value'], json_output=True)
+    if any(v['name'] == 'CLOUD_ENABLED' and v['value'] == 'true' for v in variables):
+        raise RuntimeError('resume_commit_changed_with_cloud_enabled')
+    runs = command(['gh','api',f'repos/{REPO}/actions/workflows/cloud_deploy.yml/runs?event=workflow_dispatch&head_sha={previous}&per_page=100'], json_output=True)['workflow_runs']
+    if deployment_run(runs, state.get('nonce', 'initial-' + previous[:20]), previous):
+        raise RuntimeError('resume_previous_deployment_exists')
+    state.setdefault('previous_reviewed_commits', []).append(previous)
+    state['commit'] = commit
+    state['nonce'] = 'initial-' + commit[:20]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--activate', action='store_true')
@@ -124,8 +155,7 @@ def main():
     main_sha = command(['gh', 'api', f'repos/{REPO}/git/ref/heads/main', '--jq', '.object.sha'])
     if args.reviewed_commit != commit or commit != main_sha or command(['git', 'status', '--porcelain', '--untracked-files=no']):
         raise RuntimeError('activation_requires_clean_exact_reviewed_main')
-    if state.get('commit', commit) != commit:
-        raise RuntimeError('resume_commit_changed')
+    resume_reviewed_code(state, commit)
     state['commit'] = commit
     state.setdefault('nonce', 'initial-' + commit[:20])
     checkpoint(path, state)
@@ -135,20 +165,19 @@ def main():
     if not state.get('setup_complete'):
         # A merge also triggers cloud_deploy on push. Finish that run while cloud
         # mode is still disabled, before enabling it and issuing one dispatch.
-        if not state.get('activation_started'):
-            variables = command(['gh', 'variable', 'list', '--repo', REPO, '--json', 'name,value'], json_output=True)
-            if any(v['name'] == 'CLOUD_ENABLED' and v['value'] == 'true' for v in variables):
-                raise RuntimeError('cloud_already_enabled_requires_existing_state_review')
-            pushes = command(['gh', 'api', f'repos/{REPO}/actions/workflows/cloud_deploy.yml/runs?event=push&head_sha={commit}&per_page=100'], json_output=True)['workflow_runs']
-            if not pushes:
-                raise RuntimeError('main_push_workflow_not_visible_resume_later')
-            for push in pushes:
-                command(['gh', 'run', 'watch', str(push['id']), '--repo', REPO, '--exit-status'])
+        variables = command(['gh', 'variable', 'list', '--repo', REPO, '--json', 'name,value'], json_output=True)
+        if any(v['name'] == 'CLOUD_ENABLED' and v['value'] == 'true' for v in variables):
+            raise RuntimeError('cloud_already_enabled_requires_existing_state_review')
+        pushes = command(['gh', 'api', f'repos/{REPO}/actions/workflows/cloud_deploy.yml/runs?event=push&head_sha={commit}&per_page=100'], json_output=True)['workflow_runs']
+        if not pushes:
+            raise RuntimeError('main_push_workflow_not_visible_resume_later')
+        for push in pushes:
+            command(['gh', 'run', 'watch', str(push['id']), '--repo', REPO, '--exit-status'])
         # Read-only infrastructure plan captures image without reading Secret payloads.
         setup = [sys.executable, 'cloud/setup_gcp.py', '--config', str(args.config), '--output', str(directory / 'setup')]
         command(setup)
         inventory = json.loads((directory / 'setup/inventory.json').read_text())
-        if inventory['needs_bootstrap'] and inventory['gcs_database_candidates']:
+        if inventory['needs_bootstrap'] and inventory['gcs_database_candidates'] and not state.get('activation_started'):
             raise RuntimeError('existing_gcs_databases_require_private_review')
         image = inventory['job']['spec']['template']['spec']['template']['spec']['containers'][0]['image']
         # Collection conditions are non-secret JSON in the Job environment.
@@ -161,6 +190,9 @@ def main():
         activate = setup + ['--apply', '--activate', '--prepared-iam', '--no-dispatch', '--reviewed-commit', commit,
                             '--expected-job-image', image, '--master', str(args.master), '--master-sha256', EXPECTED]
         activate += ['--collection-config-env', '--collection-file', str(collection_path)]
+        activate += ['--resume-bootstrap']
+        for previous in state.get('previous_reviewed_commits', []):
+            activate += ['--previous-reviewed-commit', previous]
         command(activate)
         state['setup_complete'] = True
         checkpoint(path, state)
@@ -170,13 +202,14 @@ def main():
     run = deployment_run(runs, state['nonce'], commit)
     if not run:
         if state.get('dispatch_intent'):
-            raise RuntimeError('dispatch_outcome_pending_resume_later_no_duplicate_dispatched')
-        state['dispatch_intent'] = True
-        checkpoint(path, state)
-        command(['gh', 'workflow', 'run', 'cloud_deploy.yml', '--repo', REPO, '--ref', 'main', '-f', 'activation_id=' + state['nonce']])
-        # Leave intent durable; next invocation discovers the run after API lag.
-        runs = command(['gh', 'api', endpoint], json_output=True)['workflow_runs']
-        run = deployment_run(runs, state['nonce'], commit)
+            run = observe_deployment(endpoint, state['nonce'], commit)
+            if not run:
+                raise RuntimeError('dispatch_outcome_pending_resume_later_no_duplicate_dispatched')
+        else:
+            state['dispatch_intent'] = True
+            checkpoint(path, state)
+            command(['gh', 'workflow', 'run', 'cloud_deploy.yml', '--repo', REPO, '--ref', 'main', '-f', 'activation_id=' + state['nonce']])
+            run = observe_deployment(endpoint, state['nonce'], commit)
         if not run:
             raise RuntimeError('deployment_dispatched_resume_same_command_to_observe')
     state['deployment_run_id'] = run['id']

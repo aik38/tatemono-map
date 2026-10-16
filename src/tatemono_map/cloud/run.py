@@ -3,7 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
 import sys
 import tempfile
 import uuid
@@ -12,7 +11,6 @@ from pathlib import Path
 
 from tatemono_map.cloud.collector import Collected, CollectionError, collect, validate_config
 from tatemono_map.cloud.pipeline import update_master, validate_master
-from tatemono_map.cloud.public_db import export_public, sha256
 from tatemono_map.cloud.storage import GCSStore, commit_release, validate_head
 
 
@@ -27,14 +25,9 @@ def new_run_id() -> str:
 
 
 def bootstrap(store, master: Path, expected_sha256: str, work: Path, source_commit: str) -> dict:
-    if not expected_sha256 or sha256(master) != expected_sha256:
-        raise CollectionError("bootstrap_master_checksum_required")
-    validate_master(master)
-    if Path(str(master) + "-wal").exists():
-        raise CollectionError("bootstrap_requires_closed_checkpointed_master")
-    shutil.copyfile(master, work / "master.sqlite3")
-    counts = export_public(work / "master.sqlite3", work / "public.sqlite3")
-    return commit_release(store, work, new_run_id(), 0, {"bootstrap": True, "input_master_sha256": expected_sha256, "public_counts": counts, "proof": []}, source_commit)
+    from tatemono_map.cloud.bootstrap import prepare, register
+    state = prepare(master, expected_sha256, work, source_commit)
+    return register(store, state, work)
 
 
 def execute(store, config: dict, credentials: dict, work: Path, source_commit: str, collector=collect) -> dict:

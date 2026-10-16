@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
 from pathlib import Path
 
 from tatemono_map.cloud.collector import CollectionError
@@ -10,6 +11,15 @@ from tatemono_map.cloud.public_db import sha256, snapshot_sqlite
 
 HEAD = "state/current.json"
 RUN_RE = re.compile(r"[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}")
+UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
+TRANSFER_TIMEOUT = (20, 180)
+
+
+def transfer_retry():
+    from google.cloud.storage.retry import DEFAULT_RETRY_IF_GENERATION_SPECIFIED
+    from google.cloud.storage.retry import ConditionalRetryPolicy
+    policy = DEFAULT_RETRY_IF_GENERATION_SPECIFIED
+    return ConditionalRetryPolicy(policy.retry_policy.with_timeout(600), policy.conditional_predicate, policy.required_kwargs)
 
 
 class GCSStore:
@@ -25,14 +35,45 @@ class GCSStore:
 
     def download(self, ref: dict, output: Path) -> None:
         blob = self.bucket.blob(ref["object"], generation=int(ref["generation"]))
-        blob.download_to_filename(str(output), if_generation_match=int(ref["generation"]))
+        blob.download_to_filename(str(output), if_generation_match=int(ref["generation"]), timeout=TRANSFER_TIMEOUT)
         if sha256(output) != ref["sha256"]:
             raise CollectionError("object_checksum_mismatch")
 
     def upload(self, path: Path, name: str) -> dict:
-        blob = self.bucket.blob(name)
-        blob.upload_from_filename(str(path), if_generation_match=0)
+        blob = self.bucket.blob(name, chunk_size=UPLOAD_CHUNK_BYTES)
+        blob.upload_from_filename(str(path), if_generation_match=0, timeout=TRANSFER_TIMEOUT, retry=transfer_retry(), checksum='crc32c')
         return {"object": name, "generation": int(blob.generation), "sha256": sha256(path)}
+
+    def existing_upload(self, path: Path, name: str) -> dict | None:
+        """A remote checksum claim alone never authorizes reusing an object."""
+        from google.api_core.exceptions import NotFound
+        blob = self.bucket.blob(name)
+        try:
+            blob.reload(timeout=TRANSFER_TIMEOUT)
+        except NotFound:
+            return None
+        if int(blob.size) != path.stat().st_size:
+            raise CollectionError('bootstrap_existing_object_differs')
+        ref = {'object': name, 'generation': int(blob.generation), 'sha256': sha256(path)}
+        with tempfile.TemporaryDirectory(prefix='tatemono-upload-check-') as directory:
+            # Pin the observed generation and hash the actual stored bytes.
+            self.download(ref, Path(directory) / 'object')
+        return ref
+
+    def upload_verified(self, path: Path, name: str) -> dict:
+        """Bootstrap retry only: reconcile a create whose response was lost."""
+        existing = self.existing_upload(path, name)
+        if existing:
+            return existing
+        try:
+            return self.upload(path, name)
+        except Exception:
+            # Never overwrite an existing generation or infer that a timeout
+            # means the server rejected the bytes. Re-raise if still absent.
+            existing = self.existing_upload(path, name)
+            if existing:
+                return existing
+            raise
 
     def commit(self, head: dict, generation: int) -> None:
         self.bucket.blob(HEAD).upload_from_string(json.dumps(head, sort_keys=True), content_type="application/json", if_generation_match=generation)

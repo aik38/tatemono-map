@@ -47,6 +47,7 @@ def test_dispatch_resume_is_correlated_and_duplicates_refused():
 
 def test_resume_unknown_dispatch_never_dispatches_again(tmp_path, monkeypatch):
     mod = module('initial_release')
+    monkeypatch.setattr(mod.time, 'sleep', lambda *_: None)
     monkeypatch.chdir(tmp_path)
     (tmp_path/'cloud').mkdir()
     (tmp_path/'cloud/collection.example.json').write_text((ROOT/'cloud/collection.example.json').read_text())
@@ -84,13 +85,18 @@ def test_room_normalization_is_exact_and_does_not_use_rent_or_area():
     assert unit_room('101') != unit_room('102')
 
 
-def test_first_activation_waits_for_main_push_before_enabling_cloud(tmp_path, monkeypatch):
+@pytest.mark.parametrize('activation_started', [False, True])
+def test_first_activation_waits_for_main_push_before_enabling_cloud(tmp_path, monkeypatch, activation_started):
     mod = module('initial_release')
     monkeypatch.chdir(tmp_path)
     (tmp_path/'cloud').mkdir()
     (tmp_path/'cloud/collection.example.json').write_text((ROOT/'cloud/collection.example.json').read_text())
     settings=tmp_path/'setup.json'
     settings.write_text((ROOT/'cloud/setup.example.json').read_text())
+    if activation_started:
+        progress=tmp_path/'work/initial-release/progress.private.json'
+        progress.parent.mkdir(parents=True)
+        progress.write_text(json.dumps({'commit':'a'*40,'activation_started':True,'expected_image':'existing'}))
     calls=[]
     def command(args, **kwargs):
         calls.append(args)
@@ -105,3 +111,48 @@ def test_first_activation_waits_for_main_push_before_enabling_cloud(tmp_path, mo
     with pytest.raises(RuntimeError,match='main_push_workflow_not_visible'):
         mod.main()
     assert not any(args[0] == 'gcloud' or args[0] == sys.executable for args in calls)
+
+
+@pytest.mark.parametrize('block', ['setup_complete','dispatch_intent','deployment_run_id','collection_workflow_success','production_verified','run_id'])
+def test_fixed_code_never_discards_progress_after_dispatch(monkeypatch,block):
+    mod=module('initial_release')
+    monkeypatch.setattr(mod,'command',lambda *_a,**_k:pytest.fail('remote call after unsafe phase'))
+    state={'commit':'a'*40,block:True}
+    with pytest.raises(RuntimeError,match='resume_commit_changed'):
+        mod.resume_reviewed_code(state,'b'*40)
+    assert state['commit']=='a'*40
+
+
+def test_predispatch_resume_preserves_job_binding_and_checks_cloud_and_old_dispatch(monkeypatch):
+    mod=module('initial_release');calls=[]
+    enabled=False;prior_run=False
+    def command(args,**kw):
+        calls.append(args)
+        if args[:2]==['git','merge-base']:return ''
+        if args[1:3]==['variable','list']:return [{'name':'CLOUD_ENABLED','value':'true'}] if enabled else []
+        if args[:2]==['gh','api']:
+            return {'workflow_runs':[{'head_sha':'a'*40,'display_title':'Ulucks initial old','id':123}]} if prior_run else {'workflow_runs':[]}
+        pytest.fail(str(args[:3]))
+    monkeypatch.setattr(mod,'command',command)
+    def state():return {'commit':'a'*40,'nonce':'old','activation_started':True,'expected_image':'unchanged-image'}
+    enabled=True
+    with pytest.raises(RuntimeError,match='cloud_enabled'):mod.resume_reviewed_code(state(),'b'*40)
+    enabled=False;prior_run=True
+    with pytest.raises(RuntimeError,match='previous_deployment'):mod.resume_reviewed_code(state(),'b'*40)
+    prior_run=False;s=state();mod.resume_reviewed_code(s,'b'*40)
+    assert s['previous_reviewed_commits']==['a'*40]
+    assert s['expected_image']=='unchanged-image' and s['activation_started'] is True
+    assert s['commit']=='b'*40 and s['nonce']=='initial-'+'b'*20
+    assert not any(c[1:3] in (['workflow','run'],['variable','set']) for c in calls)
+
+
+def test_dispatch_visibility_lag_is_observed_without_another_dispatch(monkeypatch):
+    mod=module('initial_release');calls=[]
+    run={'head_sha':'a'*40,'display_title':'Ulucks initial nonce','id':42}
+    def command(args,**kw):
+        calls.append(args)
+        return {'workflow_runs':[run] if len(calls)==3 else []}
+    monkeypatch.setattr(mod,'command',command)
+    monkeypatch.setattr(mod.time,'sleep',lambda *_:None)
+    assert mod.observe_deployment('endpoint','nonce','a'*40)==run
+    assert len(calls)==3 and all(c[:2]==['gh','api'] for c in calls)

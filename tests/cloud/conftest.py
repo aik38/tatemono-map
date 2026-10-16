@@ -80,6 +80,14 @@ class MemoryStore:
         assert stored == ref
         shutil.copyfile(path, output)
 
+    def upload_verified(self, path, name):
+        if name in self.objects:
+            ref, stored = self.objects[name]
+            if sha256(stored) != sha256(path):
+                raise RuntimeError('bootstrap_existing_object_differs')
+            return copy.deepcopy(ref)
+        return self.upload(path, name)
+
     def read_head(self):
         return copy.deepcopy(self.head), self.generation
 
