@@ -223,7 +223,7 @@ def _observed_search_action(page, root: Path, form=None):
             const commonSearch = texts.some(x => common.has(x));
             const searchText = texts.some(x => x.includes('検索') && !excluded.test(x));
             const hints = [el.id, el.className, el.getAttribute('name'),
-                el.getAttribute('data-action'), el.getAttribute('onclick'),
+                el.getAttribute('data-action'), el.getAttribute('aria-label'), el.getAttribute('onclick'),
                 image && image.getAttribute('src')].map(x => String(x || ''));
             const attributeHint = hints.some(x => /search|kensaku|検索/i.test(x));
             const inForm = !!owningForm && (el.closest('form') === owningForm || el.form === owningForm);
