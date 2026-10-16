@@ -301,6 +301,7 @@ def main():
         return
     gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["runtime"], "--role=roles/storage.objectAdmin", "--condition", runtime_condition)
     gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["deployer"], "--role=roles/storage.objectCreator", "--condition", f"expression=resource.name.startsWith('{prefix}deployment-backups/'),title=tatemono-job-config-backup")
+    gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["deployer"], "--role=roles/storage.objectViewer", "--condition", f"expression=resource.name.startsWith('{prefix}deployment-backups/'),title=tatemono-job-config-backup")
     gc("storage", "buckets", "update", "gs://" + bucket, "--versioning", "--public-access-prevention")
     for field, path in (() if args.collection_config_env else (("login_secret", args.login_file), ("collection_secret", args.collection_file))):
         if gc("secrets", "describe", config[field], "--format=json(name)", missing=True, json_output=True) is None:

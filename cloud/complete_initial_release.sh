@@ -45,11 +45,14 @@ try:
     env=dict(os.environ);env['PYTHONPATH']=str(root/'src')
     print('Stage: initial_release (private checkpoint, transfer, collection and production verification)',flush=True)
     operation_started=datetime.datetime.now(datetime.timezone.utc).timestamp()
-    result=subprocess.run([str(python),'cloud/initial_release.py','--activate','--reviewed-commit',expected],env=env,text=True,capture_output=True)
-    state['stages'].append({'name':'initial_release','returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})
+    progress=root/'work/initial-release/progress.private.json'
+    prior=json.loads(progress.read_text()) if progress.exists() else {}
+    runner='cloud/recover_initial_deployment.py' if prior.get('setup_complete') and prior.get('deployment_run_id') else 'cloud/initial_release.py'
+    result=subprocess.run([str(python),runner,'--activate','--reviewed-commit',expected],env=env,text=True,capture_output=True)
+    state['stages'].append({'name':'initial_release','runner':runner,'returncode':result.returncode,'stdout':result.stdout,'stderr':result.stderr})
     progress=root/'work/initial-release/progress.private.json'
     if progress.exists():state['progress']=json.loads(progress.read_text())
-    for name in ('audit.private.json','expected-release.private.json','completed-evidence.private.json','setup/bootstrap/bootstrap-progress.private.json'):
+    for name in ('audit.private.json','expected-release.private.json','completed-evidence.private.json','setup/bootstrap/bootstrap-progress.private.json','recovery-evidence.private.json','recovery-error.private.json'):
         path=root/'work/initial-release'/name
         if path.exists():state[name]=json.loads(path.read_text())
     error=root/'work/initial-release/last-error.private.log'

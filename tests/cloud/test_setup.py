@@ -193,7 +193,7 @@ def test_setup_is_read_only_by_default_then_prepares_iam_without_production_perm
     monkeypatch.setattr(sys, "argv", args + ["--apply", "--activate", "--prepared-iam", "--no-dispatch", "--expected-job-image", "approved-image", "--reviewed-commit", "a" * 40, "--master", str(master), "--master-sha256", sha256(master)])
     mod.main()
     new_calls = [" ".join(call) for call in fake.calls[before:]]
-    assert not any("workflow run" in call or "attribute.role/" in call or "storage.objectViewer" in call or "providers create-oidc" in call for call in new_calls)
+    assert not any("workflow run" in call or "attribute.role/" in call or ("storage.objectViewer" in call and 'deployment-backups/' not in call) or "providers create-oidc" in call for call in new_calls)
 
 
 @pytest.mark.parametrize("change,expected_error", [

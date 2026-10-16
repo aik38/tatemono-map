@@ -58,7 +58,8 @@ jobs:
 
   deploy:
     needs: test
-    if: vars.CLOUD_ENABLED == 'true' && github.ref == 'refs/heads/main'
+    # A repair merge must not race the resumable operator's explicit dispatch.
+    if: vars.CLOUD_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -82,6 +83,8 @@ jobs:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
+      - name: Install private backup client
+        run: python -m pip install 'google-cloud-storage>=2.19,<4'
       - name: Configure Artifact Registry authentication
         env:
           REGISTRY_HOST: ${{ vars.GCP_REGION }}-docker.pkg.dev

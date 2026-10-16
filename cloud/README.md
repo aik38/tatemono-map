@@ -215,3 +215,38 @@ visibility lag is observed automatically without sending another dispatch.
 The consolidated handoff includes the bootstrap stage, byte counts and transfer
 settings. Current runtime stdout/stderr is distinguished from Cloud Run IAM audit
 activity, and stale command stderr is not presented as the new failure.
+
+### Recovery after the first Actions backup failure
+
+When setup is complete and a deployment run is recorded, the same completion
+entrypoint selects `recover_initial_deployment.py`; it does not audit/import the
+master again or call setup/bootstrap. Recovery of the legacy pre-update failure
+is restricted to the reviewed `2379cfc` script and its correlated failed run.
+It checks retained bootstrap receipts and pinned bytes, the unchanged Job image,
+paused Scheduler and absence of executions since the failure. An existing
+`deployment-backups/<commit>-<run>-<attempt>.yaml` must match the current exported
+Job bytes at its recorded generation. Unknown/different content stops recovery.
+
+The operator records available GCP audit error/authorization fields privately in
+`work/initial-release/recovery-evidence.private.json`. The original Actions log
+discarded stderr, so a missing audit record does not prove an original 403/412.
+Recovery verifies the existing prefix-conditioned objectCreator binding and
+adds objectViewer only for `deployment-backups/`, for object readback. Its
+condition does not grant bucket-wide object listing, database access or deletion.
+No Secret, DB or existing backup is changed. SDK object APIs replace CLI copy
+discovery; immutable creation, pinned generation and SHA-256 readback are retained.
+
+Pushes run tests only. After they pass, the operator journals one explicit
+dispatch, retaining all previous progress under `deployment_recovery`. Repeating
+the command observes that dispatch instead of sending another. The deploy script
+also records a create-only execution intent independent of workflow attempt,
+and refuses an existing intent or active Cloud Run execution. Ambiguous execute
+outcomes do not trigger another execution or automatic rollback. Only a confirmed
+terminal failure of the newly observed execution permits a generation-checked
+Job rollback. All backups remain private and retained.
+
+Public deployment failures show only an allowlisted HTTP status and permission
+names. Raw CLI/SDK errors go to the private backup prefix when storage permits;
+they are never uploaded as public Actions artifacts. Recovery continues through
+fresh collection, GCS commit, Pages production proof and Scheduler verification;
+a passed CI or successful dispatch is not completion evidence.
