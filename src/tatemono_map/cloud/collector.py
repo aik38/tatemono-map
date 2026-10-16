@@ -187,40 +187,90 @@ def _activate_observed_area(area, root: Path) -> None:
         raise CollectionError("ulucks_area_not_activated")
 
 
-_SEARCH_ACTION_CSS = 'button, input[type="submit"], input[type="button"], input[type="image"], a, [role="button"]'
+_SEARCH_ACTION_CSS = ('button, input[type="submit"], input[type="button"], '
+                      'input[type="image"], a, [role="button"], [onclick]')
 
 
-def _observed_search_action(page, root: Path):
-    """Select only an actual, unique, visible search-labelled clickable in the DOM."""
-    result = page.evaluate("""css => {
+def _observed_search_action(page, root: Path, form=None):
+    """Inspect real clickable DOM. Never infer a fixed selector from screenshots.
+
+    Choose an observed and unique search-labelled action. Only if the live
+    source form has exactly one submit action may it be used without a label.
+    No raw page labels, URLs, attributes, HTML or session data leave the browser.
+    """
+    form_index = form.evaluate("el => Array.from(document.forms).indexOf(el)") if form is not None else -1
+    result = page.evaluate("""args => {
+        const [css, formIndex] = args;
+        const owningForm = document.forms[formIndex] || null;
         const controls = Array.from(document.querySelectorAll(css));
-        const label = s => (s || '').normalize('NFKC').replace(/\\s+/g, '');
+        const normal = s => String(s || '').normalize('NFKC').replace(/\\s+/g, '');
         const visible = el => {
             const r = el.getBoundingClientRect();
             const style = getComputedStyle(el);
             return !!(r.width && r.height && style.display !== 'none' && style.visibility !== 'hidden');
         };
+        const common = new Set(['検索する', '検索実行', '検索開始', '物件検索', '物件を検索',
+            'この条件で検索', 'この条件で検索する', '検索結果を表示', '再検索']);
+        const excluded = /会社検索|検索条件|検索履歴|詳細検索|検索ヘルプ|クリア|リセット|間取|印刷/;
         const matches = [];
         controls.forEach((el, index) => {
-            const names = [el.innerText, el.value, el.alt, el.title, el.getAttribute('aria-label')];
-            if (visible(el) && !el.disabled && names.some(x => label(x) === '検索'))
-                matches.push({index: index, tag: el.tagName.toLowerCase(),
-                    type: ['submit', 'button', 'image'].includes(el.type) ? el.type : 'other'});
+            if (!visible(el) || el.disabled) return;
+            const image = el.querySelector('img');
+            const texts = [el.innerText, el.textContent, el.value, el.alt, el.title,
+                el.getAttribute('aria-label'), image && image.alt, image && image.title]
+                .map(normal).filter(Boolean);
+            const exact = texts.some(x => x === '検索');
+            const commonSearch = texts.some(x => common.has(x));
+            const searchText = texts.some(x => x.includes('検索') && !excluded.test(x));
+            const hints = [el.id, el.className, el.getAttribute('name'),
+                el.getAttribute('data-action'), el.getAttribute('onclick'),
+                image && image.getAttribute('src')].map(x => String(x || ''));
+            const attributeHint = hints.some(x => /search|kensaku|検索/i.test(x));
+            const inForm = !!owningForm && (el.closest('form') === owningForm || el.form === owningForm);
+            const submit = inForm && ((el.tagName === 'INPUT' &&
+                ['submit', 'image'].includes(el.type)) || el.tagName === 'BUTTON' &&
+                (!el.type || el.type === 'submit'));
+            if (exact || commonSearch || searchText || attributeHint || submit) {
+                matches.push({index, tag: el.tagName.toLowerCase(),
+                    type: ['submit', 'button', 'image'].includes(el.type) ? el.type : 'other',
+                    exact, commonSearch, searchText, attributeHint, submit, inForm});
+            }
         });
-        return {candidate_count: Math.min(controls.length, 100),
-            exact_search_count: Math.min(matches.length, 100), matches: matches.slice(0, 4)};
-    }""", _SEARCH_ACTION_CSS)
-    record = {"stage": "search_action_observed",
-              "candidate_count": result["candidate_count"],
-              "exact_search_count": result["exact_search_count"],
-              "matched_control_types": [
-                  {"tag": row["tag"], "type": row["type"]} for row in result["matches"]
-              ]}
+        const groups = [
+            ['exact_label', matches.filter(x => x.exact)],
+            ['common_search_label', matches.filter(x => x.commonSearch)],
+            ['search_label', matches.filter(x => x.searchText)],
+            ['search_attribute', matches.filter(x => x.attributeHint && x.tag !== 'div')],
+            ['unique_form_submit', matches.filter(x => x.submit)]
+        ];
+        // A strong, unique observed label takes precedence. Ambiguous labels
+        // must not silently fall back to a different unlabeled control.
+        let chosen = null, reason = 'none';
+        for (const [kind, entries] of groups) {
+            if (entries.length > 1) {reason = 'ambiguous_' + kind; break;}
+            if (entries.length === 1) {chosen = entries[0]; reason = kind; break;}
+        }
+        return {candidate_count: Math.min(controls.length, 500),
+            search_related_count: Math.min(matches.length, 100),
+            chosen_index: chosen ? chosen.index : -1, selection_reason: reason,
+            candidates: matches.slice(0, 12).map(x => ({
+                tag: x.tag, type: x.type, exact: x.exact, commonSearch: x.commonSearch,
+                searchText: x.searchText, attributeHint: x.attributeHint,
+                submit: x.submit, inForm: x.inForm
+            }))};
+    }""", [_SEARCH_ACTION_CSS, form_index])
+    record = {
+        "stage": "search_action_observed",
+        "candidate_count": result["candidate_count"],
+        "search_related_count": result["search_related_count"],
+        "selection_reason": result["selection_reason"],
+        "candidate_structures": result["candidates"],
+    }
     _append_ui_observation(root, "search_action_observed", record)
     print("ULUCKS_UI_SAFE=" + json.dumps(record, ensure_ascii=False), flush=True)
-    if result["exact_search_count"] != 1:
+    if result["chosen_index"] < 0:
         raise CollectionError("ulucks_search_action_not_unique")
-    return page.locator(_SEARCH_ACTION_CSS).nth(result["matches"][0]["index"])
+    return page.locator(_SEARCH_ACTION_CSS).nth(result["chosen_index"])
 
 
 def _search(page, root: Path) -> int:
@@ -281,7 +331,7 @@ def _search(page, root: Path) -> int:
         phase = "scope_verify_before"
         _assert_scope(page)
         phase = "search_action"
-        button = _observed_search_action(page, root)
+        button = _observed_search_action(page, root, form)
         # Use only the actual browser request and response.
         phase = "search_response"
         with page.expect_response(lambda r: urlsplit(r.url).netloc == urlsplit(ORIGIN).netloc and r.request.resource_type in ("document", "xhr", "fetch"), timeout=45000) as pending:
