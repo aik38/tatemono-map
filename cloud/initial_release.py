@@ -218,6 +218,10 @@ def main():
     command(['gh', 'run', 'watch', str(run['id']), '--repo', REPO, '--exit-status'])
     state['collection_workflow_success'] = True
     checkpoint(path, state)
+    verify_production(state, commit, config, directory, path)
+
+
+def verify_production(state, commit, config, directory, path):
     # deploy_pages.yml already listens to this workflow's successful completion.
     # Do not dispatch a duplicate Pages run that could cancel the automatic run.
     # Verify live release against GCS; never equate CI or dispatch to publication.
