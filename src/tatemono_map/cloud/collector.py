@@ -99,39 +99,81 @@ def _assert_scope(page):
     return form
 
 
-def _search(page) -> int:
-    form, area = _search_form(page)
-    # The provided screen defaults to seven wards. Clear them all, then choose
-    # only Kokurakita. Reset other search constraints to their neutral controls.
-    form.evaluate("form => form.reset()")
-    for box in form.locator('input[type="checkbox"]').all():
-        box.uncheck()
-    for text in form.locator('input[type="text"], input[type="search"]').all():
-        text.fill("")
-    for select in form.locator("select").all():
-        option = select.locator("option").first
-        select.select_option(value=option.get_attribute("value") or "")
-    area.check()
-    _assert_scope(page)
-    button = form.get_by_role("button", name=re.compile(r"^検\s*索$"))
-    if button.count() == 0:
-        button = form.get_by_role("link", name=re.compile(r"^検\s*索$"))
-    # Observe a real document/XHR response caused by the search. No fabricated
-    # query parameters, city codes, form action or internal API endpoint.
-    with page.expect_response(lambda r: urlsplit(r.url).netloc == urlsplit(ORIGIN).netloc and r.request.resource_type in ("document", "xhr", "fetch"), timeout=45000) as pending:
-        only(button, "search_action").click()
-    response = pending.value
-    if response.status != 200:
-        raise CollectionError("ulucks_search_http_failed")
-    response.finished()
-    page.wait_for_load_state("domcontentloaded")
-    _assert_scope(page)
-    body = normal(page.locator("body").inner_text())
-    matches = re.findall(r"検索結果\s*([\d,]+)\s*件中", body)
-    if len(matches) != 1:
-        raise CollectionError("ulucks_result_count_not_confirmed")
-    return int(matches[0].replace(",", ""))
+def _search(page, root: Path) -> int:
+    phase = "form_lookup"
+    try:
+        form, area = _search_form(page)
+        # This is an observation of the real authenticated form, not guessed
+        # selectors or an exported member page. No input values are captured.
+        shape = {
+            "stage": "search_controls",
+            "form_count": min(page.locator("form").count(), 100),
+            "checkbox_count": min(form.locator('input[type="checkbox"]').count(), 100),
+            "checked_count": min(form.locator('input[type="checkbox"]:checked').count(), 100),
+            "text_input_count": min(form.locator('input[type="text"], input[type="search"]').count(), 100),
+            "select_count": min(form.locator("select").count(), 100),
+            "search_button_count": min(form.get_by_role("button", name=re.compile(r"^検\s*索$")).count(), 100),
+            "search_link_count": min(form.get_by_role("link", name=re.compile(r"^検\s*索$")).count(), 100),
+            "area_is_checked": area.is_checked(),
+        }
+        _append_ui_observation(root, "search_controls", shape)
+        print("ULUCKS_UI_SAFE=" + json.dumps(shape, ensure_ascii=False), flush=True)
+        phase = "form_reset"
+        form.evaluate("form => form.reset()")
+        phase = "checkbox_clear"
+        for box in form.locator('input[type="checkbox"]').all():
+            box.uncheck()
+        phase = "text_clear"
+        for field in form.locator('input[type="text"], input[type="search"]').all():
+            field.fill("")
+        phase = "select_reset"
+        for select in form.locator("select").all():
+            option = select.locator("option").first
+            select.select_option(value=option.get_attribute("value") or "")
+        phase = "area_check"
+        area.check()
+        phase = "scope_verify_before"
+        _assert_scope(page)
+        phase = "search_action"
+        button = form.get_by_role("button", name=re.compile(r"^検\s*索$"))
+        if button.count() == 0:
+            button = form.get_by_role("link", name=re.compile(r"^検\s*索$"))
+        # Use only the actual browser request and response.
+        phase = "search_response"
+        with page.expect_response(lambda r: urlsplit(r.url).netloc == urlsplit(ORIGIN).netloc and r.request.resource_type in ("document", "xhr", "fetch"), timeout=45000) as pending:
+            only(button, "search_action").click()
+        response = pending.value
+        if response.status != 200:
+            raise CollectionError("ulucks_search_http_failed")
+        response.finished()
+        phase = "search_dom_ready"
+        page.wait_for_load_state("domcontentloaded")
+        phase = "scope_verify_after"
+        _assert_scope(page)
+        phase = "result_count"
+        body = normal(page.locator("body").inner_text())
+        matches = re.findall(r"検索結果\s*([\d,]+)\s*件中", body)
+        if len(matches) != 1:
+            raise CollectionError("ulucks_result_count_not_confirmed")
+        _append_ui_observation(root, "search_completed", {"result_count": int(matches[0].replace(",", ""))})
+        return int(matches[0].replace(",", ""))
+    except CollectionError:
+        raise
+    except Exception:
+        # The exception message may include form HTML, account data or request
+        # URLs. Only the code-owned stage is retained; never print the message.
+        event = {"stage": "search_exception", "operation": phase}
+        _append_ui_observation(root, "search_exception", event)
+        print("ULUCKS_UI_SAFE=" + json.dumps(event, ensure_ascii=False), flush=True)
+        raise CollectionError("ulucks_search_browser_failed") from None
 
+
+def _append_ui_observation(root: Path, key: str, value: dict) -> None:
+    path = root.parent / "ulucks-ui.private.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    current = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    current[key] = value
+    path.write_text(json.dumps(current, ensure_ascii=False), encoding="utf-8")
 
 def _capture_print(page, root: Path) -> tuple[list[Path], dict]:
     context = page.context
@@ -268,17 +310,26 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Coll
     observation["navigation"] = navigation
     print("ULUCKS_UI_SAFE=" + json.dumps({"stage": "company_title_verified", "navigation": navigation, "verified_company_title": True}, ensure_ascii=False), flush=True)
     (root.parent / "ulucks-ui.private.json").write_text(json.dumps(observation, ensure_ascii=False), encoding="utf-8")
-    count = _search(page)
+    count = _search(page, root)
     if count > int(config.get("max_rows", 5000)):
         raise CollectionError("ulucks_result_count_exceeds_limit")
     if count == 0:
         # A second fresh successful search distinguishes authenticated empty
         # results from a timeout/login failure or incomplete PDF generation.
-        if _search(page) != 0:
+        if _search(page, root) != 0:
             raise CollectionError("ulucks_zero_result_not_stable")
         return Collected([], 0, True, {"search_counts": [0, 0], "scope_verified": True, "company_navigation": navigation})
     root.mkdir(parents=True, exist_ok=True)
-    paths, evidence = _capture_print(page, root)
+    _append_ui_observation(root, "print_started", {"stage": "print_started"})
+    print('ULUCKS_UI_SAFE={"stage":"print_started"}', flush=True)
+    try:
+        paths, evidence = _capture_print(page, root)
+    except CollectionError:
+        raise
+    except Exception:
+        _append_ui_observation(root, "print_exception", {"stage": "print_exception"})
+        print('ULUCKS_UI_SAFE={"stage":"print_exception"}', flush=True)
+        raise CollectionError("ulucks_print_browser_failed") from None
     return Collected(paths, count, False, {**evidence, "acquired_at": datetime.now(timezone.utc).isoformat(), "search_counts": [count], "scope_verified": True, "company_navigation": navigation})
 
 
