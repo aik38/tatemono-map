@@ -77,7 +77,9 @@ def test_uncertain_execution_never_rolls_back_or_reexecutes_and_diagnostics_stay
     with pytest.raises((mod.DeploymentError,SystemExit)) as error: mod.main()
     assert 'NEVER_PRINT_THIS' not in str(error.value)
     assert 'PASSWORD_SHOULD_NEVER_BE_PUBLIC' not in str(error.value)
-    assert any(c[1:4] == ['run','jobs','replace'] for c in calls) == terminal
+    # A failed live execution is not rolled back using exported YAML: retain the
+    # now-updated Job, immutable prior backup and intentionally paused Scheduler.
+    assert not any(c[1:4] == ['run','jobs','replace'] for c in calls)
     assert sum(c[1:4] == ['run','jobs','execute'] for c in calls) == 1
     assert store.claims
 
