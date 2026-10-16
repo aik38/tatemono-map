@@ -1,0 +1,10 @@
+{
+  "kind": "storage#bucket",
+  "name": "synthetic-private-bucket",
+  "projectNumber": "123",
+  "iamConfiguration": {
+    "uniformBucketLevelAccess": {"enabled": true},
+    "publicAccessPrevention": "enforced"
+  },
+  "versioning": {"enabled": true}
+}

@@ -323,6 +323,17 @@ def rebuild(db_path: str) -> int:
                 AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)
             )
         )
+        AND NOT EXISTS (
+            SELECT 1 FROM cloud_baseline_ownership o
+            JOIN current_ingest_snapshots s ON s.source = o.scope_key
+            WHERE o.listing_key = listings.listing_key
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM cloud_unit_overlaps o
+            JOIN current_ingest_snapshots s
+              ON s.source=o.scope_key AND s.ingest_run_id=o.ingest_run_id
+            WHERE o.listing_key=listings.listing_key
+        )
         ORDER BY id DESC
         """
     ).fetchall()

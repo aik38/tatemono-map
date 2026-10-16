@@ -419,14 +419,17 @@ def ingest_master_import_csv(
     source: str = "master_import",
     *,
     auto_seed_high_confidence: bool = True,
+    snapshot_source: str | None = None,
+    snapshot_key: str | None = None,
 ) -> Report:
     conn = connect(db_path)
     renormalize_buildings(conn)
     report = Report()
     report.auto_seed_enabled = auto_seed_high_confidence
     source_url = f"file:{Path(csv_path).name}"
-    snapshot_key = f"{source}:{Path(csv_path).resolve()}"
-    ingest_run_id = _start_ingest_run(conn, source, snapshot_key)
+    run_source = snapshot_source or source
+    snapshot_key = snapshot_key or f"{source}:{Path(csv_path).resolve()}"
+    ingest_run_id = _start_ingest_run(conn, run_source, snapshot_key)
     report.ingest_run_id = ingest_run_id
     now = datetime.now().strftime("%Y%m%d_%H%M%S")
     review_dir = Path("tmp/review")
@@ -680,6 +683,10 @@ def ingest_master_import_csv(
                     )
 
                 listing_key = _listing_key(row)
+                if snapshot_source:
+                    # A scoped run must never overwrite a row belonging to another
+                    # scope or the last successful run (including identical PDFs).
+                    listing_key = hashlib.sha256(f"{ingest_run_id}:{listing_key}".encode()).hexdigest()
                 updated_at = _fallback_updated_at(row.get("updated_at"))
                 rent_yen = _parse_man_to_yen(row.get("rent_man"))
                 maint_yen = _parse_man_to_yen(row.get("fee_man"))

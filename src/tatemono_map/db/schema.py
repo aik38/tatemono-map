@@ -14,6 +14,39 @@ class TableSchema:
 
 TABLE_SCHEMAS: tuple[TableSchema, ...] = (
     TableSchema(
+        name="cloud_scope_bindings",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS cloud_scope_bindings (
+            scope_key TEXT PRIMARY KEY,
+            identity_sha256 TEXT NOT NULL,
+            baseline_sha256 TEXT NOT NULL
+        )
+        """,
+        columns=("scope_key", "identity_sha256", "baseline_sha256"),
+    ),
+    TableSchema(
+        name="cloud_unit_overlaps",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS cloud_unit_overlaps (
+            listing_key TEXT NOT NULL,
+            scope_key TEXT NOT NULL,
+            ingest_run_id INTEGER NOT NULL,
+            PRIMARY KEY (listing_key, scope_key, ingest_run_id)
+        )
+        """,
+        columns=("listing_key", "scope_key", "ingest_run_id"),
+    ),
+    TableSchema(
+        name="cloud_baseline_ownership",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS cloud_baseline_ownership (
+            listing_key TEXT PRIMARY KEY,
+            scope_key TEXT NOT NULL
+        )
+        """,
+        columns=("listing_key", "scope_key"),
+    ),
+    TableSchema(
         name="buildings",
         ddl="""
         CREATE TABLE IF NOT EXISTS buildings (
@@ -902,10 +935,7 @@ def _seed_source_priority(conn: sqlite3.Connection) -> None:
         """
         INSERT INTO source_priority(domain, source, priority_rank, enabled, effective_from, effective_to)
         VALUES (?, ?, ?, 1, NULL, NULL)
-        ON CONFLICT(domain, source) DO UPDATE SET
-          priority_rank=excluded.priority_rank,
-          enabled=excluded.enabled,
-          updated_at=CURRENT_TIMESTAMP
+        ON CONFLICT(domain, source) DO NOTHING
         """,
         (
             ("rental", "ulucks", 1),

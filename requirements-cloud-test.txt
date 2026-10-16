@@ -1,0 +1,3 @@
+-r requirements-cloud.txt
+reportlab>=4,<6
+PyYAML>=6,<7

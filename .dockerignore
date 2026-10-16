@@ -1,0 +1,11 @@
+**
+!src/
+!src/**
+!requirements.txt
+!requirements-pdf.txt
+!requirements-cloud.txt
+!pyproject.toml
+!cloud/
+!cloud/Dockerfile
+**/__pycache__
+**/*.pyc
