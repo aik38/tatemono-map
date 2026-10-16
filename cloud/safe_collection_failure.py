@@ -139,21 +139,29 @@ def diagnostic():
                             safe[label] = record[label]
                     ui_structure.append(safe)
                 elif record.get("stage") == "search_action_observed":
-                    kinds = record.get("matched_control_types")
+                    categories = ("exact", "commonSearch", "searchText", "attributeHint", "submit", "inForm")
+                    choices = record.get("candidate_structures")
+                    reasons = ("none", "exact_label", "common_search_label", "search_label",
+                               "search_attribute", "unique_form_submit",
+                               "ambiguous_exact_label", "ambiguous_common_search_label",
+                               "ambiguous_search_label", "ambiguous_search_attribute",
+                               "ambiguous_unique_form_submit")
                     if (type(record.get("candidate_count")) is int
-                        and 0 <= record["candidate_count"] <= 100
-                        and type(record.get("exact_search_count")) is int
-                        and 0 <= record["exact_search_count"] <= 100
-                        and isinstance(kinds, list)
-                        and len(kinds) <= 4
+                        and 0 <= record["candidate_count"] <= 500
+                        and type(record.get("search_related_count")) is int
+                        and 0 <= record["search_related_count"] <= 100
+                        and record.get("selection_reason") in reasons
+                        and isinstance(choices, list) and len(choices) <= 12
                         and all(isinstance(c, dict)
-                                and c.get("tag") in ("button", "input", "a", "div", "span")
+                                and c.get("tag") in ("button", "input", "a", "div", "span", "label", "td")
                                 and c.get("type") in ("submit", "button", "image", "other")
-                                for c in kinds)):
+                                and all(type(c.get(k)) is bool for k in categories)
+                                for c in choices)):
                         ui_structure.append({"stage": "search_action_observed",
                             "candidate_count": record["candidate_count"],
-                            "exact_search_count": record["exact_search_count"],
-                            "matched_control_types": kinds})
+                            "search_related_count": record["search_related_count"],
+                            "selection_reason": record["selection_reason"],
+                            "candidate_structures": choices})
                 elif record.get("stage") == "search_exception":
                     operation=record.get("operation")
                     if operation in ("form_lookup","area_controls","area_other_wards_clear",
