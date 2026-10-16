@@ -13,6 +13,7 @@ import time
 import unicodedata
 import zipfile
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -208,7 +209,7 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Coll
         return Collected([], 0, True, {"search_counts": [0, 0], "scope_verified": True})
     root.mkdir(parents=True, exist_ok=True)
     paths, evidence = _capture_print(page, root)
-    return Collected(paths, count, False, {**evidence, "search_counts": [count], "scope_verified": True})
+    return Collected(paths, count, False, {**evidence, "acquired_at": datetime.now(timezone.utc).isoformat(), "search_counts": [count], "scope_verified": True})
 
 
 def unpack_export(target: Path, root: Path) -> list[Path]:

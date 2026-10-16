@@ -8,6 +8,7 @@ from collections import Counter
 from datetime import date
 
 from tatemono_map.db.repo import connect, replace_building_summary
+from tatemono_map.normalize.effective_rentals import effective_rentals, canonical_key as resolve_canonical_key
 from tatemono_map.util.building_age import age_years_from_built_year_month
 from tatemono_map.util.text import normalize_text
 
@@ -293,7 +294,6 @@ def rebuild(db_path: str) -> int:
     conn.execute("DELETE FROM building_summaries")
     conn.execute("DELETE FROM building_rental_summaries")
     conn.execute("DELETE FROM building_sale_summaries")
-    rental_priority = _load_priority_rank(conn, "rental")
 
     building_rows = conn.execute(
         """
@@ -310,33 +310,7 @@ def rebuild(db_path: str) -> int:
     alias_rows = conn.execute("SELECT alias_key, canonical_key FROM building_key_aliases").fetchall()
     alias_map = {row["alias_key"]: row["canonical_key"] for row in alias_rows}
 
-    rows = conn.execute(
-        """
-        SELECT building_key, name, address, rent_yen, maint_yen, area_sqm, layout, move_in_date, updated_at,
-               age_years, structure, availability_raw, built_raw, structure_raw,
-               built_year_month, built_age_years, availability_date, availability_flag_immediate, source_kind
-        FROM listings
-        WHERE (
-            ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
-            OR (
-                ingest_run_id IS NULL
-                AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)
-            )
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM cloud_baseline_ownership o
-            JOIN current_ingest_snapshots s ON s.source = o.scope_key
-            WHERE o.listing_key = listings.listing_key
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM cloud_unit_overlaps o
-            JOIN current_ingest_snapshots s
-              ON s.source=o.scope_key AND s.ingest_run_id=o.ingest_run_id
-            WHERE o.listing_key=listings.listing_key
-        )
-        ORDER BY id DESC
-        """
-    ).fetchall()
+    rows = effective_rentals(conn)
     sale_rows = conn.execute(
         """
         SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen AS sqm_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source, ingest_run_id
@@ -348,14 +322,14 @@ def rebuild(db_path: str) -> int:
     for row in rows:
         if not row["building_key"]:
             continue
-        canonical_key = alias_map.get(row["building_key"], row["building_key"])
-        grouped.setdefault(canonical_key, []).append(row)
+        resolved_key = resolve_canonical_key(row["building_key"], alias_map)
+        grouped.setdefault(resolved_key, []).append(row)
     grouped_sale: dict[str, list] = {}
     for row in sale_rows:
         if not row["building_key"]:
             continue
-        canonical_key = alias_map.get(row["building_key"], row["building_key"])
-        grouped_sale.setdefault(canonical_key, []).append(row)
+        resolved_key = resolve_canonical_key(row["building_key"], alias_map)
+        grouped_sale.setdefault(resolved_key, []).append(row)
 
     building_dicts = [dict(row) for row in building_rows]
     canonical_by_id = {row["building_id"]: row for row in building_dicts}
@@ -383,12 +357,6 @@ def rebuild(db_path: str) -> int:
     for building_key in sorted(target_keys):
         items = grouped.get(building_key, [])
         sale_items = grouped_sale.get(building_key, [])
-        if items and rental_priority:
-            ranked_items = [row for row in items if rental_priority.get(str(row["source_kind"])) is not None]
-            available_ranks = [rental_priority.get(str(row["source_kind"])) for row in ranked_items]
-            if available_ranks and len(ranked_items) == len(items):
-                best_rank = min(available_ranks)
-                items = [row for row in items if rental_priority.get(str(row["source_kind"])) == best_rank]
         building = merged_canonical_by_id.get(building_key)
         rents = [r["rent_yen"] for r in items if r["rent_yen"] is not None]
         maints = [r["maint_yen"] for r in items if r["maint_yen"] is not None]
@@ -565,6 +533,11 @@ def rebuild(db_path: str) -> int:
                     latest,
                 ),
             )
+        if has_rental:
+            conn.execute("UPDATE building_rental_summaries SET deposit_values_json=?, key_money_values_json=?, floor_values_json=? WHERE building_key=?", (
+                json.dumps(_distinct_natural([r['deposit_text'] for r in items if r['deposit_text']]), ensure_ascii=False),
+                json.dumps(_distinct_natural([r['key_money_text'] for r in items if r['key_money_text']]), ensure_ascii=False),
+                json.dumps(_distinct_natural([r['floor_text'] for r in items if r['floor_text']]), ensure_ascii=False), building_key))
         sale_upsert_payload = {
             "sale_listing_count": sale_listing_count or 0,
             "sale_listing_count_total": sale_listing_count_total,

@@ -53,7 +53,19 @@ def execute(store, config: dict, credentials: dict, work: Path, source_commit: s
     pdfs, count = collected.pdfs, collected.expected_rows
     for index, pdf in enumerate(pdfs):
         store.upload(pdf, f"private-runs/{run}/pdf/{index:03d}.pdf")
-    report = update_master(master, pdfs, count, config, work, run, confirmed_zero=collected.confirmed_zero)
+    try:
+        report = update_master(master, pdfs, count, config, work, run, confirmed_zero=collected.confirmed_zero)
+    except CollectionError as exc:
+        diagnostic = work / 'failure.private.json'
+        overlap = work / 'overlap-review.private.json'
+        diagnostic.write_text(json.dumps({'run_id': run, 'code': str(exc), 'previous_head_unchanged': True, 'overlap_review': json.loads(overlap.read_text()) if overlap.exists() else None}, ensure_ascii=False))
+        try:
+            store.upload(diagnostic, f'private-runs/{run}/failure.json')
+        except Exception:
+            pass
+        exc.run_id = run
+        raise
+    report['acquired_at'] = collected.evidence.get('acquired_at')
     evidence = work / "collection-evidence.json"
     evidence.write_text(json.dumps(collected.evidence, ensure_ascii=False))
     store.upload(evidence, f"private-runs/{run}/collection-evidence.json")
@@ -79,13 +91,13 @@ def main() -> int:
                     raise CollectionError("bootstrap_master_checksum_required")
                 head = bootstrap(store, args.master, args.master_sha256, work, source_commit)
             else:
-                config = secret_json(os.environ["ULUCKS_CONFIG_SECRET"])
+                config = json.loads(os.environ["ULUCKS_CONFIG_JSON"]) if os.environ.get("ULUCKS_CONFIG_JSON") else secret_json(os.environ["ULUCKS_CONFIG_SECRET"])
                 credentials = secret_json(os.environ["ULUCKS_LOGIN_SECRET"])
                 head = execute(store, config, credentials, work, source_commit)
             print(json.dumps({"status": "committed", "run_id": head["run_id"], "public_sha256": head["public"]["sha256"]}))
         return 0
     except CollectionError as exc:
-        print(json.dumps({"status": "failed", "code": str(exc)}), file=sys.stderr)
+        print(json.dumps({"status": "failed", "code": str(exc), "run_id": getattr(exc, 'run_id', None)}), file=sys.stderr)
         return 1
     except Exception:
         # SDK and browser messages can contain signed URLs, cookies or HTML.

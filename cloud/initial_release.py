@@ -17,8 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from audit_master import audit
 from tatemono_map.cloud.collector import validate_config
-from tatemono_map.cloud.pipeline import validate_master, unit_room
-from tatemono_map.cloud.collector import normal
+from tatemono_map.cloud.pipeline import validate_master
 from tatemono_map.cloud.public_db import readonly
 from tatemono_map.cloud.public_db import sha256
 
@@ -81,12 +80,9 @@ def check_inputs(master, review):
                 target = aliases[target]
             if target not in ids:
                 raise RuntimeError('unresolved_canonical_alias')
-        rows = conn.execute("""SELECT address,room_label FROM listings
-            WHERE source_kind='ulucks' AND ingest_run_id IN
-              (SELECT ingest_run_id FROM current_ingest_snapshots)""")
-        for address, room in rows:
-            if '小倉北区' in normal(address or ''):
-                unit_room(room)
+        # preserve_unknown claims no legacy rows. Room equivalence can only be
+        # checked after acquisition identifies the touched canonical buildings.
+        # prepare_unit_overlaps still refuses ambiguity on those buildings.
     return actual
 
 
@@ -155,17 +151,8 @@ def main():
         if inventory['needs_bootstrap'] and inventory['gcs_database_candidates']:
             raise RuntimeError('existing_gcs_databases_require_private_review')
         image = inventory['job']['spec']['template']['spec']['template']['spec']['containers'][0]['image']
-        # Existing collection Secret may only be the dedicated contract created
-        # by this runner in a prior interrupted activation, never silently adopted.
-        exists = command(['gcloud', 'secrets', 'list', '--project', config['project'], '--format=json(name)'], json_output=True)
-        secret_exists = any(r['name'].rsplit('/', 1)[-1] == config['collection_secret'] for r in exists)
-        contract_hash = hashlib.sha256(collection_path.read_bytes()).hexdigest()[:63]
-        if secret_exists:
-            metadata = command(['gcloud', 'secrets', 'describe', config['collection_secret'], '--project', config['project'], '--format=json'], json_output=True)
-            if metadata.get('labels', {}).get('tatemono-contract') != contract_hash:
-                raise RuntimeError('collection_contract_metadata_mismatch')
-        if secret_exists and not state.get('activation_started'):
-            raise RuntimeError('preexisting_collection_contract_requires_review')
+        # Collection conditions are non-secret JSON in the Job environment.
+        # Reuse existing login Secret and prepared IAM without Secret mutations.
         state['activation_started'] = True
         state.setdefault('expected_image', image)
         if state['expected_image'] != image:
@@ -173,7 +160,7 @@ def main():
         checkpoint(path, state)
         activate = setup + ['--apply', '--activate', '--prepared-iam', '--no-dispatch', '--reviewed-commit', commit,
                             '--expected-job-image', image, '--master', str(args.master), '--master-sha256', EXPECTED]
-        activate += ['--collection-file', str(collection_path)]
+        activate += ['--collection-config-env', '--collection-file', str(collection_path)]
         command(activate)
         state['setup_complete'] = True
         checkpoint(path, state)
@@ -213,12 +200,24 @@ def main():
         raise RuntimeError('no_successful_collection_for_reviewed_commit')
     marker = {'run_id': head['run_id'], 'public_sha256': head['public']['sha256'], 'proof': head['report']['proof']}
     checkpoint(directory / 'expected-release.private.json', marker)
-    verify_site(marker, attempts=40, interval=15)
-    scheduler = command(['gcloud', 'scheduler', 'jobs', 'describe', config['scheduler_job'], '--project', config['project'], '--location', config['region'], '--format=json'], json_output=True)
+    published_rows = verify_site(marker, attempts=40, interval=15)
+    # Production may become visible just before the Pages job enables Scheduler.
+    # Wait for that post-verification step; never start another collection.
+    import time
+    for attempt in range(20):
+        scheduler = command(['gcloud', 'scheduler', 'jobs', 'describe', config['scheduler_job'], '--project', config['project'], '--location', config['region'], '--format=json'], json_output=True)
+        if scheduler.get('state') != 'PAUSED' or attempt == 19:
+            break
+        time.sleep(15)
     if scheduler['state'] != 'ENABLED' or scheduler['schedule'] != '0 4 * * 1' or scheduler['timeZone'] != 'Asia/Tokyo':
         raise RuntimeError('weekly_scheduler_not_verified')
     state['production_verified'] = True
     state['run_id'] = head['run_id']
+    checkpoint(directory / 'completed-evidence.private.json', {
+        'release': head, 'scheduler': scheduler,
+        'building_urls': ['https://www.tatemono-map.com/b/' + row['detail_filename'] for row in published_rows if row['id'] in {p['building_key'] for p in marker['proof']}],
+        'scheduled_execution_observed': False,
+    })
     checkpoint(path, state)
     print('Verified: real collection/QC, private master commit, production data proof and Monday 04:00 JST scheduler.', flush=True)
 

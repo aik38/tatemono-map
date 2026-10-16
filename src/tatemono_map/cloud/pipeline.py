@@ -6,6 +6,7 @@ import json
 import re
 import sqlite3
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -87,7 +88,7 @@ def unit_room(value):
     return value
 
 
-def prepare_unit_overlaps(conn, key, run):
+def prepare_unit_overlaps(conn, key, run, diagnostic=None):
     """Aggregation equivalence, never company ownership or historical deletion."""
     aliases = dict(conn.execute("SELECT alias_key,canonical_key FROM building_key_aliases"))
     def canonical(value):
@@ -109,24 +110,35 @@ def prepare_unit_overlaps(conn, key, run):
         AND l.ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
         AND NOT EXISTS (SELECT 1 FROM cloud_baseline_ownership o WHERE o.listing_key=l.listing_key)
         """, (run,)).fetchall()
-    overlaps = 0
+    matches = []
+    ambiguous = []
     for listing, building, room, source in old:
         building = canonical(building)
         if building not in touched:
             continue
         # Missing legacy room cannot be assumed different from a new unit.
-        identity = (building, unit_room(room))
+        try:
+            identity = (building, unit_room(room))
+        except CollectionError:
+            ambiguous.append({'listing_key': listing, 'canonical_building': building, 'room_label': room})
+            continue
         if identity in units:
             if source and source.startswith("ulucks:"):
                 raise CollectionError("overlap_with_another_managed_scope")
-            conn.execute("INSERT INTO cloud_unit_overlaps VALUES (?,?,?)", (listing, key, run))
-            overlaps += 1
-    return overlaps
+            matches.append(listing)
+    if ambiguous:
+        if diagnostic is not None:
+            diagnostic.write_text(json.dumps({'code': 'legacy_unit_identity_ambiguous', 'scope_key': key, 'ambiguous_touched_rows': ambiguous}, ensure_ascii=False, indent=2))
+            diagnostic.chmod(0o600)
+        raise CollectionError('legacy_unit_identity_ambiguous')
+    for listing in matches:
+        conn.execute("INSERT INTO cloud_unit_overlaps VALUES (?,?,?)", (listing, key, run))
+    return len(matches)
 
 
 def preservation_state(conn, limits=None):
     # Keep every pre-existing historical row byte-for-byte. Hashes stay private.
-    tables = ("listings", "sale_listings", "raw_sources", "building_key_aliases", "source_priority")
+    tables = ("listings", "sale_listings", "raw_sources", "building_sources", "building_key_aliases", "source_priority")
     if limits is None:
         limits = {t: conn.execute(f'SELECT COALESCE(MAX(rowid),0) FROM "{t}"').fetchone()[0] for t in tables}
     state = {}
@@ -171,6 +183,7 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
     frame["evidence_id"] = frame["evidence_id"].map(lambda value: f"cloud:{key}:{run_id}:{value}")
     write_master_import_csv(frame, csv_path)
     with connect(master) as conn:
+        counts_before = {t: conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('buildings', 'listings', 'sale_listings', 'raw_sources')}
         canonical = dict(conn.execute("SELECT building_id, canonical_name || char(0) || canonical_address FROM buildings"))
         _prepare_scope(conn, config, key)
         previous = conn.execute("SELECT COUNT(*) FROM listings WHERE ingest_run_id=(SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?)", (key,)).fetchone()[0]
@@ -201,18 +214,25 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
             raise CollectionError("ingested_row_count_mismatch")
         if preservation_state(conn, preserved[0])[1] != preserved[1]:
             raise CollectionError("existing_private_records_changed")
-        overlaps = prepare_unit_overlaps(conn, key, report.ingest_run_id)
+        overlaps = prepare_unit_overlaps(conn, key, report.ingest_run_id, work / 'overlap-review.private.json')
         if conn.execute("PRAGMA foreign_key_check").fetchone():
             raise CollectionError("master_foreign_key_error")
     rebuild(str(master))
     validate_master(master)
     counts = export_public(master, work / "public.sqlite3")
     with readonly(master) as conn:
+        counts_after = {t: conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in counts_before}
         affected = previous_buildings | {row[0] for row in conn.execute("SELECT DISTINCT building_key FROM listings WHERE ingest_run_id=?", (report.ingest_run_id,))}
         proof = []
         for building in sorted(affected):
-            row = conn.execute("SELECT building_key,vacancy_count,rent_yen_min,rent_yen_max FROM building_summaries WHERE building_key=?", (building,)).fetchone()
+            fields = ('building_key','vacancy_count','rent_yen_min','rent_yen_max','area_sqm_min','area_sqm_max','layout_types_json')
+            row = conn.execute("SELECT " + ','.join(fields) + " FROM building_summaries WHERE building_key=?", (building,)).fetchone()
             if row is None:
                 raise CollectionError("affected_building_summary_missing")
-            proof.append(dict(zip(("building_key", "vacancy_count", "rent_yen_min", "rent_yen_max"), row)))
-    return {"scope_key": key, "legacy_overlap_rows": overlaps, "historical_rows_preserved": True, "acquisition_status": "confirmed_zero" if empty else "pdf_verified", "pdf_count": len(pdfs), "parsed_rows": len(frame), "attached_rows": actual, "ingest_run_id": report.ingest_run_id, "public_counts": counts, "proof": proof}
+            value = dict(zip(fields, row))
+            value['layout_types'] = json.loads(value.pop('layout_types_json') or '[]')
+            fees = conn.execute('SELECT maint_yen_min,maint_yen_max FROM building_rental_summaries WHERE building_key=?', (building,)).fetchone()
+            value.update(zip(('maint_yen_min','maint_yen_max'), fees or (None,None)))
+            proof.append(value)
+    from tatemono_map.cli.pdf_batch_run import page_count_fast, sha256_file
+    return {"scope_key": key, "legacy_overlap_rows": overlaps, "historical_rows_preserved": True, "acquisition_status": "confirmed_zero" if empty else "pdf_verified", "pdf_count": len(pdfs), "pdfs": [{"pages": page_count_fast(p), "sha256": sha256_file(p)} for p in pdfs], "processed_at": datetime.now(timezone.utc).isoformat(), "counts_before": counts_before, "counts_after": counts_after, "parsed_rows": len(frame), "attached_rows": actual, "ingest_run_id": report.ingest_run_id, "public_counts": counts, "proof": proof}

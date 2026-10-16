@@ -1,3 +1,8 @@
+> 2026-10-16監査後の初回入口は `cloud/complete_initial_release.sh` です。
+> [監査と現行契約](AUDIT_20261016.md) を参照してください。下記の旧Secret作成方式に対し、
+> prepared activationは非秘密の収集条件をJob環境へ渡し、既存Secretを変更しません。
+> SchedulerはPagesによる本番照合の成功後に有効化します。
+
 # Ulucks: one-company cloud collector
 
 実装対象は、ユーザー提供画面の `kitakyushu.ulucks.jp` → 会社検索 → 会社8（株式会社不動産中央情報センター）→ 小倉北区のみ →「（新）エリア・物件別で印刷」です。印刷APIのURL・パラメーターは生成しません。実際のリンクをクリックし、そのブラウザ通信を `route.fetch()` で転送して元PDFを捕捉します。inline / popup / XHRのPDFを扱い、ログインHTMLや印刷画面のスクリーンショットをPDFの代用にしません。
@@ -78,7 +83,8 @@ GCS候補はgeneration指定・checksum検査でprivate `work/first-connect/cand
    証明して引き継ぐ旧キーがないことを示します。旧明細は削除・移管しません。
    条件はrunnerが `work/initial-release/collection.private.json` に生成するため、
    旧手順の `work/collection.private.json` の手編集は不要です。
-   実DBの部屋番号が曖昧な場合、検査条件や正本を書き換えて通過させず停止します。
+   新規取得と重なるcanonical建物に曖昧な部屋番号がある場合は停止します。
+   無関係な旧明細の部屋番号を事前に確定する条件は設けません。
 
 4. main反映後、既存の `work/setup.private.json` とvenvをそのまま使って実行します。
    IAM/WIF準備とGitHub CLI認証は繰り返しません。事前検査後にのみ承認済みの
@@ -89,8 +95,8 @@ GCS候補はgeneration指定・checksum検査でprivate `work/first-connect/cand
      --activate --reviewed-commit '<実際に反映したmainの完全SHA>'
    ```
 
-   runnerがSecretのメタデータと条件checksumを検査し、専用の収集条件Secretだけを
-   初回作成・安全に再利用します。既存ログインSecretの値を取得・変更しません。
+   runnerは収集条件を非秘密のJob設定へ渡します。準備済みIAMと既存ログインSecretを
+   再利用し、Secretの作成・バージョン追加・Secret IAM変更を行いません。
    `work/initial-release/progress.private.json` から再開し、二重dispatchを防ぎます。
    低水準の `bootstrap.sh --apply --activate` は今回の実行入口にしません。
 
@@ -135,7 +141,7 @@ mainには今回と無関係な既存テスト失敗があります。CIはcloud
 を明示した場合にだけ本番設定・GCS bootstrap・Actions起動を行います。
 IAM準備、GitHubログイン、正本再アップロードは実行しません。
 
-- SHAと照合JSONの件数・履歴・ID指紋・優先順位を再照合し、別候補、曖昧な部屋番号、
+- SHAと照合JSONの件数・履歴・ID指紋・優先順位を再照合し、別候補、
   未解決alias、未審査のGCS DB、既存設定の不一致は変更前に拒否します。
 - 会社8は `baseline_listing_keys=[]`, `legacy_policy=preserve_unknown` の新規scope。
   旧明細の会社所有権は主張しません。既存明細・売買・raw履歴・優先順位・aliasの
@@ -156,8 +162,8 @@ IAM準備、GitHubログイン、正本再アップロードは実行しませ�
   Schedulerが月曜04:00 Asia/TokyoでENABLEDであることも確認します。
   API反映・Pages公開の待機で停止した場合も同じコマンドから再開できます。
 - 一括実行ログ・DB・照合JSON・設定はignored `work/` のみ。Public GitHubには含めません。
-  登録済みログインSecretの値を取得・再登録しません。新規の収集条件Secretには、
-  秘密を含まない条件ファイルのchecksumラベルを付け、途中作成からの安全な再開に使います。
+  登録済みログインSecretの値を取得・再登録しません。prepared activationは
+  非秘密の収集条件をJob設定へ渡し、Secretを書き換えません。
 
 実行前にレビュー済みmainへcheckoutし、既存venvで以下を実行します。
 

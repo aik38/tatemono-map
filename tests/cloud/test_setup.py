@@ -278,3 +278,33 @@ def test_conflicting_assets_stop_before_any_mutation(tmp_path, monkeypatch, targ
     with pytest.raises(mod.SetupError, match=error):
         mod.main()
     assert not any(word in ("create", "enable", "add-iam-policy-binding", "update", "set") for call in fake.calls for word in call)
+
+
+def test_prepared_activation_with_environment_contract_never_mutates_secrets(master, config, tmp_path, monkeypatch):
+    from tatemono_map.cloud.public_db import sha256
+    mod = module('setup_gcp')
+    fake = FakeCloud()
+    fake.pool = {'state':'ACTIVE'}
+    fake.provider = {**fake.contract,'state':'ACTIVE'}
+    fake.provider['oidc'] = {'issuerUri':fake.contract['issuerUri']}
+    fake.accounts = {name+'@tatemono-map.iam.gserviceaccount.com' for name in mod.ACCOUNTS.values()}
+    class Store:
+        def __init__(self,*a,**kw):
+            from types import SimpleNamespace
+            self.bucket = SimpleNamespace(list_blobs=lambda:[])
+        def read_head(self):
+            run='20261016T000000Z-000000000000'
+            return {'schema':1,'qc':'passed','run_id':run,'master':{'object':f'masters/{run}.sqlite3','sha256':sha256(master),'generation':1},'public':{'object':f'public/releases/{run}/public.sqlite3','sha256':'b'*64,'generation':2}},1
+    monkeypatch.setattr(mod,'command',fake)
+    monkeypatch.setattr('tatemono_map.cloud.storage.GCSStore',Store)
+    settings=tmp_path/'setup.json';settings.write_text((ROOT/'cloud/setup.example.json').read_text())
+    contract=tmp_path/'collection.json';contract.write_text(json.dumps(config))
+    monkeypatch.setattr(sys,'argv',['setup','--config',str(settings),'--apply','--activate','--prepared-iam','--no-dispatch','--collection-config-env','--collection-file',str(contract),'--reviewed-commit','a'*40,'--expected-job-image','approved-image','--master',str(master),'--master-sha256',sha256(master),'--output',str(tmp_path/'inventory')])
+    mod.main()
+    secret_calls=[call for call in fake.calls if call[:2]==['gcloud','secrets']]
+    assert secret_calls
+    assert all(call[2] in ('list','describe') or call[2:4]==['versions','list'] for call in secret_calls)
+    assert not any('tm-ulucks-config' in call for call in secret_calls)
+    variable=next(call for call in fake.calls if call[:4]==['gh','variable','set','ULUCKS_CONFIG_JSON'])
+    assert json.loads(variable[-1]) == config
+    assert not any(call[1:3]==['workflow','run'] for call in fake.calls)

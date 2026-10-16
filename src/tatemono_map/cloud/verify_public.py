@@ -21,6 +21,9 @@ def compare(marker: dict, rows: list[dict]) -> None:
         for public_key, proof_key in (("vacancy_count", "vacancy_count"), ("rent_min", "rent_yen_min"), ("rent_max", "rent_yen_max")):
             if row.get(public_key) != proof.get(proof_key):
                 raise ValueError("updated_building_differs_from_verified_database")
+        for public_key, proof_key in (('area_min','area_sqm_min'),('area_max','area_sqm_max'),('room_types','layout_types'),('maint_min','maint_yen_min'),('maint_max','maint_yen_max')):
+            if proof_key in proof and row.get(public_key) != proof[proof_key]:
+                raise ValueError('updated_building_terms_differ_from_verified_database')
 
 
 def get_json(path: str, run: str):
@@ -35,8 +38,9 @@ def verify_site(expected: dict, attempts: int = 10, interval: int = 15):
             actual = get_json("cloud_release.json", expected["run_id"])
             if actual["run_id"] != expected["run_id"] or actual["public_sha256"] != expected["public_sha256"]:
                 raise ValueError("production_release_marker_not_updated")
-            compare(expected, get_json("data/buildings.json", expected["run_id"]))
-            return
+            rows = get_json("data/buildings.json", expected["run_id"])
+            compare(expected, rows)
+            return rows
         except Exception:
             if attempt + 1 == attempts:
                 raise ValueError("production_release_verification_failed") from None
