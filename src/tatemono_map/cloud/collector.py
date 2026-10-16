@@ -204,10 +204,19 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Coll
     company_search = only(page.get_by_role("link", name="会社検索", exact=True), "company_search")
     company_search.wait_for(state="visible", timeout=30000)
     company_search.click()
-    # User supplied /company/lists/8. Find the real link in the company list,
-    # then follow it; do not derive the print URL from this path.
-    company_link = only(page.locator('a[href="/company/lists/8"], a[href="' + ORIGIN + '/company/lists/8"]'), "company_link")
+    # In the observed /company list, the selected company appears as a table
+    # row; its 2nd cell ("物件数") contains the link to that company's listings.
+    # Choose the link through the company name, not a hard-coded HTML href;
+    # after clicking, independently verify the reviewed company ID in the URL.
+    company_row = only(page.get_by_role("row").filter(
+        has_text=re.compile(re.escape(COMPANY_LABEL))), "company_row")
+    company_link = only(company_row.locator("td").nth(1).get_by_role("link"), "company_count_link")
     company_link.click()
+    try:
+        page.wait_for_url(lambda url: (urlsplit(str(url)).netloc == urlsplit(ORIGIN).netloc
+            and urlsplit(str(url)).path.rstrip("/") == "/company/lists/8"), timeout=30000)
+    except Exception:
+        raise CollectionError("ulucks_company_scope_navigation_failed") from None
     only(page.get_by_text(re.compile(r"物件検索\s*[（(]\s*" + re.escape(COMPANY_LABEL) + r"\s*[）)]")), "company_title").wait_for(state="visible")
     count = _search(page)
     if count > int(config.get("max_rows", 5000)):
