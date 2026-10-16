@@ -1,0 +1,108 @@
+name: Diagnose prior Ulucks Job update failure (read-only)
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/diagnose_ulucks_job_once.yml']
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  diagnose:
+    if: github.repository == 'aik38/tatemono-map'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_JOB: ${{ vars.GCP_JOB }}
+      GCP_BUCKET: ${{ vars.GCP_BUCKET }}
+      GCP_OLD_IMAGE: ${{ vars.GCP_ADOPT_IMAGE }}
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Install read-only GCS client
+        run: python -m pip install --quiet 'google-cloud-storage>=2.19,<4'
+      - name: Inspect pinned private error, Job state and executions without mutation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,os,re,subprocess
+          from google.cloud import storage
+          project=os.environ['GCP_PROJECT_ID']
+          region=os.environ['GCP_REGION']
+          job_name=os.environ['GCP_JOB']
+          bucket=storage.Client(project=project).bucket(os.environ['GCP_BUCKET'])
+          run='38914804946'
+          commit='012119ded35e57aec16dfe178313d605c678e008'
+          report={'mode':'one_time_read_only','failed_workflow':run,'gcp_mutations':False}
+          def fetch(name,content=False):
+              blob=bucket.blob(name)
+              try:
+                  blob.reload(timeout=30)
+                  value={'status':'exists','generation':str(blob.generation),'bytes':int(blob.size)}
+                  if content:
+                      raw=blob.download_as_bytes(if_generation_match=int(blob.generation),timeout=45)
+                      value['sha256']=hashlib.sha256(raw).hexdigest()
+                      return value,raw.decode('utf-8','replace')
+                  return value,None
+              except Exception as exc:
+                  return {'status':type(exc).__name__},None
+          info,raw=fetch('deployment-backups/diagnostics/'+run+'-1.log',True)
+          if raw is not None:
+              patterns=[
+                  ('PERMISSION_DENIED',r'PERMISSION_DENIED|permission denied|does not have permission|403'),
+                  ('INVALID_ARGUMENT',r'INVALID_ARGUMENT|invalid argument|400'),
+                  ('FAILED_PRECONDITION',r'FAILED_PRECONDITION|failed precondition|412'),
+                  ('NOT_FOUND',r'NOT_FOUND|not found|404'),
+                  ('ALREADY_EXISTS',r'ALREADY_EXISTS|409|conflict'),
+                  ('UNAUTHENTICATED',r'UNAUTHENTICATED|401'),
+                  ('TIMEOUT',r'DEADLINE_EXCEEDED|timed out|timeout'),
+                  ('UNAVAILABLE',r'UNAVAILABLE|503'),
+                  ('BAD_FLAG',r'unrecognized arguments|unrecognized flag|Unknown command line flag'),
+                  ('INVALID_ENV',r'--update-env-vars|Invalid dictionary syntax|env.*invalid|invalid.*env'),
+                  ('ACT_AS',r'iam.serviceAccounts.actAs'),
+                  ('RUN_UPDATE_PERMISSION',r'run.jobs.update|run.jobs.replace'),
+                  ('IMAGE',r'container image|image.*(invalid|not found|permission|denied)'),
+                  ('LABEL',r'label.*(invalid|error)|invalid.*label'),
+                  ('SERVICE_ACCOUNT',r'service.account.*(permission|denied|not found|invalid)')]
+              info['matched_error_classes']=[n for n,p in patterns if re.search(p,raw,re.I)]
+              info['error_code_tokens']=sorted(set(re.findall(r'\b(?:INVALID_ARGUMENT|PERMISSION_DENIED|FAILED_PRECONDITION|NOT_FOUND|ALREADY_EXISTS|UNAUTHENTICATED|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED|INTERNAL|UNAVAILABLE)\b',raw)))
+              info['known_field_tokens']=[t for t in ('spec.template','containers[0]','env[','--update-env-vars','--update-labels','--service-account','--image','--task-timeout','--memory','--cpu','--args','iam.serviceAccounts.actAs','run.jobs.update','run.jobs.replace') if t.lower() in raw.lower()]
+              info['line_count']=len(raw.splitlines())
+          report['private_update_error']=info
+          report['prior_backup'],_=fetch('deployment-backups/'+commit+'-'+run+'-1.yaml')
+          report['execution_intent'],_=fetch('deployment-backups/execution-intents/'+run+'.json')
+          def gcloud(*args):
+              result=subprocess.run(['gcloud',*args,'--project',project,'--quiet'],capture_output=True,text=True,timeout=75)
+              if result.returncode:
+                  return None,{'status':'command_failed','exit_code':result.returncode,
+                    'error_classes':[n for n,p in (('PERMISSION_DENIED',r'PERMISSION_DENIED|permission denied|403'),('NOT_FOUND',r'NOT_FOUND|not found|404'),('INVALID_ARGUMENT',r'INVALID_ARGUMENT|invalid argument|400')) if re.search(p,result.stderr,re.I)]}
+              try:return json.loads(result.stdout),{'status':'ok'}
+              except ValueError:return None,{'status':'non_json_result'}
+          job,state=gcloud('run','jobs','describe',job_name,'--region',region,'--format=json')
+          if job:
+              md=job.get('metadata') or {}
+              spec=((job.get('spec') or {}).get('template') or {}).get('spec') or {}
+              spec=(spec.get('template') or {}).get('spec') or {}
+              image=(spec.get('containers') or [{}])[0].get('image','')
+              labels=md.get('labels') or {}
+              state.update({'generation':str(md.get('generation','')),
+                  'image_state':'approved_old_image' if image==os.environ['GCP_OLD_IMAGE'] else ('new_failed_run_image' if commit in image else 'other_image'),
+                  'image_digest_prefix':image.split('@sha256:')[-1][:12] if '@sha256:' in image else None,
+                  'managed_by':labels.get('managed-by','unset'),
+                  'source_commit':labels.get('source-commit','unset'),
+                  'runtime_service_account_matches':spec.get('serviceAccountName')=='tm-ulucks-runtime@tatemono-map.iam.gserviceaccount.com'})
+          report['current_cloud_run_job']=state
+          executions,execution_state=gcloud('run','jobs','executions','list','--job',job_name,'--region',region,'--format=json')
+          if isinstance(executions,list):
+              execution_state.update({'total_returned':len(executions),
+                'created_since_failed_workflow':sum(str(x.get('metadata',{}).get('creationTimestamp',''))>='2026-10-16T14:19:17Z' for x in executions),
+                'active_count':sum(not (x.get('status') or {}).get('completionTime') for x in executions)})
+          report['cloud_run_executions']=execution_state
+          # Raw private stderr, full Job JSON and environment values are NEVER printed.
+          print('SAFE_READ_ONLY_DIAGNOSIS_JSON='+json.dumps(report,ensure_ascii=False,sort_keys=True))
+          PY
