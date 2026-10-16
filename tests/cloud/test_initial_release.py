@@ -85,13 +85,18 @@ def test_room_normalization_is_exact_and_does_not_use_rent_or_area():
     assert unit_room('101') != unit_room('102')
 
 
-def test_first_activation_waits_for_main_push_before_enabling_cloud(tmp_path, monkeypatch):
+@pytest.mark.parametrize('activation_started', [False, True])
+def test_first_activation_waits_for_main_push_before_enabling_cloud(tmp_path, monkeypatch, activation_started):
     mod = module('initial_release')
     monkeypatch.chdir(tmp_path)
     (tmp_path/'cloud').mkdir()
     (tmp_path/'cloud/collection.example.json').write_text((ROOT/'cloud/collection.example.json').read_text())
     settings=tmp_path/'setup.json'
     settings.write_text((ROOT/'cloud/setup.example.json').read_text())
+    if activation_started:
+        progress=tmp_path/'work/initial-release/progress.private.json'
+        progress.parent.mkdir(parents=True)
+        progress.write_text(json.dumps({'commit':'a'*40,'activation_started':True,'expected_image':'existing'}))
     calls=[]
     def command(args, **kwargs):
         calls.append(args)
