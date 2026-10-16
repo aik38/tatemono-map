@@ -68,3 +68,17 @@ def test_resume_unknown_dispatch_never_dispatches_again(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError, match='dispatch_outcome_pending'):
         mod.main()
     assert not any(args[1:3] == ['workflow','run'] for args in calls)
+
+
+@pytest.mark.parametrize('room', ['0101', '101号', '未定', '1-2', ''])
+def test_ambiguous_unit_labels_are_not_assumed_distinct(room):
+    from tatemono_map.cloud.pipeline import unit_room
+    with pytest.raises(CollectionError, match='identity_ambiguous'):
+        unit_room(room)
+
+
+def test_room_normalization_is_exact_and_does_not_use_rent_or_area():
+    from tatemono_map.cloud.pipeline import unit_room
+    assert unit_room('１０１号室') == unit_room('101')
+    assert unit_room('ａ１０１') == unit_room('A101')
+    assert unit_room('101') != unit_room('102')

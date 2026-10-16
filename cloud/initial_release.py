@@ -30,7 +30,14 @@ FINGERPRINT = 'a5cf80a955872075ca4811df710b509bf7382d797644005b92733f32a916621d'
 def command(args, *, json_output=False):
     result = subprocess.run(args, text=True, capture_output=True)
     if result.returncode:
-        raise RuntimeError('operation_failed: ' + ' '.join(args[:3]))
+        # Preserve diagnostic stderr privately, never echo an SDK/CLI payload
+        # (or successful access-token stdout) into chat/shared Actions logs.
+        directory = Path('work/initial-release')
+        directory.mkdir(parents=True, exist_ok=True)
+        diagnostic = directory / 'last-error.private.log'
+        diagnostic.write_text(result.stderr)
+        os.chmod(diagnostic, 0o600)
+        raise RuntimeError('operation_failed: ' + ' '.join(args[:3]) + '; see private last-error.private.log')
     return json.loads(result.stdout) if json_output else result.stdout.strip()
 
 

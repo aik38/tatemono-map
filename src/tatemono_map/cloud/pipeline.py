@@ -79,7 +79,7 @@ def _prepare_scope(conn, config: dict, key: str) -> None:
 
 def unit_room(value):
     # Do not infer room identities from rents/areas/names or strip leading zeroes.
-    value = normal(value or "").replace(" ", "")
+    value = normal(value or "").replace(" ", "").upper()
     if value.endswith("号室"):
         value = value[:-2]
     if not re.fullmatch(r"(?:[1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|[1-9][0-9]*[A-Za-z]+)", value):
