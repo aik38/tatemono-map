@@ -200,3 +200,82 @@ def test_committed_wal_pages_are_included_in_uploaded_standalone_master(store, m
             assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
     finally:
         held.close()
+
+
+def add_unknown_legacy(master, rooms):
+    with connect(master) as conn:
+        building = conn.execute("SELECT building_id FROM buildings WHERE canonical_name='架空テストマンション'").fetchone()[0]
+        for index, room in enumerate(rooms):
+            conn.execute("INSERT INTO listings(listing_key,building_key,name,address,room_label,rent_yen,source_kind) VALUES (?,?, '架空テストマンション','福岡県北九州市小倉北区魚町1-1-1',?,50000,'ulucks')", ('unknown-' + str(index), building, room))
+    return building
+
+
+def test_unknown_company_scope_preserves_rows_and_counts_same_unit_once(master, config, pdf, tmp_path):
+    config['legacy_policy'] = 'preserve_unknown'
+    building = add_unknown_legacy(master, ['１０１号室', '999'])
+    first = update_master(master, [pdf], 1, config, tmp_path, 'first-unknown')
+    second = update_master(master, [pdf], 1, config, tmp_path, 'repeat-unknown')
+    assert first['legacy_overlap_rows'] == second['legacy_overlap_rows'] == 1
+    with readonly(master) as conn:
+        assert conn.execute('SELECT COUNT(*) FROM cloud_baseline_ownership').fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM listings WHERE listing_key LIKE 'unknown-%' AND rent_yen=50000").fetchone()[0] == 2
+        assert conn.execute('SELECT vacancy_count FROM building_summaries WHERE building_key=?', (building,)).fetchone()[0] == 2
+        assert conn.execute('SELECT rent_yen_max FROM building_summaries WHERE building_key=?', (building,)).fetchone()[0] == 55000
+    # A later company snapshot no longer mentions 101: legacy unit reappears,
+    # because it was never owned by company 8. Only its proven duplicates hide.
+    different = make_pdf(tmp_path / 'different.pdf', rooms=('102',))
+    update_master(master, [different], 1, config, tmp_path, 'different')
+    with readonly(master) as conn:
+        assert conn.execute('SELECT vacancy_count FROM building_summaries WHERE building_key=?', (building,)).fetchone()[0] == 3
+    update_master(master, [], 0, config, tmp_path, 'zero', confirmed_zero=True)
+    with readonly(master) as conn:
+        assert conn.execute('SELECT vacancy_count FROM building_summaries WHERE building_key=?', (building,)).fetchone()[0] == 2
+        assert conn.execute("SELECT COUNT(*) FROM listings WHERE listing_key='legacy-b' AND rent_yen=70000").fetchone()[0] == 1
+
+
+@pytest.mark.parametrize('room', ['', None, '不明', '-'])
+def test_ambiguous_legacy_room_blocks_public_commit(store, config, pdf, tmp_path, room):
+    initial, generation = store.read_head()
+    master = store.objects[initial['master']['object']][1]
+    add_unknown_legacy(master, [room])
+    # Refresh reference checksum after adding synthetic pre-existing history.
+    store.objects[initial['master']['object']][0]['sha256'] = sha256(master)
+    store.head['master']['sha256'] = sha256(master)
+    before = store.read_head()
+    work = tmp_path / 'ambiguous'
+    work.mkdir()
+    with pytest.raises(CollectionError, match='identity_ambiguous'):
+        execute(store, config, {}, work, 'b' * 40, collector=lambda *_: ([pdf], 1))
+    assert store.read_head() == before
+    assert not any(name.startswith('public/') and ref[0] != initial['public'] for name, ref in store.objects.items())
+
+
+def test_same_unit_in_two_managed_scopes_refuses_ambiguous_refresh(master, config, pdf, tmp_path):
+    update_master(master, [pdf], 1, config, tmp_path, 'scope-a')
+    other = {**config, 'company_id': 'different', 'company_label': '架空別会社'}
+    with pytest.raises(CollectionError, match='another_managed_scope'):
+        update_master(master, [pdf], 1, other, tmp_path, 'scope-b')
+
+
+def test_existing_history_edit_is_detected(master):
+    from tatemono_map.cloud.pipeline import preservation_state
+    with connect(master) as conn:
+        limits, before = preservation_state(conn)
+        conn.execute("UPDATE listings SET rent_yen=1 WHERE listing_key='legacy-b'")
+        assert preservation_state(conn, limits)[1] != before
+
+
+def test_bootstrap_receipt_binds_normalized_output_to_original_input(store, master, tmp_path):
+    from tatemono_map.cloud.run import bootstrap
+    from tatemono_map.cloud.public_db import snapshot_sqlite
+    store.head = None
+    store.generation = 0
+    work = tmp_path / 'bootstrap-receipt'
+    work.mkdir()
+    before = sha256(master)
+    result = bootstrap(store, master, before, work, 'a'*40)
+    assert result['report']['input_master_sha256'] == before
+    normalized = tmp_path / 'normalized.sqlite3'
+    snapshot_sqlite(master, normalized)
+    assert result['master']['sha256'] == sha256(normalized)
+    assert sha256(master) == before

@@ -34,7 +34,7 @@ def bootstrap(store, master: Path, expected_sha256: str, work: Path, source_comm
         raise CollectionError("bootstrap_requires_closed_checkpointed_master")
     shutil.copyfile(master, work / "master.sqlite3")
     counts = export_public(work / "master.sqlite3", work / "public.sqlite3")
-    return commit_release(store, work, new_run_id(), 0, {"bootstrap": True, "public_counts": counts, "proof": []}, source_commit)
+    return commit_release(store, work, new_run_id(), 0, {"bootstrap": True, "input_master_sha256": expected_sha256, "public_counts": counts, "proof": []}, source_commit)
 
 
 def execute(store, config: dict, credentials: dict, work: Path, source_commit: str, collector=collect) -> dict:

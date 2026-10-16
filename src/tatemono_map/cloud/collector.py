@@ -53,6 +53,10 @@ def validate_config(config: dict) -> None:
         raise CollectionError("baseline_keys_invalid")
     if config.get("baseline_reviewed") is not True:
         raise CollectionError("baseline_ownership_review_required")
+    if config.get("legacy_policy", "reviewed_baseline") not in ("reviewed_baseline", "preserve_unknown"):
+        raise CollectionError("legacy_policy_invalid")
+    if config.get("legacy_policy") == "preserve_unknown" and keys:
+        raise CollectionError("unknown_ownership_cannot_claim_baseline")
     ratio = float(config.get("max_drop_ratio", 0.25))
     if not math.isfinite(ratio) or not 0 <= ratio <= 0.5 or not 1 <= int(config.get("max_rows", 5000)) <= 5000:
         raise CollectionError("collection_limits_invalid")

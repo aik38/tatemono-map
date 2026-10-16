@@ -25,6 +25,18 @@ TABLE_SCHEMAS: tuple[TableSchema, ...] = (
         columns=("scope_key", "identity_sha256", "baseline_sha256"),
     ),
     TableSchema(
+        name="cloud_unit_overlaps",
+        ddl="""
+        CREATE TABLE IF NOT EXISTS cloud_unit_overlaps (
+            listing_key TEXT NOT NULL,
+            scope_key TEXT NOT NULL,
+            ingest_run_id INTEGER NOT NULL,
+            PRIMARY KEY (listing_key, scope_key, ingest_run_id)
+        )
+        """,
+        columns=("listing_key", "scope_key", "ingest_run_id"),
+    ),
+    TableSchema(
         name="cloud_baseline_ownership",
         ddl="""
         CREATE TABLE IF NOT EXISTS cloud_baseline_ownership (

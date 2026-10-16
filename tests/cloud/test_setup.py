@@ -175,6 +175,14 @@ def test_setup_is_read_only_by_default_then_prepares_iam_without_production_perm
     assert not any("secrets versions access" in call for call in calls)
     assert json.loads((tmp_path / "inventory/changes.json").read_text())["rollback_service_account_act_as"] == "existing-job@tatemono-map.iam.gserviceaccount.com"
 
+    # A completed IAM preparation is reused during the resumable activation;
+    # neither WIF bindings nor publication-reader binding is rewritten.
+    before = len(fake.calls)
+    monkeypatch.setattr(sys, "argv", args + ["--apply", "--activate", "--prepared-iam", "--no-dispatch", "--expected-job-image", "approved-image", "--reviewed-commit", "a" * 40, "--master", str(master), "--master-sha256", sha256(master)])
+    mod.main()
+    new_calls = [" ".join(call) for call in fake.calls[before:]]
+    assert not any("workflow run" in call or "attribute.role/" in call or "storage.objectViewer" in call or "providers create-oidc" in call for call in new_calls)
+
 
 @pytest.mark.parametrize("change,expected_error", [
     ({"projectNumber": "999"}, "bucket_project_mismatch"),

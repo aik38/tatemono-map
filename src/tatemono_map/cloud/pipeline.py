@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import uuid
 from pathlib import Path
@@ -76,6 +77,68 @@ def _prepare_scope(conn, config: dict, key: str) -> None:
     conn.execute("INSERT INTO cloud_scope_bindings VALUES (?,?,?)", (key, identity, baseline))
 
 
+def unit_room(value):
+    # Do not infer room identities from rents/areas/names or strip leading zeroes.
+    value = normal(value or "").replace(" ", "")
+    if value.endswith("号室"):
+        value = value[:-2]
+    if not re.fullmatch(r"(?:[1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|[1-9][0-9]*[A-Za-z]+)", value):
+        raise CollectionError("legacy_unit_identity_ambiguous")
+    return value
+
+
+def prepare_unit_overlaps(conn, key, run):
+    """Aggregation equivalence, never company ownership or historical deletion."""
+    aliases = dict(conn.execute("SELECT alias_key,canonical_key FROM building_key_aliases"))
+    def canonical(value):
+        seen = set()
+        while value in aliases and aliases[value] != value:
+            if value in seen:
+                raise CollectionError("alias_cycle")
+            seen.add(value)
+            value = aliases[value]
+        return value
+    fresh = conn.execute("SELECT building_key,room_label FROM listings WHERE ingest_run_id=?", (run,)).fetchall()
+    units = {(canonical(b), unit_room(room)) for b, room in fresh}
+    if len(units) != len(fresh):
+        raise CollectionError("duplicate_canonical_pdf_units")
+    touched = {b for b, _ in units}
+    old = conn.execute("""SELECT l.listing_key,l.building_key,l.room_label,r.source
+        FROM listings l LEFT JOIN ingest_runs r ON r.id=l.ingest_run_id
+        WHERE l.source_kind='ulucks' AND l.ingest_run_id<>?
+        AND l.ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
+        AND NOT EXISTS (SELECT 1 FROM cloud_baseline_ownership o WHERE o.listing_key=l.listing_key)
+        """, (run,)).fetchall()
+    overlaps = 0
+    for listing, building, room, source in old:
+        building = canonical(building)
+        if building not in touched:
+            continue
+        # Missing legacy room cannot be assumed different from a new unit.
+        identity = (building, unit_room(room))
+        if identity in units:
+            if source and source.startswith("ulucks:"):
+                raise CollectionError("overlap_with_another_managed_scope")
+            conn.execute("INSERT INTO cloud_unit_overlaps VALUES (?,?,?)", (listing, key, run))
+            overlaps += 1
+    return overlaps
+
+
+def preservation_state(conn, limits=None):
+    # Keep every pre-existing historical row byte-for-byte. Hashes stay private.
+    tables = ("listings", "sale_listings", "raw_sources", "building_key_aliases", "source_priority")
+    if limits is None:
+        limits = {t: conn.execute(f'SELECT COALESCE(MAX(rowid),0) FROM "{t}"').fetchone()[0] for t in tables}
+    state = {}
+    for table, limit in limits.items():
+        h = hashlib.sha256()
+        for row in conn.execute(f'SELECT * FROM "{table}" WHERE rowid<=? ORDER BY rowid', (limit,)):
+            h.update(json.dumps(tuple(row), ensure_ascii=False, default=str).encode())
+            h.update(b"\n")
+        state[table] = h.hexdigest()
+    return limits, state
+
+
 def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: dict, work: Path, run_id: str, *, confirmed_zero: bool = False) -> dict:
     validate_master(master)
     empty = expected_rows == 0 and confirmed_zero and not pdfs
@@ -118,6 +181,7 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
         # Initial company ownership comes from the reviewed private baseline list.
         if not previous and not empty and config["baseline_listing_keys"] and expected_rows < len(config["baseline_listing_keys"]) * (1 - float(config.get("max_drop_ratio", 0.25))):
             raise CollectionError("baseline_row_count_drop_exceeds_limit")
+        preserved = preservation_state(conn)
         others = dict(conn.execute("SELECT source,ingest_run_id FROM current_ingest_snapshots WHERE source<>?", (key,)))
     report = ingest_master_import_csv(str(master), str(csv_path), source="ulucks", snapshot_source=key, snapshot_key=run_id, auto_seed_high_confidence=bool(config.get("auto_seed_high_confidence", False)))
     if report.attached_listings != expected_rows or report.unmatched_count or report.suspect_count:
@@ -127,12 +191,19 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
             row = conn.execute("SELECT canonical_name || char(0) || canonical_address FROM buildings WHERE building_id=?", (building_id,)).fetchone()
             if row is None or row[0] != value:
                 raise CollectionError("canonical_identity_changed")
+        # Bootstrap can assign NULL run IDs once; snapshot after that explicit
+        # migration so subsequent ingestion may only append historical records.
         set_current_snapshot(conn, key, report.ingest_run_id)
         if dict(conn.execute("SELECT source,ingest_run_id FROM current_ingest_snapshots WHERE source<>?", (key,))) != others:
             raise CollectionError("other_source_current_snapshot_changed")
         actual = conn.execute("SELECT COUNT(*) FROM listings WHERE ingest_run_id=?", (report.ingest_run_id,)).fetchone()[0]
         if actual != expected_rows:
             raise CollectionError("ingested_row_count_mismatch")
+        if preservation_state(conn, preserved[0])[1] != preserved[1]:
+            raise CollectionError("existing_private_records_changed")
+        overlaps = prepare_unit_overlaps(conn, key, report.ingest_run_id)
+        if conn.execute("PRAGMA foreign_key_check").fetchone():
+            raise CollectionError("master_foreign_key_error")
     rebuild(str(master))
     validate_master(master)
     counts = export_public(master, work / "public.sqlite3")
@@ -144,4 +215,4 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
             if row is None:
                 raise CollectionError("affected_building_summary_missing")
             proof.append(dict(zip(("building_key", "vacancy_count", "rent_yen_min", "rent_yen_max"), row)))
-    return {"scope_key": key, "acquisition_status": "confirmed_zero" if empty else "pdf_verified", "pdf_count": len(pdfs), "parsed_rows": len(frame), "attached_rows": actual, "ingest_run_id": report.ingest_run_id, "public_counts": counts, "proof": proof}
+    return {"scope_key": key, "legacy_overlap_rows": overlaps, "historical_rows_preserved": True, "acquisition_status": "confirmed_zero" if empty else "pdf_verified", "pdf_count": len(pdfs), "parsed_rows": len(frame), "attached_rows": actual, "ingest_run_id": report.ingest_run_id, "public_counts": counts, "proof": proof}

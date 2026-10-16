@@ -61,6 +61,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True, help="private infrastructure JSON; see cloud/setup.example.json")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--prepared-iam", action="store_true", help="reuse completed IAM preparation; activation only")
+    parser.add_argument("--no-dispatch", action="store_true", help="activation runner journals dispatch separately")
     parser.add_argument("--activate", action="store_true", help="after safety/master review only: bootstrap and enable production")
     parser.add_argument("--reviewed-commit", help="exact reviewed checkout AND main SHA required for activation")
     parser.add_argument("--expected-job-image", help="exact image from inspected inventory; prevents adopting an unexpected Job")
@@ -70,6 +72,8 @@ def main():
     parser.add_argument("--master-sha256")
     parser.add_argument("--output", type=Path, default=Path("work/gcp-setup"))
     args = parser.parse_args()
+    if args.prepared_iam and not args.activate:
+        raise SetupError("prepared_iam_requires_activation")
     if args.activate and not args.apply:
         raise SetupError("activation_requires_apply")
     if args.activate:
@@ -201,9 +205,15 @@ def main():
         existing = gc("secrets", "describe", config[field], "--format=json(name)", missing=True, json_output=True)
         if existing:
             versions = gc("secrets", "versions", "list", config[field], "--filter=state:ENABLED", "--limit=1", "--format=json(name)", json_output=True)
-            if not versions:
+            resume_contract = args.prepared_iam and field == "collection_secret" and path is not None
+            if resume_contract:
+                metadata = gc("secrets", "describe", config[field], "--format=json", json_output=True)
+                expected = hashlib.sha256(path.read_bytes()).hexdigest()[:63]
+                if metadata.get("labels", {}).get("tatemono-contract") != expected:
+                    raise SetupError("collection_contract_metadata_mismatch")
+            if not versions and not resume_contract:
                 raise SetupError("existing_secret_has_no_enabled_version: " + field)
-            if path:
+            if path and not resume_contract:
                 raise SetupError("existing_secret_is_reused_supply_no_file: " + field)
         elif not args.activate:
             raise SetupError("register_ulucks_login_in_console_before_preparation")
@@ -225,26 +235,42 @@ def main():
         if Path(str(args.master) + "-wal").exists():
             raise SetupError("close_and_checkpoint_master_before_transfer")
         if not needs_bootstrap and existing_head["master"]["sha256"] != args.master_sha256:
-            raise SetupError("reviewed_master_does_not_match_existing_head")
+            # SQLite backup changes file header/journal bytes. A successful
+            # bootstrap receipt binds its immutable output to the reviewed input.
+            if not (existing_head["report"].get("bootstrap") is True
+                    and existing_head["report"].get("input_master_sha256") == args.master_sha256
+                    and existing_head.get("source_commit") == args.reviewed_commit):
+                raise SetupError("reviewed_master_does_not_match_existing_head")
+            from tatemono_map.cloud.public_db import snapshot_sqlite
+            with tempfile.TemporaryDirectory(dir=args.output) as directory:
+                normalized = Path(directory) / "reviewed.sqlite3"
+                snapshot_sqlite(args.master, normalized)
+                if sha256(normalized) != existing_head["master"]["sha256"]:
+                    raise SetupError("bootstrap_output_does_not_match_reviewed_input")
+    if args.prepared_iam and (pool is None or provider is None or any(accounts[r] is None for r in ("runtime", "deployer", "publisher"))):
+        raise SetupError("completed_iam_preparation_missing")
     gc("services", "enable", *(APIS if args.activate else ("iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com", "secretmanager.googleapis.com", "storage.googleapis.com")))
     for role, name in ACCOUNTS.items():
         if role == "scheduler" and not args.activate:
             continue
         if accounts[role] is None:
             gc("iam", "service-accounts", "create", name, "--display-name", f"Tatemono {role}")
-    if pool is None:
-        gc("iam", "workload-identity-pools", "create", POOL, "--location=global", "--display-name=Tatemono GitHub main")
-    if provider is None:
-        # gcloud dictionary delimiter avoids commas inside CEL expressions.
-        mapping = "^~^" + "~".join(f"{k}={v}" for k, v in contract["attributeMapping"].items())
-        gc("iam", "workload-identity-pools", "providers", "create-oidc", PROVIDER, "--workload-identity-pool", POOL, "--location=global", "--issuer-uri", contract["issuerUri"], "--attribute-mapping", mapping, "--attribute-condition", contract["attributeCondition"])
-    for role in ("deployer", "publisher"):
-        principal = f"principalSet://iam.googleapis.com/projects/{number}/locations/global/workloadIdentityPools/{POOL}/attribute.role/{role}"
-        gc("iam", "service-accounts", "add-iam-policy-binding", email[role], "--member", principal, "--role=roles/iam.workloadIdentityUser")
+    if not args.prepared_iam:
+        if pool is None:
+            gc("iam", "workload-identity-pools", "create", POOL, "--location=global", "--display-name=Tatemono GitHub main")
+        if provider is None:
+            # gcloud dictionary delimiter avoids commas inside CEL expressions.
+            mapping = "^~^" + "~".join(f"{k}={v}" for k, v in contract["attributeMapping"].items())
+            gc("iam", "workload-identity-pools", "providers", "create-oidc", PROVIDER, "--workload-identity-pool", POOL, "--location=global", "--issuer-uri", contract["issuerUri"], "--attribute-mapping", mapping, "--attribute-condition", contract["attributeCondition"])
+        for role in ("deployer", "publisher"):
+            principal = f"principalSet://iam.googleapis.com/projects/{number}/locations/global/workloadIdentityPools/{POOL}/attribute.role/{role}"
+            gc("iam", "service-accounts", "add-iam-policy-binding", email[role], "--member", principal, "--role=roles/iam.workloadIdentityUser")
+        prefix = f"projects/_/buckets/{bucket}/objects/"
+        runtime_condition = "expression=" + " || ".join(f"resource.name.startsWith('{prefix}{path}')" for path in ("masters/", "backups/", "private-runs/", "public/", "state/")) + ",title=tatemono-cloud-runtime"
+        public_condition = f"expression=resource.name == '{prefix}state/current.json' || resource.name.startsWith('{prefix}public/'),title=tatemono-public-reader"
+        gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["publisher"], "--role=roles/storage.objectViewer", "--condition", public_condition)
     prefix = f"projects/_/buckets/{bucket}/objects/"
     runtime_condition = "expression=" + " || ".join(f"resource.name.startsWith('{prefix}{path}')" for path in ("masters/", "backups/", "private-runs/", "public/", "state/")) + ",title=tatemono-cloud-runtime"
-    public_condition = f"expression=resource.name == '{prefix}state/current.json' || resource.name.startsWith('{prefix}public/'),title=tatemono-public-reader"
-    gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["publisher"], "--role=roles/storage.objectViewer", "--condition", public_condition)
     if not args.activate:
         gc("secrets", "add-iam-policy-binding", config["login_secret"], "--member=serviceAccount:" + email["runtime"], "--role=roles/secretmanager.secretAccessor")
         print("IAM prepared only. No master/public write, Job change/run, Scheduler change, GitHub variable change or dispatch. Existing Secret values were not read.")
@@ -254,7 +280,9 @@ def main():
     gc("storage", "buckets", "update", "gs://" + bucket, "--versioning", "--public-access-prevention")
     for field, path in (("login_secret", args.login_file), ("collection_secret", args.collection_file)):
         if gc("secrets", "describe", config[field], "--format=json(name)", missing=True, json_output=True) is None:
-            gc("secrets", "create", config[field], "--replication-policy=automatic")
+            labels = ["--labels=tatemono-contract=" + hashlib.sha256(path.read_bytes()).hexdigest()[:63]] if field == "collection_secret" else []
+            gc("secrets", "create", config[field], "--replication-policy=automatic", *labels)
+        if path and not gc("secrets", "versions", "list", config[field], "--filter=state:ENABLED", "--limit=1", "--format=json(name)", json_output=True):
             gc("secrets", "versions", "add", config[field], "--data-file", str(path))
         gc("secrets", "add-iam-policy-binding", config[field], "--member=serviceAccount:" + email["runtime"], "--role=roles/secretmanager.secretAccessor")
     gc("run", "jobs", "add-iam-policy-binding", job, "--region", region, "--member=serviceAccount:" + email["deployer"], "--role=roles/run.developer")
@@ -299,8 +327,9 @@ def main():
     for name, value in variables.items():
         command(["gh", "variable", "set", name, "--repo", REPOSITORY, "--body", value])
     command(["gh", "variable", "set", "CLOUD_ENABLED", "--repo", REPOSITORY, "--body", "true"])
-    command(["gh", "workflow", "run", "cloud_deploy.yml", "--repo", REPOSITORY, "--ref", "main"])
-    print("Setup complete. GitHub deployment dispatched. Scheduler stays paused until successful collection; GitHub reports production verification separately. Subsequent code pushes deploy automatically.")
+    if not args.no_dispatch:
+        command(["gh", "workflow", "run", "cloud_deploy.yml", "--repo", REPOSITORY, "--ref", "main"])
+    print("Setup complete. " + ("Dispatch delegated to resumable runner. " if args.no_dispatch else "GitHub deployment dispatched. ") + "Scheduler stays paused until successful collection; GitHub reports production verification separately.")
 
 
 if __name__ == "__main__":

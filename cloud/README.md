@@ -132,3 +132,45 @@ Schedulerの更新後は毎時23分の確認で未公開releaseだけを検出�
 4. 本番: Pages deploy成功後の実URLで同一releaseと対象建物データを確認。
 
 mainには今回と無関係な既存テスト失敗があります。CIはcloud/coreの全件成功を必須とし、全体スイートは実際の変更前commitを別worktreeで実行して、新しい失敗が増えたら停止します。既存失敗のIDを固定除外せず、件数・残存失敗・修正された失敗をActions summaryへ明示します。全体テストがすべて成功したとは報告しません。
+
+## 初回移行 runner（IAM準備完了後）
+
+`cloud/initial_release.py` は既存Cloud Shellの正本と照合JSONを使用します。
+既定ではローカルの読取検査のみです。`--activate --reviewed-commit <mainの完全SHA>`
+を明示した場合にだけ本番設定・GCS bootstrap・Actions起動を行います。
+IAM準備、GitHubログイン、正本再アップロードは実行しません。
+
+- SHAと照合JSONの件数・履歴・ID指紋・優先順位を再照合し、別候補、曖昧な部屋番号、
+  未解決alias、未審査のGCS DB、既存設定の不一致は変更前に拒否します。
+- 会社8は `baseline_listing_keys=[]`, `legacy_policy=preserve_unknown` の新規scope。
+  旧明細の会社所有権は主張しません。既存明細・売買・raw履歴・優先順位・aliasの
+  既存行をハッシュで照合し、ingestによる上書きを拒否します。
+- 公開集計だけ、canonical建物と明確な部屋番号が一致する旧Ulucks行を重複として
+  除外します。会社別の所有移管ではありません。旧行はDBに残り、新scopeが次回その
+  部屋を掲載しなければ旧行が再び集計に入ります。旧全社分の鮮度更新を意味しません。
+  部屋が不明・未定・先頭ゼロなどの曖昧表記なら停止します。賃料や面積からは推測しません。
+  他の管理済scopeと同じ部屋が重なる場合も停止します。
+- `work/initial-release/progress.private.json` に進捗をatomic保存し、排他ロックを使用。
+  同じコマンドで再開します。setup完了後は再設定せず、Actionsは相関IDから再取得します。
+  dispatchの結果が不明な場合は二重起動せず停止し、API反映後の再開を待ちます。
+  既に失敗したActionsを自動で無限再実行しません。失敗した実収集は別途原因修正が必要です。
+- 外部サービスをまたぐ処理は単一トランザクションではありません。途中失敗時は完了済み
+  権限やimmutable backupが残ることがあります。正本headはgeneration一致時のみ更新し、
+  不明な孤立DBや同時変更は推測で採用しません。
+- 実収集成功後、既存workflow_run連携によるPages公開を待ち、本番のrelease markerと建物JSONをGCSのproofに照合。
+  Schedulerが月曜04:00 Asia/TokyoでENABLEDであることも確認します。
+  API反映・Pages公開の待機で停止した場合も同じコマンドから再開できます。
+- 一括実行ログ・DB・照合JSON・設定はignored `work/` のみ。Public GitHubには含めません。
+  登録済みログインSecretの値を取得・再登録しません。新規の収集条件Secretには、
+  秘密を含まない条件ファイルのchecksumラベルを付け、途中作成からの安全な再開に使います。
+
+実行前にレビュー済みmainへcheckoutし、既存venvで以下を実行します。
+
+```bash
+PYTHONPATH=src work/gcp-setup-venv/bin/python cloud/initial_release.py
+# 承認後のみ:
+PYTHONPATH=src work/gcp-setup-venv/bin/python cloud/initial_release.py --activate --reviewed-commit FULL_MAIN_SHA
+```
+
+成功の判定は末尾の `Verified: real collection/QC...` と進捗ファイルの
+`production_verified=true` です。CI成功・dispatch成功だけを完成として扱いません。

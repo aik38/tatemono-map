@@ -1,4 +1,5 @@
 name: Deploy Ulucks cloud collector
+run-name: ${{ inputs.activation_id && format('Ulucks initial {0}', inputs.activation_id) || 'Deploy Ulucks cloud collector' }}
 
 on:
   push:
@@ -11,6 +12,11 @@ on:
       - '.dockerignore'
       - '.github/workflows/cloud_deploy.yml'
   workflow_dispatch:
+    inputs:
+      activation_id:
+        description: Non-sensitive first activation correlation ID
+        required: false
+        type: string
 
 concurrency:
   group: ulucks-cloud-deployment
