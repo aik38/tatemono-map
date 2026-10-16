@@ -84,3 +84,20 @@ def test_alias_chain_shares_the_rental_selection_and_preserves_sale(master):
     assert row['vacancy_count'] == 1
     assert row['rental_current']['rents'] == [55000]
     assert row['sale_listing_count'] == 1
+
+
+def test_canonical_name_change_is_detected_even_when_address_is_null(master, config, pdf, tmp_path, monkeypatch):
+    import tatemono_map.cloud.pipeline as pipeline
+    from tatemono_map.cloud.collector import CollectionError
+    with connect(master) as conn:
+        other=conn.execute("SELECT building_id FROM buildings WHERE canonical_name='他社テストマンション'").fetchone()[0]
+        conn.execute('UPDATE buildings SET canonical_address=NULL WHERE building_id=?',(other,))
+    ingest=pipeline.ingest_master_import_csv
+    def changed_identity(*args,**kwargs):
+        result=ingest(*args,**kwargs)
+        with connect(master) as conn:
+            conn.execute("UPDATE buildings SET canonical_name='unintended-change' WHERE building_id=?",(other,))
+        return result
+    monkeypatch.setattr(pipeline,'ingest_master_import_csv',changed_identity)
+    with pytest.raises(CollectionError,match='canonical_identity_changed'):
+        pipeline.update_master(master,[pdf],1,config,tmp_path,'null-address-guard')

@@ -184,7 +184,9 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
     write_master_import_csv(frame, csv_path)
     with connect(master) as conn:
         counts_before = {t: conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('buildings', 'listings', 'sale_listings', 'raw_sources')}
-        canonical = dict(conn.execute("SELECT building_id, canonical_name || char(0) || canonical_address FROM buildings"))
+        # SQL concatenation becomes NULL if either attribute is NULL, masking
+        # a change to the other attribute. Preserve the two values separately.
+        canonical = {row[0]: tuple(row[1:]) for row in conn.execute("SELECT building_id, canonical_name, canonical_address FROM buildings")}
         _prepare_scope(conn, config, key)
         previous = conn.execute("SELECT COUNT(*) FROM listings WHERE ingest_run_id=(SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?)", (key,)).fetchone()[0]
         previous_buildings = {row[0] for row in conn.execute("SELECT DISTINCT building_key FROM listings WHERE ingest_run_id=(SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?)", (key,))}
@@ -201,8 +203,8 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
         raise CollectionError("ingest_unmatched_or_suspect_rows")
     with connect(master) as conn:
         for building_id, value in canonical.items():
-            row = conn.execute("SELECT canonical_name || char(0) || canonical_address FROM buildings WHERE building_id=?", (building_id,)).fetchone()
-            if row is None or row[0] != value:
+            row = conn.execute("SELECT canonical_name, canonical_address FROM buildings WHERE building_id=?", (building_id,)).fetchone()
+            if row is None or tuple(row) != value:
                 raise CollectionError("canonical_identity_changed")
         # Bootstrap can assign NULL run IDs once; snapshot after that explicit
         # migration so subsequent ingestion may only append historical records.
