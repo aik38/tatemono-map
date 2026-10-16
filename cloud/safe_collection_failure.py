@@ -60,13 +60,13 @@ def diagnostic():
         "ulucks_area_control_changed ulucks_area_filter_not_exclusive ulucks_search_http_failed "
         "ulucks_result_count_not_confirmed ulucks_print_link_not_verified ulucks_export_too_large "
         "ulucks_export_size_invalid ulucks_print_action_failed ulucks_original_pdf_not_received "
-        "ulucks_zero_result_not_stable ulucks_pdf_invalid ulucks_download_is_not_pdf "
+        "ulucks_zero_result_not_stable ulucks_company_scope_navigation_failed ulucks_pdf_invalid ulucks_download_is_not_pdf "
         "ulucks_pdf_invalid_or_no_extractable_text cloud_operation_failed legacy_unit_identity_ambiguous "
         "ulucks_parser_qc_failed pdf_rows_do_not_match_result_count ingest_unmatched_or_suspect_rows"
     ).split())
     stage_names=(
         "area_checkbox search_form company_title search_action print_action login_username "
-        "login_password login_action company_search company_link"
+        "login_password login_action company_search company_link company_row company_count_link"
     ).split()
     allowed.update(f"ulucks_ui_{stage}_{state}" for stage in stage_names for state in ("missing","ambiguous"))
     severity={}
