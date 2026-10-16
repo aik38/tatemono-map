@@ -34,7 +34,9 @@ def failed_before_update(state):
     deploy = [j for j in jobs if j['name'] == 'deploy' and j['conclusion'] == 'failure']
     if len(deploy) != 1:
         raise RuntimeError('previous_failed_deploy_job_ambiguous')
-    log = command(['gh','api',f"repos/{REPO}/actions/jobs/{deploy[0]['id']}/logs"])
+    # GitHub Actions logs may contain ANSI color escapes. Capture them privately;
+    # never display their raw contents on the terminal or in public diagnostics.
+    log = command(['gh','api',f"repos/{REPO}/actions/jobs/{deploy[0]['id']}/logs", '--allow-escape-sequences'])
     if BACKUP_FAILURE not in log or 'Private Job backup verified;' in log:
         raise RuntimeError('previous_failure_not_confirmed_before_job_update')
     return run

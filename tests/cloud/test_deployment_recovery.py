@@ -67,6 +67,9 @@ def test_recovery_preserves_registered_master_head_old_backup_and_progress(maste
     before=copy.deepcopy(state);head=store.read_head()
     objects={name:(copy.deepcopy(ref),path.read_bytes()) for name,(ref,path) in store.objects.items()}
     result=mod.prepare_recovery(state,'b'*40,config,directory,store,gc)
+    # The raw legacy Actions log includes ANSI escapes; gh must permit private capture.
+    log_calls=[c for c in calls if c[:2]==['gh','api'] and '/456/logs' in c[2]]
+    assert len(log_calls)==1 and '--allow-escape-sequences' in log_calls[0]
     assert result['previous_progress']==before
     assert state['setup_complete'] and state['dispatch_intent'] and state['deployment_run_id']==123
     assert state['commit']=='b'*40
