@@ -2,7 +2,7 @@
 
 実装対象は、ユーザー提供画面の `kitakyushu.ulucks.jp` → 会社検索 → 会社8（株式会社不動産中央情報センター）→ 小倉北区のみ →「（新）エリア・物件別で印刷」です。印刷APIのURL・パラメーターは生成しません。実際のリンクをクリックし、そのブラウザ通信を `route.fetch()` で転送して元PDFを捕捉します。inline / popup / XHRのPDFを扱い、ログインHTMLや印刷画面のスクリーンショットをPDFの代用にしません。
 
-**現時点でGCPの認証・実画面通信・本番公開は未実証です。** スクリーンショットからはDOMのlabel/form構造までは確定できません。実画面が契約と異なれば安全に停止し、前回の正本・公開版を維持します。通常Chromeのセッション共有を前提にしません。
+**IAM/WIF初期準備と検証済み正本のCloud Shell配置は完了。Ulucks実取得・DB更新・本番公開は未実証です。** スクリーンショットからはDOMのlabel/form構造までは確定できません。実画面が契約と異なれば安全に停止し、前回の正本・公開版を維持します。通常Chromeのセッション共有を前提にしません。
 
 ## 変更対象・権限・影響
 
@@ -31,6 +31,8 @@
 Cloud Schedulerはresource.nameによる条件をサポートするサービス一覧に含まれないため、単一Jobだけに効くIAM条件を仮定しません。デプロイSAにはプロジェクト内Schedulerの `cloudscheduler.jobs.get` / `cloudscheduler.jobs.enable` の2権限だけをcustom roleで付与し、コードでは設定した1つのJobのみを参照・再開します。他のSchedulerもIAM上は参照・再開可能になることが初回接続の権限上の影響です。作成・編集・削除・即時実行権限はありません。[IAM resource属性の対応一覧](https://docs.cloud.google.com/iam/docs/conditions-resource-attributes)、[Scheduler IAM](https://docs.cloud.google.com/scheduler/docs/access-control) を参照してください。
 
 ## 正本未確定のまま実行できる初回接続
+
+今回の環境では、この節の候補配置・認証・IAM準備は完了済みです。再実行せず、下の「正本・コードレビュー完了後の本番有効化」へ進みます。以下は未準備環境向けの説明です。
 
 `cloud/first_connect.sh` はPRブランチでも実行可能です。本番更新・Job実行・Secret値取得を行わず、既存GCP資産、Ulucks Secretのバージョン/状態/IAM、project内の全bucketと**過去世代を含むSQLite候補**、Cloud Shellの既存PoC配下・private入力配下を一括調査します。Jobの環境変数・引数は保存せず、SchedulerのHTTPヘッダー・Secret payloadは取得しません。CLIエラーの生出力は公開ログへ出しません。
 
@@ -65,39 +67,32 @@ GCS候補はgeneration指定・checksum検査でprivate `work/first-connect/cand
 
    Cloud Runが実行時に `projects/tatemono-map/secrets/tm-ulucks-login/versions/latest` を読みます。setupが実行SAを作成し、このSecretに `roles/secretmanager.secretAccessor` を付与します。コンソールで先に作ったSecretは値を読み出さず再利用し、バージョンを追加・上書きしません。既存Secretが無効状態なら停止します。
 
-2. 正本を照合します。添付CSV（2,249件 / alias 90件）は照合入力、添付 `public.sqlite3`（建物6,975件、listings/current/run=0）は公開派生物です。空のprivateテーブルが存在しても正本とは判定しません。`cloud/audit_master.py` とWindows用 `scripts/inspect_master_candidates.ps1` はID・alias解決・件数・currentの完了状態・ファイルSHAを読み取り専用で比較します。Windowsの既存 `data/`・backup、GCPの既存オブジェクト、Cloud ShellのPoCディレクトリを比較してください。日時や最大件数だけで自動選択しません。**真の最新正常版は、このセッションからWindows/GCPを読めないため未確定です。**
+2. 今回は配置済みの `work/initial-input/verified-master.sqlite3` と
+   `work/final-master-review.private.json` を再利用します。正本SHA、既存の履歴・件数・
+   canonical ID指紋・DB内alias・優先順位をrunnerが検査します。CSVの再配置、
+   Windowsからの再アップロード、公開DBからの正本生成は行いません。
 
-   ```powershell
-   pwsh -File scripts/inspect_master_candidates.ps1 -RepoPath <既存repo> -CanonicalCsv <提供buildings_master.csv> -AliasesCsv <提供building_key_aliases.csv>
-   ```
+3. 旧Ulucks明細の会社別所有範囲は未確定のため、会社8・小倉北区は
+   `baseline_listing_keys=[]`, `baseline_reviewed=true`, `legacy_policy=preserve_unknown`
+   の独立scopeにします。空配列は「旧明細がない」という意味ではなく、所有権を
+   証明して引き継ぐ旧キーがないことを示します。旧明細は削除・移管しません。
+   条件はrunnerが `work/initial-release/collection.private.json` に生成するため、
+   旧手順の `work/collection.private.json` の手編集は不要です。
+   実DBの部屋番号が曖昧な場合、検査条件や正本を書き換えて通過させず停止します。
 
-   privateな照合結果と選定した正本スナップショットを初回だけCloud Shellへ渡します。選定元を終了・checkpointし、WALを伴わないSQLiteとSHA-256を用意します。正本を公開DBやマスターCSVから新造して既存履歴を置き換える処理はありません。
-
-3. 同じ初回作業内でCloud Shellにmainを取得し、`work/` に次を置きます（public GitHubへpushしない）。
-
-   - `work/setup.private.json`: `cloud/setup.example.json` をコピー。`artifact_repository: AUTO` は現行Job imageが参照する既存registry、またはregion内に唯一あるDocker repositoryを選びます。複数候補で確定できない場合はprivate一覧を出して停止し、既存名を指定できます。新規作成はしません。
-   - `work/collection.private.json`: `cloud/collection.example.json` をコピー。正本内で、この会社・このエリアに属する旧Ulucks listingsの **listing_key全件** を `baseline_listing_keys` に設定し、確認後 `baseline_reviewed: true` にする。該当する旧明細が本当に無い場合に限り空配列。エリアだけで他社の行を推測して所有権を移さない。
-   - 選定したprivate正本。必要に応じWindowsの照合結果・canonical/alias CSVもprivate `work/` 配下へ。
-
-   Cloud Shellの `gcloud` と `gh` は本人アカウントで認証済みにします。SA鍵やADCファイルを新しく発行する必要はありません。`gh` の初回認証が必要なら、この一連の初期作業内で完了させます。
-
-   ```bash
-   bash cloud/bootstrap.sh --config work/setup.private.json
-   ```
-
-   `work/gcp-setup/inventory.json` に既存Job image・SA、bucket保護、WIF/Scheduler、Secret**名**、GCS内DB候補のobject/generationがまとまります。Secret値は取得しません。必要なGCS候補だけ世代を指定してprivate `work/` へ取得し、`audit_master.py` でWindows候補と照合します。bucketやregistryが違う場合も、ここで既存資産を確認して設定します。
-
-4. 表示された変更対象と権限を確認し、選定した正本のSHAと現行Job imageを指定して同じセットアップを適用します。
+4. main反映後、既存の `work/setup.private.json` とvenvをそのまま使って実行します。
+   IAM/WIF準備とGitHub CLI認証は繰り返しません。事前検査後にのみ承認済みの
+   追加権限・GCS bootstrap・Actions起動へ進みます。
 
    ```bash
-   bash cloud/bootstrap.sh --config work/setup.private.json \
-     --apply --activate --reviewed-commit '<レビュー済みmain SHA>' \
-     --expected-job-image '<inventoryの現行image>' \
-     --collection-file work/collection.private.json \
-     --master work/verified-master.sqlite3 --master-sha256 '<照合済みSHA-256>'
+   PYTHONPATH=src work/gcp-setup-venv/bin/python cloud/initial_release.py \
+     --activate --reviewed-commit '<実際に反映したmainの完全SHA>'
    ```
 
-   `tm-ulucks-login` は手順1の既存Secretを再利用します。`tm-ulucks-config` のみ、private設定ファイルから初回登録します。再実行時にこのSecretが既に存在すれば `--collection-file` を省略して再利用します（既存Secretの変更・ローテーションはしない）。setupは既存headを上書きせず、初回だけ正本と派生publicを保存します。`CLOUD_ENABLED=true` は最後に設定し、mainの `cloud_deploy.yml` を自動実行します。
+   runnerがSecretのメタデータと条件checksumを検査し、専用の収集条件Secretだけを
+   初回作成・安全に再利用します。既存ログインSecretの値を取得・変更しません。
+   `work/initial-release/progress.private.json` から再開し、二重dispatchを防ぎます。
+   低水準の `bootstrap.sh --apply --activate` は今回の実行入口にしません。
 
 以後はCloud Shellコマンド不要です。mainのコードpush → テスト → private image → 既存Job更新 → 1回収集 → Scheduler有効化 → Pages生成・本番確認までActionsが処理します。初回の実画面契約や正本の所有範囲に不一致があれば停止し、その不一致の解消が必要です。
 
@@ -112,7 +107,7 @@ GCS候補はgeneration指定・checksum検査でprivate `work/first-connect/cand
 - 既存名寄せを使い、unmatched・suspectがあれば公開を停止。high confidence auto-seedは初回既定OFFで、既存名寄せのフラグで選択可能。
 - 前回の対象件数から25%を超える減少は停止（private設定で上限50%まで）。**正常0件**は、正しい会社・唯一のエリアを保った2回の新しい成功検索が両方0件だった場合のみ区別して処理。PDF未取得・ログイン失敗を0件に変換しません。
 - `current_ingest_snapshots.source` に `ulucks:<scope-hash>` を追加し、providerは従来どおり `ulucks`。履歴のlistingキーはrun単位で分離し、他社・他source・前回runの行を上書きしません。
-- 初期の旧明細はprivateな所有範囲の設定により、対象scopeが成功した場合だけ集約対象から外します。元明細は削除しません。scopeの会社・エリア・初期所有範囲が変われば停止。
+- 今回の `preserve_unknown` では旧明細の所有範囲を設定しません。集約上は、既存canonical建物と明確な部屋番号が一致する重複だけを除外し、旧明細そのものは保持します。scopeの会社・エリア・設定の不一致、曖昧な部屋番号、他の管理済scopeとの重複は停止。
 - 建物IDと既存canonical名・住所を保護。賃貸順位 Ulucks > RealPro > Mansion Review賃貸、分譲は独立したMansion Review情報源を維持。
 - `publish_public.ps1` と同じ必須/任意テーブルコピー契約をPythonで実装。空室明細・raw・認証・PDFはpublicへコピーしません。簡易 `export_public_db.py` への置換ではありません。
 - 全QC後にだけ `state/current.json` を **generation一致のCAS** で更新。masterとpublicの参照を1つのcommitで切替。同時実行で負けたrunは再試行して勝者を上書きしません。
