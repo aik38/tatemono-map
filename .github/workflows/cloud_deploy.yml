@@ -59,7 +59,8 @@ jobs:
   deploy:
     needs: test
     # A repair merge must not race the resumable operator's explicit dispatch.
-    if: vars.CLOUD_ENABLED == 'true' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
+    # One controlled recovery on the reviewed PR merge; all other pushes remain test-only.
+    if: vars.CLOUD_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, 'ULUCKS_UI_ONESHOT_20261017')))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
@@ -99,9 +100,16 @@ jobs:
           push: true
           tags: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REPOSITORY }}/ulucks:${{ github.sha }}
       - name: Safely adopt existing Job and run complete collection
+        id: collect
+        continue-on-error: true
         env:
           COLLECTOR_IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.GCP_ARTIFACT_REPOSITORY }}/ulucks@${{ steps.image.outputs.digest }}
         run: python cloud/deploy_job.py
+      - name: Classify the actual Cloud Run failure without exposing private logs
+        if: steps.collect.outcome == 'failure'
+        run: |
+          python cloud/safe_collection_failure.py
+          exit 1
 
   diagnose_previous_job_read_only:
     # Only this merge commit triggers the diagnosis. Existing push deploy remains skipped.

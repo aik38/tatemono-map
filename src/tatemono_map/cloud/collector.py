@@ -63,23 +63,34 @@ def validate_config(config: dict) -> None:
         raise CollectionError("collection_limits_invalid")
 
 
-def only(locator):
+def only(locator, stage: str):
+    """Wait for the live UI before asserting a single observed element.
+
+    Playwright locator.count() returns immediately; calling it just after an
+    authenticated navigation mistakes an ordinary render delay for a changed UI.
+    Stage is a code-owned, non-sensitive identifier, never page text/HTML.
+    """
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+    try:
+        locator.first.wait_for(state="visible", timeout=30000)
+    except PlaywrightTimeoutError:
+        raise CollectionError("ulucks_ui_" + stage + "_missing") from None
     if locator.count() != 1:
-        raise CollectionError("ulucks_ui_contract_changed")
+        raise CollectionError("ulucks_ui_" + stage + "_ambiguous")
     return locator
 
 
 def _search_form(page):
-    area = only(page.get_by_label(AREA_LABEL, exact=True))
+    area = only(page.get_by_label(AREA_LABEL, exact=True), "area_checkbox")
     if area.get_attribute("type") != "checkbox":
         raise CollectionError("ulucks_area_control_changed")
-    form = only(area.locator("xpath=ancestor::form[1]"))
+    form = only(area.locator("xpath=ancestor::form[1]"), "search_form")
     return form, area
 
 
 def _assert_scope(page):
     title = page.get_by_text(re.compile(r"物件検索\s*[（(]\s*" + re.escape(COMPANY_LABEL) + r"\s*[）)]"))
-    only(title).wait_for(state="visible")
+    only(title, "company_title").wait_for(state="visible")
     form, area = _search_form(page)
     checked = form.locator('input[type="checkbox"]:checked')
     if checked.count() != 1 or not area.is_checked():
@@ -107,7 +118,7 @@ def _search(page) -> int:
     # Observe a real document/XHR response caused by the search. No fabricated
     # query parameters, city codes, form action or internal API endpoint.
     with page.expect_response(lambda r: urlsplit(r.url).netloc == urlsplit(ORIGIN).netloc and r.request.resource_type in ("document", "xhr", "fetch"), timeout=45000) as pending:
-        only(button).click()
+        only(button, "search_action").click()
     response = pending.value
     if response.status != 200:
         raise CollectionError("ulucks_search_http_failed")
@@ -123,7 +134,7 @@ def _search(page) -> int:
 
 def _capture_print(page, root: Path) -> tuple[list[Path], dict]:
     context = page.context
-    action = only(page.get_by_role("link", name=PRINT_LABEL))
+    action = only(page.get_by_role("link", name=PRINT_LABEL), "print_action")
     href = action.get_attribute("href")
     observed_href = urljoin(page.url, href or "")
     if not href or urlsplit(observed_href).netloc != urlsplit(ORIGIN).netloc:
@@ -184,20 +195,20 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Coll
         raise CollectionError("ulucks_login_page_unavailable")
     # The supplied login screen has one text input, one password input and a
     # ログイン action. Values are never embedded in selectors or persisted.
-    only(page.locator('input:not([type]):visible, input[type="text"]:visible, input[type="email"]:visible')).fill(credentials["username"])
-    only(page.locator('input[type="password"]:visible')).fill(credentials["password"])
+    only(page.locator('input:not([type]):visible, input[type="text"]:visible, input[type="email"]:visible'), "login_username").fill(credentials["username"])
+    only(page.locator('input[type="password"]:visible'), "login_password").fill(credentials["password"])
     login = page.get_by_role("button", name=re.compile(r"^ログイン$"))
     if login.count() == 0:
         login = page.get_by_role("link", name=re.compile(r"^ログイン$"))
-    only(login).click()
-    company_search = only(page.get_by_role("link", name="会社検索", exact=True))
+    only(login, "login_action").click()
+    company_search = only(page.get_by_role("link", name="会社検索", exact=True), "company_search")
     company_search.wait_for(state="visible", timeout=30000)
     company_search.click()
     # User supplied /company/lists/8. Find the real link in the company list,
     # then follow it; do not derive the print URL from this path.
-    company_link = only(page.locator('a[href="/company/lists/8"], a[href="' + ORIGIN + '/company/lists/8"]'))
+    company_link = only(page.locator('a[href="/company/lists/8"], a[href="' + ORIGIN + '/company/lists/8"]'), "company_link")
     company_link.click()
-    only(page.get_by_text(re.compile(r"物件検索\s*[（(]\s*" + re.escape(COMPANY_LABEL) + r"\s*[）)]"))).wait_for(state="visible")
+    only(page.get_by_text(re.compile(r"物件検索\s*[（(]\s*" + re.escape(COMPANY_LABEL) + r"\s*[）)]")), "company_title").wait_for(state="visible")
     count = _search(page)
     if count > int(config.get("max_rows", 5000)):
         raise CollectionError("ulucks_result_count_exceeds_limit")
