@@ -83,7 +83,7 @@ def diagnostic():
         payload=item.get("jsonPayload")
         text=" ".join([str(payload.get("code","")),str(payload.get("message",""))] if isinstance(payload,dict)
                       else [str(item.get("textPayload",""))])
-        codes.update(code for code in re.findall(r"\\b[a-z][a-z0-9_]{4,80}\\b",text) if code in allowed)
+        codes.update(code for code in re.findall(r"\b[a-z][a-z0-9_]{4,80}\b",text) if code in allowed)
         # Accept only an allowlisted structural projection of the collector's
         # own marker. Never forward arbitrary GCP log fields to public Actions.
         if text.startswith("ULUCKS_UI_SAFE="):
