@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from initial_release import REPO, EXPECTED, command, checkpoint, observe_deployment, verify_production
 from deployment_backup import safe_error
 from tatemono_map.cloud.collector import CollectionError
