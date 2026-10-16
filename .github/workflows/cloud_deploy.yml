@@ -60,7 +60,7 @@ jobs:
     needs: test
     # A repair merge must not race the resumable operator's explicit dispatch.
     # One controlled recovery on the reviewed PR merge; all other pushes remain test-only.
-    if: vars.CLOUD_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && contains(github.event.head_commit.message, 'ULUCKS_UI_ONESHOT_20261017')))
+    if: vars.CLOUD_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (contains(github.event.head_commit.message, 'ULUCKS_UI_ONESHOT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_COMPANY_ROW_ONESHOT_20261017'))))
     runs-on: ubuntu-latest
     timeout-minutes: 75
     permissions:
