@@ -105,7 +105,7 @@ jobs:
 
   diagnose_previous_job_read_only:
     # Only this merge commit triggers the diagnosis. Existing push deploy remains skipped.
-    if: github.repository == 'aik38/tatemono-map' && github.event_name == 'push' && contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_DIAG_38914804946')
+    if: github.repository == 'aik38/tatemono-map' && github.event_name == 'push' && (contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_DIAG_38914804946') || contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_FOLLOWUP_38914804946'))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -205,4 +205,78 @@ jobs:
           report['cloud_run_executions']=execution_state
           # Raw private stderr, full Job JSON and environment values are NEVER printed.
           print('SAFE_READ_ONLY_DIAGNOSIS_JSON='+json.dumps(report,ensure_ascii=False,sort_keys=True))
+          PY
+      - name: Correlate private error shape with existing Cloud Run execution inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,os,re,subprocess
+          from google.cloud import storage
+          project=os.environ['GCP_PROJECT_ID'];region=os.environ['GCP_REGION'];job=os.environ['GCP_JOB']
+          bucket=storage.Client(project=project).bucket(os.environ['GCP_BUCKET'])
+          def get(name):
+              obj=bucket.blob(name);obj.reload(timeout=30)
+              raw=obj.download_as_bytes(if_generation_match=int(obj.generation),timeout=45)
+              return raw
+          raw=get('deployment-backups/diagnostics/38914804946-1.log').decode('utf-8','replace')
+          intent=json.loads(get('deployment-backups/execution-intents/38914804946.json'))
+          # A deliberately restrictive vocabulary; neither private messages nor identifiers
+          # are copied verbatim into public Actions logs.
+          permitted=set(('error warning failed failure update updated updating job jobs operation '
+              'completed complete ready not invalid permission denied argument arguments '
+              'unrecognized flag flags could cannot access service account specified '
+              'container image env variable variables parsing format yaml value expected '
+              'requires required request response deadline exceeded timeout timed out '
+              'polling cancel cancelled aborted retry retries retrying creating replacing '
+              'reconciliation reconcile operation rejected conflict progress resource '
+              'already exists unable unavailable active execution executions succeeded '
+              'start starting started finishing finished waiting status code found '
+              'annotation annotations labels configuration spec task tasks memory cpu '
+              'google cloud run gcloud running was is in to at of and by the '
+              'internal api call unexpected none permission_denied invalid_argument '
+              'failed_precondition not_found unauthenticated').split())
+          shapes=[]
+          for line in raw.splitlines():
+              words=[w.lower() for w in re.findall(r'[A-Za-z][A-Za-z_-]{1,40}',line)]
+              allowed=[w for w in words if w in permitted]
+              shapes.append({'recognized_words':allowed[:25],'word_count':len(words),'has_ERROR_prefix':bool(re.search(r'\bERROR[: ]',line,re.I))})
+          result={'stderr_sha256':hashlib.sha256(raw.encode()).hexdigest(),'stderr_line_shapes':shapes,
+                  'prior_execution_count':len(intent.get('previous_executions',[]))}
+          def gc(*args):
+              r=subprocess.run(['gcloud',*args,'--project',project,'--quiet'],text=True,capture_output=True,timeout=75)
+              if r.returncode:return None,{'ok':False,'code':r.returncode}
+              try:return json.loads(r.stdout),{'ok':True}
+              except ValueError:return None,{'ok':False,'reason':'invalid_json'}
+          all_runs,rs=gc('run','jobs','executions','list','--job',job,'--region',region,'--format=json')
+          if isinstance(all_runs,list):
+              past=set(intent.get('previous_executions',[]))
+              new=[]
+              for item in all_runs:
+                  name=str((item.get('metadata') or {}).get('name',''))
+                  if name in past:continue
+                  status=item.get('status') or {}
+                  conditions=[{'type':c.get('type'),'status':c.get('status'),
+                    'reason':c.get('reason') if re.fullmatch(r'[A-Za-z0-9_-]{1,64}',str(c.get('reason',''))) else 'redacted'}
+                    for c in status.get('conditions',[]) if c.get('type') in ('Completed','Started','ResourcesAvailable','Ready')]
+                  new.append({'name_sha256_prefix':hashlib.sha256(name.encode()).hexdigest()[:12],
+                    'created':(item.get('metadata') or {}).get('creationTimestamp'),
+                    'completed':bool(status.get('completionTime')),
+                    'succeeded_count':status.get('succeededCount'),
+                    'failed_count':status.get('failedCount'),
+                    'cancelled_count':status.get('cancelledCount'),
+                    'conditions':conditions})
+              result['executions_not_in_pre_update_intent']=new
+              result['current_execution_count']=len(all_runs)
+          else:result['execution_query']=rs
+          info,st=gc('run','jobs','describe',job,'--region',region,'--format=json')
+          if info:
+              status=info.get('status') or {}
+              result['job_status']={'generation':str((info.get('metadata') or {}).get('generation')),
+                'observed_generation':str(status.get('observedGeneration','')),
+                'conditions':[{'type':c.get('type'),'status':c.get('status'),
+                  'reason':c.get('reason') if re.fullmatch(r'[A-Za-z0-9_-]{1,64}',str(c.get('reason',''))) else 'redacted'}
+                  for c in status.get('conditions',[]) if c.get('type') in ('Ready','Completed','ResourcesAvailable')]}
+          else:result['job_query']=st
+          print('SAFE_FOLLOWUP_DIAGNOSIS_JSON='+json.dumps(result,ensure_ascii=False,sort_keys=True))
           PY
