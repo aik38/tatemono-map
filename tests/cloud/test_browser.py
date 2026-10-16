@@ -178,13 +178,13 @@ def test_ui_locator_errors_have_safe_stage_codes():
 
 
 @pytest.mark.parametrize("markup,reason", [
-    ('<input type="submit" value="検　索">', "exact_label"),
-    ('<button type="button">検 索</button>', "exact_label"),
-    ('<input type="submit" value="検索実行">', "common_search_label"),
+    ('<input type="submit" value="検　索">', "form_exact_label"),
+    ('<button type="button">検 索</button>', "form_exact_label"),
+    ('<input type="submit" value="検索実行">', "form_common_search_label"),
     ('<button type="submit" aria-label="search" style="width:40px;height:24px"></button>',
-     "search_attribute"),
+     "form_search_attribute"),
     ('<button type="submit" style="width:40px;height:24px"></button>',
-     "unique_form_submit"),
+     "form_unique_submit"),
 ])
 def test_search_action_is_selected_from_actual_dom_not_assumed_accessible_role(markup, reason, tmp_path):
     import json
@@ -223,5 +223,28 @@ def test_area_activation_uses_only_observed_associated_label(tmp_path):
             observation = json.loads((tmp_path / "ulucks-ui.private.json").read_text())
             assert observation["area_activation"]["after"]["input_checked"] is True
             assert "target" not in str(observation)
+        finally:
+            browser.close()
+
+
+def test_observed_company_menu_link_must_never_override_unique_search_form_submit(tmp_path):
+    import json
+    from tatemono_map.cloud.collector import _observed_search_action
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            # Synthetic structure reproducing live four-candidate observation:
+            # outside menu search links, then two in-form submits, only one
+            # carrying search intent. No actual member HTML is stored.
+            page.set_content('''<a href="/company">物件検索</a>
+                <a href="/elsewhere">検索結果を見る</a>
+                <form><input type="submit" value="この物件を検索する">
+                <input type="submit" value="入力を解除する"></form>''')
+            action = _observed_search_action(page, tmp_path / "pdf", page.locator("form"))
+            assert action.evaluate("el => el.value") == "この物件を検索する"
+            record = json.loads((tmp_path / "ulucks-ui.private.json").read_text())["search_action_observed"]
+            assert record["selection_reason"] == "form_search_label"
+            assert record["search_related_count"] == 4
         finally:
             browser.close()
