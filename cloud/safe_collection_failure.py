@@ -64,7 +64,9 @@ def diagnostic():
         "ulucks_pdf_invalid_or_no_extractable_text cloud_operation_failed legacy_unit_identity_ambiguous "
         "ulucks_parser_qc_failed pdf_rows_do_not_match_result_count ingest_unmatched_or_suspect_rows "
         "ulucks_company_target_links_ambiguous ui_observation_private_upload_failed ulucks_search_browser_failed ulucks_print_browser_failed "
-        "ulucks_area_label_ambiguous ulucks_area_target_not_in_form ulucks_nonempty_search_text_requires_review"
+        "ulucks_area_label_ambiguous ulucks_area_target_not_in_form ulucks_nonempty_search_text_requires_review "
+        "ulucks_area_dom_contract_invalid ulucks_area_observed_label_unavailable ulucks_area_not_activated "
+        "ulucks_search_action_not_unique"
     ).split())
     stage_names=(
         "area_checkbox search_form company_title search_action print_action login_username "
@@ -115,6 +117,43 @@ def diagnostic():
                         ui_structure.append({"stage":"area_controls",
                             "recognized_ward_controls":record["recognized_ward_controls"],
                             "initially_checked_wards":record["initially_checked_wards"]})
+                elif record.get("stage") == "area_activation":
+                    fields = ("input_connected", "input_is_checkbox", "input_visible", "input_disabled",
+                              "input_checked", "associated_label_visible", "label_wraps_input", "label_for_input")
+                    safe = {"stage": "area_activation"}
+                    for label in ("before", "after_native_failure", "after"):
+                        area = record.get(label)
+                        if isinstance(area, dict) and all(type(area.get(k)) is bool for k in fields) and (
+                                type(area.get("associated_label_count")) is int
+                                and 0 <= area["associated_label_count"] <= 10):
+                            safe[label] = {k: area[k] for k in fields}
+                            safe[label]["associated_label_count"] = area["associated_label_count"]
+                    if record.get("method") in ("native_check", "already_checked", "observed_associated_label_click"):
+                        safe["method"] = record["method"]
+                    for label in ("first_error_class", "label_error_class"):
+                        if record.get(label) in ("TimeoutError", "Error", "TargetClosedError", "other"):
+                            safe[label] = record[label]
+                    for label in ("first_error_reason", "label_error_reason"):
+                        if record.get(label) in ("pointer_intercepted", "not_visible", "element_detached",
+                                                 "disabled", "outside_viewport", "timeout", "other"):
+                            safe[label] = record[label]
+                    ui_structure.append(safe)
+                elif record.get("stage") == "search_action_observed":
+                    kinds = record.get("matched_control_types")
+                    if (type(record.get("candidate_count")) is int
+                        and 0 <= record["candidate_count"] <= 100
+                        and type(record.get("exact_search_count")) is int
+                        and 0 <= record["exact_search_count"] <= 100
+                        and isinstance(kinds, list)
+                        and len(kinds) <= 4
+                        and all(isinstance(c, dict)
+                                and c.get("tag") in ("button", "input", "a", "div", "span")
+                                and c.get("type") in ("submit", "button", "image", "other")
+                                for c in kinds)):
+                        ui_structure.append({"stage": "search_action_observed",
+                            "candidate_count": record["candidate_count"],
+                            "exact_search_count": record["exact_search_count"],
+                            "matched_control_types": kinds})
                 elif record.get("stage") == "search_exception":
                     operation=record.get("operation")
                     if operation in ("form_lookup","area_controls","area_other_wards_clear",
