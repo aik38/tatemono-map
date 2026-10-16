@@ -105,6 +105,7 @@ def test_known_dispatch_intent_is_observed_without_setup_or_new_dispatch(tmp_pat
         calls.append(args)
         if 'rev-parse' in args or '.object.sha' in args:return 'b'*40
         if 'status' in args:return ''
+        if args[:3]==['gh','variable','list']:return [{'name':'CLOUD_ENABLED','value':'true'}]
         if args[:3]==['gcloud','auth','print-access-token']:return 'synthetic-token'
         pytest.fail('unexpected operation')
     monkeypatch.setattr(mod,'command',command)
@@ -133,6 +134,7 @@ def test_recovery_dispatches_once_preserves_old_progress_and_reuses_new_run(tmp_
         calls.append(args)
         if 'rev-parse' in args or '.object.sha' in args:return 'b'*40
         if 'status' in args:return ''
+        if args[:3]==['gh','variable','list']:return [{'name':'CLOUD_ENABLED','value':'true'}]
         if args[:3]==['gcloud','auth','print-access-token']:return 'synthetic-token'
         if args[:3]==['gh','workflow','run']:
             recorded=json.loads(path.read_text())

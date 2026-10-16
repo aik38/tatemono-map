@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from initial_release import REPO, EXPECTED, command, checkpoint, observe_deployment, verify_production
 from deployment_backup import safe_error
+from tatemono_map.cloud.collector import CollectionError
 
 LEGACY_COMMIT = '2379cfc9f2edd614224d5eba48d294d4fdfed6a7'
 BACKUP_FAILURE = 'GCP deployment operation failed: storage cp work/previous-job.yaml'
@@ -145,6 +146,9 @@ def main():
         raise RuntimeError('recovery_requires_clean_reviewed_main')
     if config['project'] != 'tatemono-map' or config['region'] != 'asia-northeast1':
         raise RuntimeError('unexpected_recovery_project_or_region')
+    variables = command(['gh','variable','list','--repo',REPO,'--json','name,value'], json_output=True)
+    if not any(v['name'] == 'CLOUD_ENABLED' and v['value'] == 'true' for v in variables):
+        raise RuntimeError('recovery_requires_existing_cloud_enabled_state')
     def gc(*items):
         return command(['gcloud',*items,'--project',config['project'],'--quiet'])
     from google.cloud import storage
@@ -181,5 +185,9 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as exc:
-        message = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
+        message = str(exc) if isinstance(exc, (RuntimeError, CollectionError)) else json.dumps({'type':type(exc).__name__, **safe_error(exc)})
+        directory = Path('work/initial-release'); directory.mkdir(parents=True, exist_ok=True)
+        raw = directory / 'recovery-error.private.log'
+        raw.write_text(str(exc)); raw.chmod(0o600)
+        checkpoint(directory / 'recovery-error.private.json', {'reason':message})
         raise SystemExit('Stopped safely; recovery progress retained. ' + message) from None
