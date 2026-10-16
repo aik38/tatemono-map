@@ -175,3 +175,47 @@ def test_ui_locator_errors_have_safe_stage_codes():
         only(Locator(0, True), 'company_link')
     with pytest.raises(CollectionError, match='^ulucks_ui_area_checkbox_ambiguous$'):
         only(Locator(2), 'area_checkbox')
+
+
+@pytest.mark.parametrize("markup", [
+    '<input type="submit" value="検　索">',
+    '<button type="button">検 索</button>',
+])
+def test_search_action_is_selected_from_actual_dom_not_assumed_accessible_role(markup, tmp_path):
+    import json
+    from tatemono_map.cloud.collector import _observed_search_action
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content('<form>' + markup + '</form>')
+            action = _observed_search_action(page, tmp_path / "pdf")
+            assert action.count() == 1
+            assert action.is_visible()
+            private = json.loads((tmp_path / "ulucks-ui.private.json").read_text())
+            assert private["search_action_observed"]["exact_search_count"] == 1
+            assert "検" not in str(private)
+        finally:
+            browser.close()
+
+
+def test_area_activation_uses_only_observed_associated_label(tmp_path):
+    import json
+    from tatemono_map.cloud.collector import _activate_observed_area
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content('''<form>
+                <label for="target">小倉北区</label>
+                <input id="target" type="checkbox" style="pointer-events:none">
+                <label><input type="checkbox">小倉南区</label></form>''')
+            target = page.get_by_label("小倉北区", exact=True)
+            _activate_observed_area(target, tmp_path / "pdf")
+            assert target.is_checked()
+            assert not page.get_by_label("小倉南区", exact=True).is_checked()
+            observation = json.loads((tmp_path / "ulucks-ui.private.json").read_text())
+            assert observation["area_activation"]["after"]["input_checked"] is True
+            assert "target" not in str(observation)
+        finally:
+            browser.close()
