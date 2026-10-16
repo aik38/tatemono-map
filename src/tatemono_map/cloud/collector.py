@@ -263,9 +263,10 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Coll
         if response is None or response.status != 200 or urlsplit(page.url).path.rstrip("/") != "/company/lists/8":
             raise CollectionError("ulucks_company_scope_navigation_failed")
         navigation = "authenticated_direct_verified"
-    only(page.get_by_text(re.compile(r"物件検索\\s*[（(]\\s*" + re.escape(COMPANY_LABEL) + r"\\s*[）)]")), "company_title").wait_for(state="visible")
+    only(page.get_by_text(re.compile(r"物件検索\s*[（(]\s*" + re.escape(COMPANY_LABEL) + r"\s*[）)]")), "company_title").wait_for(state="visible")
     observation["verified_company_title"] = True
     observation["navigation"] = navigation
+    print("ULUCKS_UI_SAFE=" + json.dumps({"stage": "company_title_verified", "navigation": navigation, "verified_company_title": True}, ensure_ascii=False), flush=True)
     (root.parent / "ulucks-ui.private.json").write_text(json.dumps(observation, ensure_ascii=False), encoding="utf-8")
     count = _search(page)
     if count > int(config.get("max_rows", 5000)):
