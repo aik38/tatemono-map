@@ -279,3 +279,14 @@ def test_bootstrap_receipt_binds_normalized_output_to_original_input(store, mast
     snapshot_sqlite(master, normalized)
     assert result['master']['sha256'] == sha256(normalized)
     assert sha256(master) == before
+
+
+def test_ingest_preserves_configured_source_priorities_and_old_timestamps(master, config, pdf, tmp_path):
+    # A fixed old timestamp reproduces the CI failure deterministically without
+    # relying on sleep or the speed of PDF parsing on a particular runner.
+    with connect(master) as conn:
+        conn.execute("UPDATE source_priority SET priority_rank=priority_rank*10,updated_at='2000-01-01 00:00:00'")
+        before = [tuple(r) for r in conn.execute('SELECT * FROM source_priority ORDER BY domain,source')]
+    update_master(master, [pdf], 1, config, tmp_path, 'preserve-priorities')
+    with readonly(master) as conn:
+        assert conn.execute('SELECT * FROM source_priority ORDER BY domain,source').fetchall() == before

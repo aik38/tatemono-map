@@ -935,10 +935,7 @@ def _seed_source_priority(conn: sqlite3.Connection) -> None:
         """
         INSERT INTO source_priority(domain, source, priority_rank, enabled, effective_from, effective_to)
         VALUES (?, ?, ?, 1, NULL, NULL)
-        ON CONFLICT(domain, source) DO UPDATE SET
-          priority_rank=excluded.priority_rank,
-          enabled=excluded.enabled,
-          updated_at=CURRENT_TIMESTAMP
+        ON CONFLICT(domain, source) DO NOTHING
         """,
         (
             ("rental", "ulucks", 1),
