@@ -177,11 +177,16 @@ def test_ui_locator_errors_have_safe_stage_codes():
         only(Locator(2), 'area_checkbox')
 
 
-@pytest.mark.parametrize("markup", [
-    '<input type="submit" value="検　索">',
-    '<button type="button">検 索</button>',
+@pytest.mark.parametrize("markup,reason", [
+    ('<input type="submit" value="検　索">', "exact_label"),
+    ('<button type="button">検 索</button>', "exact_label"),
+    ('<input type="submit" value="検索実行">', "common_search_label"),
+    ('<button type="submit" aria-label="search" style="width:40px;height:24px"></button>',
+     "search_attribute"),
+    ('<button type="submit" style="width:40px;height:24px"></button>',
+     "unique_form_submit"),
 ])
-def test_search_action_is_selected_from_actual_dom_not_assumed_accessible_role(markup, tmp_path):
+def test_search_action_is_selected_from_actual_dom_not_assumed_accessible_role(markup, reason, tmp_path):
     import json
     from tatemono_map.cloud.collector import _observed_search_action
     with sync_playwright() as pw:
@@ -189,11 +194,12 @@ def test_search_action_is_selected_from_actual_dom_not_assumed_accessible_role(m
         try:
             page = browser.new_page()
             page.set_content('<form>' + markup + '</form>')
-            action = _observed_search_action(page, tmp_path / "pdf")
+            action = _observed_search_action(page, tmp_path / "pdf", page.locator("form"))
             assert action.count() == 1
             assert action.is_visible()
             private = json.loads((tmp_path / "ulucks-ui.private.json").read_text())
-            assert private["search_action_observed"]["exact_search_count"] == 1
+            assert private["search_action_observed"]["selection_reason"] == reason
+            assert private["search_action_observed"]["search_related_count"] == 1
             assert "検" not in str(private)
         finally:
             browser.close()
