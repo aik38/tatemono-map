@@ -416,11 +416,14 @@ class UlucksParser:
     def parse(self, pdf_path: Path) -> ParseResult:
         rows: List[Dict[str, Any]] = []
         current_ward = ""
+        document_updated = ""
         with pdfplumber.open(str(pdf_path)) as pdf:
             for pi, page in enumerate(pdf.pages, start=1):
                 text = page.extract_text() or ""
                 text = normalize_pdf_text(text)
-                updated = parse_updated_at(text)
+                # The observed print has the issue date only on page one.
+                document_updated = parse_updated_at(text) or document_updated
+                updated = document_updated
                 ward_hint = current_ward or extract_ward_hint(text)
                 # The area/property print repeats the company's address only
                 # on page 1, and area headings can change within a page. Use
@@ -442,7 +445,7 @@ class UlucksParser:
                         previous_bottom = table.bbox[3]
                 else:
                     tables_with_hints = [(table, ward_hint) for table in (page.extract_tables() or [])]
-                for tb, table_ward in tables_with_hints:
+                for table_i, (tb, table_ward) in enumerate(tables_with_hints, start=1):
                     if not tb or len(tb) < 2:
                         continue
                     header = [normalize_pdf_text(c) for c in tb[0]]
@@ -472,6 +475,13 @@ class UlucksParser:
                         built_raw = re.sub(r"\s+", " ", built_raw).strip()
                         structure_raw = get_cell_text(r, idx, ["構造"])
                         raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")
+                        # Keep the existing CSV contract; the importer reads
+                        # labelled terms from raw_block. Positional values alone
+                        # lose their meaning at that boundary.
+                        for label in ('敷金', '礼金'):
+                            value = get_cell_text(r, idx, [label])
+                            if value:
+                                raw = f'{label}:{value}|' + raw
                         rows.append(
                             {
                                 "page": pi,
@@ -497,7 +507,7 @@ class UlucksParser:
                                 "file": pdf_path.name,
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
-                                "evidence_id": f"pdf:{pdf_path.name}#p={pi}#i={row_i}",
+                                "evidence_id": f"pdf:{pdf_path.name}#p={pi}#t={table_i}#i={row_i}",
                             }
                         )
         df = pd.DataFrame(rows)

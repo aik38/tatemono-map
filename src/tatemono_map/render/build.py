@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from tatemono_map.db.repo import connect
+from tatemono_map.normalize.effective_rentals import effective_rentals, canonical_key as resolve_canonical_key
 from tatemono_map.util.building_age import age_years_from_built_year_month
 from tatemono_map.util.text import normalize_text
 
@@ -229,7 +230,7 @@ def _format_text_label(values: list[object]) -> str | None:
     labels: list[str] = []
     for value in values:
         text = str(value or "").strip()
-        if not text or text in {"-", "--", "- -", "なし"}:
+        if not text or text in {"-", "--", "- -"}:
             continue
         if text not in labels:
             labels.append(text)
@@ -987,19 +988,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     sale_summary_map = {str(row["building_key"]): dict(row) for row in sale_summary_rows}
     alias_rows = conn.execute("SELECT alias_key, canonical_key FROM building_key_aliases").fetchall()
     alias_map = {str(row["alias_key"]): str(row["canonical_key"]) for row in alias_rows}
-    rental_terms_rows = conn.execute(
-        """
-        SELECT building_key, rent_yen, maint_yen, area_sqm, layout, deposit_text, key_money_text, floor_text
-        FROM listings
-        WHERE (
-            ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
-            OR (
-                ingest_run_id IS NULL
-                AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)
-            )
-        )
-        """
-    ).fetchall()
+    rental_terms_rows = effective_rentals(conn)
     rental_terms_map: dict[str, dict[str, list[object]]] = {}
     rental_current_map: dict[str, dict[str, object]] = {}
     sale_current_map: dict[str, dict[str, object]] = {}
@@ -1007,7 +996,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         building_key = str(row["building_key"] or "").strip()
         if not building_key:
             continue
-        canonical_key = alias_map.get(building_key, building_key)
+        canonical_key = resolve_canonical_key(building_key, alias_map)
         bucket = rental_terms_map.setdefault(canonical_key, {"deposit": [], "key_money": []})
         bucket["deposit"].append(row["deposit_text"])
         bucket["key_money"].append(row["key_money_text"])
@@ -1046,7 +1035,7 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         building_key = str(row["building_key"] or "").strip()
         if not building_key:
             continue
-        canonical_key = alias_map.get(building_key, building_key)
+        canonical_key = resolve_canonical_key(building_key, alias_map)
         current = sale_current_map.setdefault(
             canonical_key,
             {
@@ -1124,14 +1113,24 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     conn.close()
     for building in building_list:
         building_key = str(building.get("building_key"))
-        canonical_key = alias_map.get(building_key, building_key)
+        canonical_key = resolve_canonical_key(building_key, alias_map)
         building["sponsor"] = sponsor_map.get(str(building.get("building_key")))
         building["rental_summary"] = rental_summary_map.get(canonical_key) or rental_summary_map.get(building_key)
         building["sale_summary"] = sale_summary_map.get(canonical_key) or sale_summary_map.get(building_key)
-        rental_terms = rental_terms_map.get(canonical_key) or rental_terms_map.get(building_key) or {"deposit": [], "key_money": []}
+        summary = building['rental_summary'] or {}
+        rental_terms = rental_terms_map.get(canonical_key) or rental_terms_map.get(building_key) or {
+            'deposit': json.loads(summary.get('deposit_values_json') or '[]'),
+            'key_money': json.loads(summary.get('key_money_values_json') or '[]'),
+        }
         building["rental_deposit_label"] = _format_text_label(rental_terms.get("deposit", []))
         building["rental_key_money_label"] = _format_text_label(rental_terms.get("key_money", []))
-        building["rental_current"] = rental_current_map.get(canonical_key) or rental_current_map.get(building_key) or {}
+        building["rental_current"] = rental_current_map.get(canonical_key) or rental_current_map.get(building_key) or {
+            'rents': [summary[k] for k in ('rent_yen_min', 'rent_yen_max') if summary.get(k) is not None],
+            'maints': [summary[k] for k in ('maint_yen_min', 'maint_yen_max') if summary.get(k) is not None],
+            'areas': [summary[k] for k in ('area_sqm_min', 'area_sqm_max') if summary.get(k) is not None],
+            'layouts': json.loads(summary.get('layout_types_json') or '[]'),
+            'floors': json.loads(summary.get('floor_values_json') or '[]'),
+        }
         building["sale_current"] = sale_current_map.get(canonical_key) or sale_current_map.get(building_key) or {}
 
     deduped_buildings: dict[tuple[str, str], dict] = {}
@@ -1165,6 +1164,8 @@ def _build_buildings_payload(buildings: list[dict]) -> list[dict]:
                 "vacancy_count": b.get("vacancy_count"),
                 "rent_min": b.get("rent_yen_min"),
                 "rent_max": b.get("rent_yen_max"),
+                "maint_min": (b.get('rental_summary') or {}).get('maint_yen_min'),
+                "maint_max": (b.get('rental_summary') or {}).get('maint_yen_max'),
                 "sale_price_min": b.get("sale_price_yen_min"),
                 "sale_price_max": b.get("sale_price_yen_max"),
                 "sale_price_avg": b.get("sale_price_yen_avg"),

@@ -287,3 +287,19 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -m tatemono_map.cloud.verify_public --production
+
+      - uses: google-github-actions/auth@v2
+        if: vars.CLOUD_ENABLED == 'true'
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_PAGES_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        if: vars.CLOUD_ENABLED == 'true'
+      - name: Enable weekly collection after production verification
+        if: vars.CLOUD_ENABLED == 'true'
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_JOB: ${{ vars.GCP_JOB }}
+          GCP_SCHEDULER_JOB: ${{ vars.GCP_SCHEDULER_JOB }}
+        run: python cloud/enable_scheduler.py

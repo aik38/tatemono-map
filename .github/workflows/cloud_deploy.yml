@@ -73,6 +73,7 @@ jobs:
       GCP_RUNTIME_SERVICE_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT }}
       GCP_SCHEDULER_JOB: ${{ vars.GCP_SCHEDULER_JOB }}
       ULUCKS_CONFIG_SECRET: ${{ vars.ULUCKS_CONFIG_SECRET }}
+      ULUCKS_CONFIG_JSON: ${{ vars.ULUCKS_CONFIG_JSON }}
       ULUCKS_LOGIN_SECRET: ${{ vars.ULUCKS_LOGIN_SECRET }}
     steps:
       - uses: actions/checkout@v4

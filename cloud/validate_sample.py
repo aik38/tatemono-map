@@ -28,6 +28,8 @@ def main():
         "rows_by_area": {str(k): int(v) for k, v in wards.items()},
         "missing_rent": int(frame["rent_man"].isna().sum()), "missing_area_sqm": int(frame["area_sqm"].isna().sum()),
         "duplicate_units": int(frame.duplicated(["building_name", "address", "room"]).sum()),
+        "duplicate_evidence_ids": int(frame['evidence_id'].duplicated().sum()),
+        "missing_issue_date": int(frame['updated_at'].fillna('').eq('').sum()),
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")

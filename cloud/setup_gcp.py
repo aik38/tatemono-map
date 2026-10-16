@@ -68,10 +68,13 @@ def main():
     parser.add_argument("--expected-job-image", help="exact image from inspected inventory; prevents adopting an unexpected Job")
     parser.add_argument("--login-file", type=Path, help="new Secret only: private JSON username/password")
     parser.add_argument("--collection-file", type=Path, help="new Secret only: private collection contract")
+    parser.add_argument("--collection-config-env", action="store_true", help="use non-secret collection JSON; do not create or modify any Secret")
     parser.add_argument("--master", type=Path, help="latest verified private master SQLite; never public.sqlite3")
     parser.add_argument("--master-sha256")
     parser.add_argument("--output", type=Path, default=Path("work/gcp-setup"))
     args = parser.parse_args()
+    if args.collection_config_env and (not args.activate or not args.prepared_iam or not args.collection_file or args.login_file):
+        raise SetupError("collection_env_requires_prepared_activation_and_contract_only")
     if args.prepared_iam and not args.activate:
         raise SetupError("prepared_iam_requires_activation")
     if args.activate and not args.apply:
@@ -200,7 +203,10 @@ def main():
     if args.activate and args.expected_job_image != image:
         raise SetupError("expected_job_image_does_not_match_inventory")
     # Validate private inputs before any write. Existing secret values are not read.
-    secret_inputs = (("login_secret", args.login_file), ("collection_secret", args.collection_file)) if args.activate else (("login_secret", args.login_file),)
+    secret_inputs = (("login_secret", args.login_file), ("collection_secret", args.collection_file)) if args.activate and not args.collection_config_env else (("login_secret", args.login_file),)
+    if args.collection_config_env:
+        from tatemono_map.cloud.collector import validate_config
+        validate_config(json.loads(args.collection_file.read_text()))
     for field, path in secret_inputs:
         existing = gc("secrets", "describe", config[field], "--format=json(name)", missing=True, json_output=True)
         if existing:
@@ -278,7 +284,7 @@ def main():
     gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["runtime"], "--role=roles/storage.objectAdmin", "--condition", runtime_condition)
     gc("storage", "buckets", "add-iam-policy-binding", "gs://" + bucket, "--member=serviceAccount:" + email["deployer"], "--role=roles/storage.objectCreator", "--condition", f"expression=resource.name.startsWith('{prefix}deployment-backups/'),title=tatemono-job-config-backup")
     gc("storage", "buckets", "update", "gs://" + bucket, "--versioning", "--public-access-prevention")
-    for field, path in (("login_secret", args.login_file), ("collection_secret", args.collection_file)):
+    for field, path in (() if args.collection_config_env else (("login_secret", args.login_file), ("collection_secret", args.collection_file))):
         if gc("secrets", "describe", config[field], "--format=json(name)", missing=True, json_output=True) is None:
             labels = ["--labels=tatemono-contract=" + hashlib.sha256(path.read_bytes()).hexdigest()[:63]] if field == "collection_secret" else []
             gc("secrets", "create", config[field], "--replication-policy=automatic", *labels)
@@ -305,6 +311,7 @@ def main():
     elif set(role_info["includedPermissions"]) != set(permissions):
         raise SetupError("existing_scheduler_role_conflicts")
     gc("projects", "add-iam-policy-binding", project, "--member=serviceAccount:" + email["deployer"], "--role", f"projects/{project}/roles/{custom_role}", "--condition=None")
+    gc("projects", "add-iam-policy-binding", project, "--member=serviceAccount:" + email["publisher"], "--role", f"projects/{project}/roles/{custom_role}", "--condition=None")
     if scheduler is None:
         # The job is created and immediately paused, before cloud mode is enabled.
         # Schedule is weekly; default retries disabled to avoid duplicate collection.
@@ -324,6 +331,9 @@ def main():
         "ULUCKS_CONFIG_SECRET": f"projects/{project}/secrets/{config['collection_secret']}/versions/latest",
         "ULUCKS_LOGIN_SECRET": f"projects/{project}/secrets/{config['login_secret']}/versions/latest",
     }
+    if args.collection_config_env:
+        variables['ULUCKS_CONFIG_SECRET'] = ''
+        variables['ULUCKS_CONFIG_JSON'] = json.dumps(json.loads(args.collection_file.read_text()), ensure_ascii=False, separators=(',', ':'))
     for name, value in variables.items():
         command(["gh", "variable", "set", name, "--repo", REPOSITORY, "--body", value])
     command(["gh", "variable", "set", "CLOUD_ENABLED", "--repo", REPOSITORY, "--body", "true"])

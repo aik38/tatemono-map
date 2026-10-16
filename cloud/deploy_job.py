@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 
 def main():
     env = os.environ
-    for key in ("GCP_PROJECT_ID", "GCP_REGION", "GCP_JOB", "GCP_BUCKET", "GCP_ADOPT_IMAGE", "GCP_RUNTIME_SERVICE_ACCOUNT", "GCP_SCHEDULER_JOB", "ULUCKS_CONFIG_SECRET", "ULUCKS_LOGIN_SECRET", "GITHUB_SHA", "COLLECTOR_IMAGE"):
+    for key in ("GCP_PROJECT_ID", "GCP_REGION", "GCP_JOB", "GCP_BUCKET", "GCP_ADOPT_IMAGE", "GCP_RUNTIME_SERVICE_ACCOUNT", "GCP_SCHEDULER_JOB", "ULUCKS_LOGIN_SECRET", "GITHUB_SHA", "COLLECTOR_IMAGE"):
         if not env.get(key):
             raise SystemExit("missing deployment setting: " + key)
+    if not env.get('ULUCKS_CONFIG_JSON') and not env.get('ULUCKS_CONFIG_SECRET'):
+        raise SystemExit('missing collection contract')
+    if env.get('ULUCKS_CONFIG_JSON'):
+        import json
+        from tatemono_map.cloud.collector import validate_config
+        validate_config(json.loads(env['ULUCKS_CONFIG_JSON']))
     if env.get("GITHUB_REF") != "refs/heads/main" or env.get("GITHUB_REPOSITORY") != "aik38/tatemono-map":
         raise SystemExit("deployment is restricted to repository main")
     project, region, job = (env[k] for k in ("GCP_PROJECT_ID", "GCP_REGION", "GCP_JOB"))
@@ -32,12 +40,15 @@ def main():
     gc("storage", "cp", str(snapshot), name, "--if-generation-match=0")
     variables = {
         "TATEMONO_BUCKET": env["GCP_BUCKET"], "TATEMONO_SOURCE_COMMIT": env["GITHUB_SHA"],
-        "ULUCKS_CONFIG_SECRET": env["ULUCKS_CONFIG_SECRET"], "ULUCKS_LOGIN_SECRET": env["ULUCKS_LOGIN_SECRET"],
+        "ULUCKS_CONFIG_SECRET": env.get("ULUCKS_CONFIG_SECRET", ""), "ULUCKS_LOGIN_SECRET": env["ULUCKS_LOGIN_SECRET"],
+        "ULUCKS_CONFIG_JSON": env.get("ULUCKS_CONFIG_JSON", ""),
     }
+    if any('|' in value for value in variables.values()):
+        raise SystemExit('invalid environment delimiter in deployment setting')
     gc("run", "jobs", "update", job, "--region", region, "--image", env["COLLECTOR_IMAGE"],
        "--service-account", env["GCP_RUNTIME_SERVICE_ACCOUNT"], "--command=python", "--args=-m,tatemono_map.cloud.run",
        "--tasks=1", "--parallelism=1", "--max-retries=0", "--task-timeout=3600s", "--memory=2Gi", "--cpu=1",
-       "--update-env-vars", ",".join(f"{k}={v}" for k, v in variables.items()),
+       "--update-env-vars", "^|^" + "|".join(f"{k}={v}" for k, v in variables.items()),
        "--update-labels", f"managed-by=tatemono-cloud,source-commit={env['GITHUB_SHA']}")
     generation = gc("run", "jobs", "describe", job, "--region", region, "--format=value(metadata.generation)")
     try:
@@ -50,12 +61,7 @@ def main():
         raise SystemExit("collection failed; previous Job configuration restored; public release unchanged") from None
     finally:
         snapshot.unlink(missing_ok=True)
-    state = gc("scheduler", "jobs", "describe", env["GCP_SCHEDULER_JOB"], "--location", region, "--format=value(state)")
-    if state == "PAUSED":
-        gc("scheduler", "jobs", "resume", env["GCP_SCHEDULER_JOB"], "--location", region)
-    elif state != "ENABLED":
-        raise SystemExit("unexpected Scheduler state; inspect existing job")
-    print("Collection committed successfully; weekly Scheduler enabled. Pages must verify the public release separately.")
+    print("Collection committed successfully. Pages verifies production before enabling the weekly Scheduler.")
 
 
 if __name__ == "__main__":

@@ -26,8 +26,8 @@ def fetch(store, output: Path, marker: Path) -> dict:
     if counts != head["report"]["public_counts"]:
         raise CollectionError("public_counts_do_not_match_release")
     os.replace(staged, output)
-    proof_fields = ("building_key", "vacancy_count", "rent_yen_min", "rent_yen_max")
-    proof = [{key: row[key] for key in proof_fields} for row in report["proof"]]
+    proof_fields = ("building_key", "vacancy_count", "rent_yen_min", "rent_yen_max", "area_sqm_min", "area_sqm_max", "layout_types", "maint_yen_min", "maint_yen_max")
+    proof = [{key: row[key] for key in proof_fields if key in row} for row in report["proof"]]
     public_marker = {"schema": 1, "run_id": head["run_id"], "public_sha256": head["public"]["sha256"], "source_commit": head["source_commit"], "counts": counts, "proof": proof}
     marker.parent.mkdir(parents=True, exist_ok=True)
     marker.write_text(json.dumps(public_marker, ensure_ascii=False, sort_keys=True), encoding="utf-8")
