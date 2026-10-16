@@ -115,29 +115,52 @@ def _search(page, root: Path) -> int:
             "search_button_count": min(form.get_by_role("button", name=re.compile(r"^検\s*索$")).count(), 100),
             "search_link_count": min(form.get_by_role("link", name=re.compile(r"^検\s*索$")).count(), 100),
             "area_is_checked": area.is_checked(),
+            "page_search_button_count": min(page.get_by_role("button", name=re.compile(r"^検\s*索$")).count(), 100),
+            "page_search_link_count": min(page.get_by_role("link", name=re.compile(r"^検\s*索$")).count(), 100),
         }
         _append_ui_observation(root, "search_controls", shape)
         print("ULUCKS_UI_SAFE=" + json.dumps(shape, ensure_ascii=False), flush=True)
-        phase = "form_reset"
-        form.evaluate("form => form.reset()")
-        phase = "checkbox_clear"
-        for box in form.locator('input[type="checkbox"]').all():
-            box.uncheck()
-        phase = "text_clear"
+        # The observed member form has at least 100 checkboxes and eight
+        # selects. Clearing every checkbox/resetting every select changes
+        # unrelated criteria and can detach the area checkbox. Only known
+        # municipality-area controls are changed after live label lookup.
+        phase = "area_controls"
+        ward_labels = ("門司区", "小倉北区", "小倉南区", "若松区",
+                       "八幡東区", "八幡西区", "戸畑区")
+        area_controls = []
+        for label in ward_labels:
+            matches = form.get_by_label(label, exact=True)
+            if matches.count() > 1:
+                raise CollectionError("ulucks_area_label_ambiguous")
+            if matches.count() == 1:
+                if matches.get_attribute("type") != "checkbox":
+                    raise CollectionError("ulucks_area_control_changed")
+                area_controls.append((label, matches))
+        if not any(label == AREA_LABEL for label, _ in area_controls):
+            raise CollectionError("ulucks_area_target_not_in_form")
+        _append_ui_observation(root, "area_controls", {
+            "recognized_ward_controls": len(area_controls),
+            "initially_checked_wards": sum(c.is_checked() for _, c in area_controls),
+        })
+        phase = "area_other_wards_clear"
+        for label, control in area_controls:
+            if label != AREA_LABEL and control.is_checked():
+                control.uncheck()
+        phase = "text_filters_verify"
+        # Fresh direct navigation should have neutral text filters. Do not
+        # silently edit other search constraints if this assumption changes.
         for field in form.locator('input[type="text"], input[type="search"]').all():
-            field.fill("")
-        phase = "select_reset"
-        for select in form.locator("select").all():
-            option = select.locator("option").first
-            select.select_option(value=option.get_attribute("value") or "")
+            if field.input_value().strip():
+                raise CollectionError("ulucks_nonempty_search_text_requires_review")
         phase = "area_check"
-        area.check()
+        if not area.is_checked():
+            area.check()
         phase = "scope_verify_before"
         _assert_scope(page)
         phase = "search_action"
-        button = form.get_by_role("button", name=re.compile(r"^検\s*索$"))
+        button = page.get_by_role("button", name=re.compile(r"^検\s*索$"))
         if button.count() == 0:
-            button = form.get_by_role("link", name=re.compile(r"^検\s*索$"))
+            button = page.get_by_role("link", name=re.compile(r"^検\s*索$"))
         # Use only the actual browser request and response.
         phase = "search_response"
         with page.expect_response(lambda r: urlsplit(r.url).netloc == urlsplit(ORIGIN).netloc and r.request.resource_type in ("document", "xhr", "fetch"), timeout=45000) as pending:
