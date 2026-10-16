@@ -141,11 +141,14 @@ def diagnostic():
                 elif record.get("stage") == "search_action_observed":
                     categories = ("exact", "commonSearch", "searchText", "attributeHint", "submit", "inForm")
                     choices = record.get("candidate_structures")
-                    reasons = ("none", "exact_label", "common_search_label", "search_label",
-                               "search_attribute", "unique_form_submit",
-                               "ambiguous_exact_label", "ambiguous_common_search_label",
-                               "ambiguous_search_label", "ambiguous_search_attribute",
-                               "ambiguous_unique_form_submit")
+                    reasons = ("none", "form_exact_label", "form_common_search_label", "form_search_label",
+                               "form_search_attribute", "form_unique_submit", "external_exact_label",
+                               "external_common_search_label", "external_search_label", "external_search_attribute",
+                               "ambiguous_form_exact_label", "ambiguous_form_common_search_label",
+                               "ambiguous_form_search_label", "ambiguous_form_search_attribute",
+                               "ambiguous_form_unique_submit", "ambiguous_external_exact_label",
+                               "ambiguous_external_common_search_label", "ambiguous_external_search_label",
+                               "ambiguous_external_search_attribute")
                     if (type(record.get("candidate_count")) is int
                         and 0 <= record["candidate_count"] <= 500
                         and type(record.get("search_related_count")) is int
