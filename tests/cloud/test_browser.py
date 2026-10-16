@@ -13,7 +13,9 @@ from tatemono_map.cloud.collector import CollectionError, ORIGIN, collect_with_p
 @pytest.mark.parametrize("count,wrong_scope", [(1, False), (0, False), (1, True)])
 def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(config, pdf, tmp_path, count, wrong_scope):
     login = '<input type="text"><input type="password"><button onclick="location.href=\'/new\'">ログイン</button>'
-    company = '<a href="/company/lists/8">対象会社の物件</a>'
+    # Recreate the observed /company table: click the property's count link
+    # in the unique row with the reviewed company name (not its literal href).
+    company = '<table><tbody><tr><td>株式会社不動産中央情報センター入居推進</td><td><a href="/company/lists/8">1047</a></td></tr><tr><td>別の不動産会社</td><td><a href="/company/lists/9">200</a></td></tr></tbody></table>'
     search = '''<h2>物件検索（株式会社不動産中央情報センター）</h2>
 <a href="/observed-print-action?actual=1" target="_blank">(新)エリア・物件別で印刷</a>
 <form action="/company/lists/8" method="post">
