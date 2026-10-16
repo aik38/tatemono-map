@@ -39,7 +39,19 @@ class FakeCloud:
         words = " ".join(argv)
         if argv[0] == "gh":
             if argv[1:3] == ["variable", "list"]:
-                return self.variables
+                return copy.deepcopy(self.variables)
+            if argv[1:3] == ["variable", "set"]:
+                value = argv[argv.index('--body') + 1]
+                if not value:
+                    raise RuntimeError('GitHub rejects empty variable values')
+                self.variables = [v for v in self.variables if v['name'] != argv[3]]
+                self.variables.append({'name': argv[3], 'value': value})
+                return ''
+            if argv[1:3] == ["variable", "delete"]:
+                if not any(v['name'] == argv[3] for v in self.variables):
+                    raise RuntimeError('variable not found')
+                self.variables = [v for v in self.variables if v['name'] != argv[3]]
+                return ''
             if argv[-1] == ".object.sha":
                 return "a" * 40
             return {"id": 456, "owner_id": 789} if "--jq" in argv and argv[-1].startswith("{id") else "ok"
@@ -280,10 +292,13 @@ def test_conflicting_assets_stop_before_any_mutation(tmp_path, monkeypatch, targ
     assert not any(word in ("create", "enable", "add-iam-policy-binding", "update", "set") for call in fake.calls for word in call)
 
 
-def test_prepared_activation_with_environment_contract_never_mutates_secrets(master, config, tmp_path, monkeypatch):
+@pytest.mark.parametrize('stale_secret_variable', [False, True])
+def test_prepared_activation_with_environment_contract_never_mutates_secrets(master, config, tmp_path, monkeypatch, stale_secret_variable):
     from tatemono_map.cloud.public_db import sha256
     mod = module('setup_gcp')
     fake = FakeCloud()
+    if stale_secret_variable:
+        fake.variables = [{'name': 'ULUCKS_CONFIG_SECRET', 'value': 'old-config-reference'}]
     fake.pool = {'state':'ACTIVE'}
     fake.provider = {**fake.contract,'state':'ACTIVE'}
     fake.provider['oidc'] = {'issuerUri':fake.contract['issuerUri']}
@@ -307,6 +322,13 @@ def test_prepared_activation_with_environment_contract_never_mutates_secrets(mas
     assert not any('tm-ulucks-config' in call for call in secret_calls)
     variable=next(call for call in fake.calls if call[:4]==['gh','variable','set','ULUCKS_CONFIG_JSON'])
     assert json.loads(variable[-1]) == config
+    assert not any(c[:4] == ['gh','variable','set','ULUCKS_CONFIG_SECRET'] for c in fake.calls)
+    deletions = [c for c in fake.calls if c[:3] == ['gh','variable','delete']]
+    assert len(deletions) == int(stale_secret_variable)
+    if deletions:
+        assert deletions[0][3] == 'ULUCKS_CONFIG_SECRET'
+        assert fake.calls.index(variable) < fake.calls.index(deletions[0])
+    assert fake.calls[-1][:4] == ['gh','variable','set','CLOUD_ENABLED']
     assert not any(call[1:3]==['workflow','run'] for call in fake.calls)
 
 
@@ -354,3 +376,61 @@ def test_bootstrap_timeout_resumes_across_a_reviewed_fix_without_enabling_cloud_
     assert any(c[:4]==['gh','variable','set','CLOUD_ENABLED'] for c in fake.calls)
     assert not any(c[1:3]==['workflow','run'] for c in fake.calls)
     assert not any(c[:3] in (['gcloud','secrets','create'],['gcloud','secrets','add-iam-policy-binding']) for c in fake.calls)
+
+
+@pytest.mark.parametrize('failure', [None, 'json', 'delete'])
+def test_registered_bootstrap_resumes_variable_setup_without_regeneration_or_gcs_writes(master, config, tmp_path, monkeypatch, failure):
+    from types import SimpleNamespace
+    from conftest import MemoryStore
+    from tatemono_map.cloud.bootstrap import prepare, register
+    from tatemono_map.cloud.public_db import sha256
+    mod = module('setup_gcp'); fake = FakeCloud()
+    fake.pool = {'state': 'ACTIVE'}
+    fake.provider = {**fake.contract, 'state': 'ACTIVE', 'oidc': {'issuerUri': fake.contract['issuerUri']}}
+    fake.accounts = {name + '@tatemono-map.iam.gserviceaccount.com' for name in mod.ACCOUNTS.values()}
+    fake.variables = [{'name': 'ULUCKS_CONFIG_SECRET', 'value': 'obsolete-reference'},
+                      {'name': 'UNRELATED', 'value': 'preserve-me'}]
+    settings = tmp_path / 'setup.json'; settings.write_text((ROOT / 'cloud/setup.example.json').read_text())
+    bucket = json.loads(settings.read_text())['bucket']
+    contract = tmp_path / 'contract.json'; contract.write_text(json.dumps(config))
+    output = tmp_path / 'setup-output'; work = output / 'bootstrap'
+    store = MemoryStore(tmp_path / 'objects')
+    store.bucket = SimpleNamespace(list_blobs=lambda: [])
+    state = prepare(master, sha256(master), work, 'b'*40, bucket=bucket)
+    register(store, state, work)
+    before_head, before_generation = store.read_head()
+    before_files = {p: p.read_bytes() for p in work.iterdir()}
+    before_objects = {name: (copy.deepcopy(ref), path.read_bytes()) for name, (ref, path) in store.objects.items()}
+    def forbidden(*args, **kw):
+        raise AssertionError('registered DBs must never be regenerated or written')
+    for target in ('snapshot_sqlite', 'export_public', 'prepare', 'register'):
+        monkeypatch.setattr('tatemono_map.cloud.bootstrap.' + target, forbidden)
+    monkeypatch.setattr('tatemono_map.cloud.public_db.snapshot_sqlite', forbidden)
+    for target in ('upload', 'upload_verified', 'commit'):
+        monkeypatch.setattr(store, target, forbidden)
+    def command(argv, **kw):
+        if failure == 'json' and argv[:4] == ['gh','variable','set','ULUCKS_CONFIG_JSON']:
+            raise mod.SetupError('simulated variable failure')
+        if failure == 'delete' and argv[:3] == ['gh','variable','delete']:
+            raise mod.SetupError('simulated variable failure')
+        return fake(argv, **kw)
+    monkeypatch.setattr(mod, 'command', command)
+    monkeypatch.setattr('tatemono_map.cloud.storage.GCSStore', lambda *a, **kw: store)
+    monkeypatch.setattr(sys, 'argv', ['setup','--config',str(settings),'--apply','--activate','--prepared-iam','--no-dispatch',
+        '--collection-config-env','--collection-file',str(contract),'--resume-bootstrap','--previous-reviewed-commit','b'*40,
+        '--reviewed-commit','a'*40,'--expected-job-image','approved-image','--master',str(master),
+        '--master-sha256',sha256(master),'--output',str(output)])
+    if failure:
+        with pytest.raises(mod.SetupError, match='simulated variable failure'): mod.main()
+    else:
+        mod.main()
+    assert store.read_head() == (before_head, before_generation)
+    assert {p: p.read_bytes() for p in work.iterdir()} == before_files
+    assert {name: (ref, path.read_bytes()) for name, (ref, path) in store.objects.items()} == before_objects
+    assert store.downloads == [state['master']['object'], state['public']['object']]
+    assert not any(c[0] == 'gcloud' and c[1] == 'secrets' and c[2] not in ('list','describe','versions') for c in fake.calls)
+    assert not any(c[:3] == ['gcloud','secrets','versions'] and c[3] != 'list' for c in fake.calls)
+    enabled = [c for c in fake.calls if c[:4] == ['gh','variable','set','CLOUD_ENABLED']]
+    assert bool(enabled) == (failure is None)
+    assert {'name': 'UNRELATED', 'value': 'preserve-me'} in fake.variables
+    assert not any(c[1:3] == ['workflow','run'] for c in fake.calls)

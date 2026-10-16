@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 
 from tatemono_map.cloud.collector import CollectionError
@@ -71,6 +72,38 @@ def review_existing(store, state, work, candidates):
         checked = work / 'remote-review.sqlite3'
         store.download(ref, checked)
         checked.unlink()
+
+
+def verify_registered(store, head, generation, work, expected_sha256, source_commit, *, previous_commits=(), bucket=None):
+    """Resume after registration using only recorded objects; never rebuild/write."""
+    path = work / 'bootstrap-progress.private.json'
+    if not path.is_file():
+        raise CollectionError('bootstrap_registration_receipt_missing')
+    state = json.loads(path.read_text())
+    if (state.get('schema') != 1 or state.get('stage') != 'registered'
+            or state.get('input_master_sha256') != expected_sha256
+            or state.get('bucket') != bucket
+            or state.get('source_commit') not in (source_commit, *previous_commits)):
+        raise CollectionError('bootstrap_registration_binding_changed')
+    expected = {'schema': 1, 'qc': 'passed', 'run_id': state.get('run_id'),
+        'source_commit': state.get('source_commit'), 'master': state.get('master'), 'public': state.get('public'),
+        'report': {'bootstrap': True, 'input_master_sha256': state.get('input_master_sha256'),
+                   'public_counts': state.get('public_counts'), 'proof': []}}
+    validate_head(expected)
+    if head != expected or any(state[key]['sha256'] != state.get(key + '_sha256') for key in ('master', 'public')):
+        raise CollectionError('bootstrap_registration_head_changed')
+    for key in ('master', 'public'):
+        staged = work / (key + '.sqlite3')
+        if not staged.is_file() or sha256(staged) != state[key]['sha256']:
+            raise CollectionError('bootstrap_registered_file_changed')
+    # Download exactly the receipt's generations and verify the actual bytes.
+    # The staged DBs, receipt and state/current.json remain untouched.
+    with tempfile.TemporaryDirectory(prefix='registered-check-', dir=work) as directory:
+        for key in ('master', 'public'):
+            store.download(state[key], Path(directory) / (key + '.sqlite3'))
+    actual, observed_generation = store.read_head()
+    if observed_generation != generation or actual != head:
+        raise CollectionError('bootstrap_registration_head_changed')
 
 
 def register(store, state, work):

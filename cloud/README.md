@@ -189,6 +189,17 @@ generation-pinned download and SHA-256 comparison with the reviewed local
 snapshot. A response lost after the head commit is reconciled only if the entire
 head equals this registration's receipt; a different head is preserved.
 
+After `stage: registered`, setup resumes by checking the retained receipt,
+input/staged SHA-256 values, explicit previous reviewed commit and both recorded
+GCS generations. It hashes generation-pinned downloads and checks that the head
+and its generation have not changed during verification. It does not regenerate
+either DB, upload objects or write `state/current.json`.
+
+JSON configuration sets `ULUCKS_CONFIG_JSON` and deletes the obsolete Actions
+variable `ULUCKS_CONFIG_SECRET` only if it exists. Empty variable values are
+never submitted. This does not change the login Secret. `CLOUD_ENABLED=true`
+is set only after all variable writes and any required deletion succeed.
+
 A pre-journal interrupted activation may recover one matching `masters/<run>`
 object and its optional public pair. Their actual bytes must match the reviewed
 input's derived files. Unknown paths, multiple candidate masters, differing
