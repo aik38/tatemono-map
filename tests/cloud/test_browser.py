@@ -100,6 +100,8 @@ def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(con
                     import json
                     observation = json.loads((tmp_path / "ulucks-ui.private.json").read_text())
                     assert observation["verified_company_title"] is True
+                    assert observation["search_controls"]["checkbox_count"] == 2
+                    assert observation["search_completed"]["result_count"] == count
                     assert observation["expected_company_link_count"] == (0 if company_variant == "no_link" else 1)
                     assert "1047" not in str(observation)
                     if count:
