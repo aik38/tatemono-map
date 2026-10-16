@@ -71,10 +71,16 @@ def main():
     parser.add_argument("--collection-config-env", action="store_true", help="use non-secret collection JSON; do not create or modify any Secret")
     parser.add_argument("--master", type=Path, help="latest verified private master SQLite; never public.sqlite3")
     parser.add_argument("--master-sha256")
+    parser.add_argument("--resume-bootstrap", action="store_true", help="recover only byte-identical artifacts of an interrupted pre-dispatch activation")
+    parser.add_argument("--previous-reviewed-commit", action="append", default=[])
     parser.add_argument("--output", type=Path, default=Path("work/gcp-setup"))
     args = parser.parse_args()
     if args.collection_config_env and (not args.activate or not args.prepared_iam or not args.collection_file or args.login_file):
         raise SetupError("collection_env_requires_prepared_activation_and_contract_only")
+    if args.resume_bootstrap and (not args.activate or not args.prepared_iam):
+        raise SetupError("bootstrap_recovery_requires_prepared_activation")
+    if args.previous_reviewed_commit and not args.resume_bootstrap:
+        raise SetupError("previous_commits_require_bootstrap_recovery")
     if args.prepared_iam and not args.activate:
         raise SetupError("prepared_iam_requires_activation")
     if args.activate and not args.apply:
@@ -245,7 +251,7 @@ def main():
             # bootstrap receipt binds its immutable output to the reviewed input.
             if not (existing_head["report"].get("bootstrap") is True
                     and existing_head["report"].get("input_master_sha256") == args.master_sha256
-                    and existing_head.get("source_commit") == args.reviewed_commit):
+                    and existing_head.get("source_commit") in (args.reviewed_commit, *args.previous_reviewed_commit)):
                 raise SetupError("reviewed_master_does_not_match_existing_head")
             from tatemono_map.cloud.public_db import snapshot_sqlite
             with tempfile.TemporaryDirectory(dir=args.output) as directory:
@@ -253,6 +259,13 @@ def main():
                 snapshot_sqlite(args.master, normalized)
                 if sha256(normalized) != existing_head["master"]["sha256"]:
                     raise SetupError("bootstrap_output_does_not_match_reviewed_input")
+    prepared_bootstrap = None
+    if args.activate and needs_bootstrap:
+        from tatemono_map.cloud.bootstrap import prepare, review_existing
+        bootstrap_work = args.output / 'bootstrap'
+        prepared_bootstrap = prepare(args.master, args.master_sha256, bootstrap_work, args.reviewed_commit,
+            candidates=gcs_candidates, recover=args.resume_bootstrap, previous_commits=args.previous_reviewed_commit, bucket=bucket)
+        review_existing(store, prepared_bootstrap, bootstrap_work, gcs_candidates)
     if args.prepared_iam and (pool is None or provider is None or any(accounts[r] is None for r in ("runtime", "deployer", "publisher"))):
         raise SetupError("completed_iam_preparation_missing")
     gc("services", "enable", *(APIS if args.activate else ("iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com", "secretmanager.googleapis.com", "storage.googleapis.com")))
@@ -320,9 +333,8 @@ def main():
         gc("scheduler", "jobs", "pause", config["scheduler_job"], "--location", region)
         gc("scheduler", "jobs", "update", "http", config["scheduler_job"], "--location", region, "--schedule=0 4 * * 1")
     if needs_bootstrap:
-        from tatemono_map.cloud.run import bootstrap
-        with tempfile.TemporaryDirectory(prefix="tatemono-bootstrap-", dir=args.output) as directory:
-            bootstrap(store, args.master, args.master_sha256, Path(directory), command(["git", "rev-parse", "HEAD"]))
+        from tatemono_map.cloud.bootstrap import register
+        register(store, prepared_bootstrap, bootstrap_work)
     variables = {
         "GCP_PROJECT_ID": project, "GCP_REGION": region, "GCP_BUCKET": bucket, "GCP_JOB": job,
         "GCP_ARTIFACT_REPOSITORY": registry, "GCP_SCHEDULER_JOB": config["scheduler_job"], "GCP_ADOPT_IMAGE": image,

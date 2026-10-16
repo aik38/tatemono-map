@@ -308,3 +308,49 @@ def test_prepared_activation_with_environment_contract_never_mutates_secrets(mas
     variable=next(call for call in fake.calls if call[:4]==['gh','variable','set','ULUCKS_CONFIG_JSON'])
     assert json.loads(variable[-1]) == config
     assert not any(call[1:3]==['workflow','run'] for call in fake.calls)
+
+
+def test_bootstrap_timeout_resumes_across_a_reviewed_fix_without_enabling_cloud_early(master, config, tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from google.api_core.exceptions import NotFound
+    from conftest import MemoryStore
+    from tatemono_map.cloud.public_db import sha256
+    mod=module('setup_gcp');fake=FakeCloud();current='a'*40
+    fake.pool={'state':'ACTIVE'}
+    fake.provider={**fake.contract,'state':'ACTIVE','oidc':{'issuerUri':fake.contract['issuerUri']}}
+    fake.accounts={name+'@tatemono-map.iam.gserviceaccount.com' for name in mod.ACCOUNTS.values()}
+    class Store(MemoryStore):
+        def read_head(self):
+            if self.head is None:raise NotFound('not yet registered')
+            return super().read_head()
+    store=Store(tmp_path/'objects')
+    store.bucket=SimpleNamespace(list_blobs=lambda:[SimpleNamespace(name=name,size=path.stat().st_size,generation=ref['generation'],updated=None) for name,(ref,path) in store.objects.items()])
+    store.fail_upload_prefix='public/'
+    def command(args,**kw):
+        if args[:2]==['git','rev-parse'] or args[-1:]==['.object.sha']:return current
+        return fake(args,**kw)
+    monkeypatch.setattr(mod,'command',command)
+    monkeypatch.setattr('tatemono_map.cloud.storage.GCSStore',lambda *a,**kw:store)
+    settings=tmp_path/'setup.json';settings.write_text((ROOT/'cloud/setup.example.json').read_text())
+    contract=tmp_path/'contract.json';contract.write_text(json.dumps(config))
+    output=tmp_path/'setup-output'
+    def args(extra=()):
+        return ['setup','--config',str(settings),'--apply','--activate','--prepared-iam','--no-dispatch','--collection-config-env','--collection-file',str(contract),'--reviewed-commit',current,'--expected-job-image','approved-image','--master',str(master),'--master-sha256',sha256(master),'--output',str(output),*extra]
+    monkeypatch.setattr(sys,'argv',args())
+    with pytest.raises(RuntimeError,match='upload failure'):mod.main()
+    assert len(store.objects)==1 and store.head is None
+    progress=json.loads((output/'bootstrap/bootstrap-progress.private.json').read_text())
+    assert progress['stage']=='public_upload'
+    assert not any(c[:3]==['gh','variable','set'] for c in fake.calls)
+    current='b'*40;store.fail_upload_prefix=None
+    before=len(fake.calls)
+    monkeypatch.setattr(sys,'argv',args())
+    with pytest.raises(Exception,match='binding_changed'):mod.main()
+    assert not any('add-iam-policy-binding' in c for c in fake.calls[before:])
+    monkeypatch.setattr(sys,'argv',args(['--resume-bootstrap','--previous-reviewed-commit','a'*40]))
+    mod.main()
+    assert len(store.objects)==2 and store.head['run_id']==progress['run_id']
+    assert store.head['source_commit']=='a'*40
+    assert any(c[:4]==['gh','variable','set','CLOUD_ENABLED'] for c in fake.calls)
+    assert not any(c[1:3]==['workflow','run'] for c in fake.calls)
+    assert not any(c[:3] in (['gcloud','secrets','create'],['gcloud','secrets','add-iam-policy-binding']) for c in fake.calls)
