@@ -62,7 +62,8 @@ def diagnostic():
         "ulucks_export_size_invalid ulucks_print_action_failed ulucks_original_pdf_not_received "
         "ulucks_zero_result_not_stable ulucks_company_scope_navigation_failed ulucks_pdf_invalid ulucks_download_is_not_pdf "
         "ulucks_pdf_invalid_or_no_extractable_text cloud_operation_failed legacy_unit_identity_ambiguous "
-        "ulucks_parser_qc_failed pdf_rows_do_not_match_result_count ingest_unmatched_or_suspect_rows"
+        "ulucks_parser_qc_failed pdf_rows_do_not_match_result_count ingest_unmatched_or_suspect_rows "
+        "ulucks_company_target_links_ambiguous ui_observation_private_upload_failed"
     ).split())
     stage_names=(
         "area_checkbox search_form company_title search_action print_action login_username "
@@ -71,6 +72,7 @@ def diagnostic():
     allowed.update(f"ulucks_ui_{stage}_{state}" for stage in stage_names for state in ("missing","ambiguous"))
     severity={}
     codes=set()
+    ui_structure=[]
     for item in entries:
         resource=(item.get("resource") or {}).get("labels") or {}
         labels=item.get("labels") or {}
@@ -81,9 +83,32 @@ def diagnostic():
         payload=item.get("jsonPayload")
         text=" ".join([str(payload.get("code","")),str(payload.get("message",""))] if isinstance(payload,dict)
                       else [str(item.get("textPayload",""))])
-        codes.update(code for code in re.findall(r"\b[a-z][a-z0-9_]{4,80}\b",text) if code in allowed)
+        codes.update(code for code in re.findall(r"\\b[a-z][a-z0-9_]{4,80}\\b",text) if code in allowed)
+        # Accept only an allowlisted structural projection of the collector's
+        # own marker. Never forward arbitrary GCP log fields to public Actions.
+        if text.startswith("ULUCKS_UI_SAFE="):
+            try:
+                record=json.loads(text[len("ULUCKS_UI_SAFE="):])
+                if record.get("stage") == "company_row_observed":
+                    keys=("stage","target_row_unique","cell_count","link_count",
+                          "link_cell_indexes","expected_company_link_count")
+                    values={k:record[k] for k in keys if k in record}
+                    if (type(values.get("target_row_unique")) is bool
+                        and all(type(values.get(k)) is int and 0<=values[k]<=100
+                            for k in ("cell_count","link_count","expected_company_link_count"))
+                        and isinstance(values.get("link_cell_indexes"),list)
+                        and all(type(i) is int and 0<=i<100 for i in values["link_cell_indexes"][:100])):
+                        values["link_cell_indexes"]=values["link_cell_indexes"][:100]
+                        ui_structure.append(values)
+                elif record.get("stage") == "company_title_verified":
+                    if record.get("navigation") in ("observed_company_link","authenticated_direct_verified") and record.get("verified_company_title") is True:
+                        ui_structure.append({"stage":"company_title_verified","navigation":record["navigation"],
+                                             "verified_company_title":True})
+            except (ValueError, TypeError, KeyError):
+                pass
     out["log_severity_counts"]=severity
     out["safe_failure_codes"]=sorted(codes)
+    out["safe_ui_observation"]=ui_structure[-3:]
     return out
 
 
