@@ -118,3 +118,36 @@ def test_offsite_login_rejected(config):
     config["login_url"] = "https://attacker.example/login"
     with pytest.raises(CollectionError):
         validate_config(config)
+
+
+
+def test_live_locator_waits_for_async_element_then_checks_uniqueness():
+    """Navigation is async: an immediate count() would incorrectly report missing."""
+    from tatemono_map.cloud.collector import only
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser=pw.chromium.launch(headless=True)
+        try:
+            page=browser.new_page()
+            page.set_content('<div id="root"></div>')
+            page.evaluate("setTimeout(() => { const node = document.createElement('button'); node.id = 'later'; node.textContent = 'ready'; document.getElementById('root').appendChild(node); }, 50)")
+            assert only(page.locator('#later'), 'company_search').inner_text() == 'ready'
+        finally:
+            browser.close()
+
+
+def test_ui_locator_errors_have_safe_stage_codes():
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+    from tatemono_map.cloud.collector import only
+    class Locator:
+        def __init__(self, count, missing=False):
+            self.first=self
+            self._count=count
+            self.missing=missing
+        def wait_for(self, **kwargs):
+            if self.missing: raise PlaywrightTimeoutError("private page and URL must not leak")
+        def count(self): return self._count
+    with pytest.raises(CollectionError, match='^ulucks_ui_company_link_missing$'):
+        only(Locator(0, True), 'company_link')
+    with pytest.raises(CollectionError, match='^ulucks_ui_area_checkbox_ambiguous$'):
+        only(Locator(2), 'area_checkbox')
