@@ -280,3 +280,109 @@ jobs:
           else:result['job_query']=st
           print('SAFE_FOLLOWUP_DIAGNOSIS_JSON='+json.dumps(result,ensure_ascii=False,sort_keys=True))
           PY
+
+  diagnose_failed_collection_read_only:
+    # The authorized workflow is used only for this explicit, one-shot main merge.
+    # Never dispatches, updates, rolls back or executes the Cloud Run Job.
+    if: github.repository == 'aik38/tatemono-map' && github.event_name == 'push' && contains(github.event.head_commit.message, 'ULUCKS_EXECUTION_LOG_DIAG_38914804946')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_JOB: ${{ vars.GCP_JOB }}
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Read the one failed Cloud Run execution's logs safely
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,re,subprocess
+          project=os.environ['GCP_PROJECT_ID'];region=os.environ['GCP_REGION'];job=os.environ['GCP_JOB']
+          report={'mode':'read_only','target':'failed_execution_after_38914804946','gcp_mutations':False}
+          def command(args):
+              res=subprocess.run(['gcloud',*args,'--project',project,'--quiet'],text=True,capture_output=True,timeout=80)
+              if res.returncode:
+                  errors=[name for name,pattern in (
+                      ('PERMISSION_DENIED',r'PERMISSION_DENIED|permission denied|403'),
+                      ('NOT_FOUND',r'NOT_FOUND|not found|404'),
+                      ('UNAUTHENTICATED',r'UNAUTHENTICATED|401'),
+                      ('INVALID_ARGUMENT',r'INVALID_ARGUMENT|invalid argument|400'),
+                      ('DEADLINE_EXCEEDED',r'DEADLINE_EXCEEDED|timeout|timed out'))
+                      if re.search(pattern,res.stderr,re.I)]
+                  return None,{'success':False,'exit_code':res.returncode,'error_classes':errors}
+              try:return json.loads(res.stdout),{'success':True}
+              except ValueError:return None,{'success':False,'error_classes':['INVALID_JSON']}
+          rows,st=command(['run','jobs','executions','list','--job',job,'--region',region,'--format=json'])
+          if not isinstance(rows,list):
+              report['execution_lookup']=st
+          else:
+              eligible=[e for e in rows if (e.get('metadata') or {}).get('creationTimestamp','') >= '2026-10-16T14:24:20Z'
+                  and (e.get('metadata') or {}).get('creationTimestamp','') < '2026-10-16T14:26:10Z']
+              report['matching_execution_count']=len(eligible)
+              if len(eligible)==1:
+                  target=eligible[0];name=(target.get('metadata') or {}).get('name','')
+                  status=target.get('status') or {}
+                  report['execution']={'created':(target.get('metadata') or {}).get('creationTimestamp'),
+                      'completed':bool(status.get('completionTime')),
+                      'failed_count':status.get('failedCount'),
+                      'succeeded_count':status.get('succeededCount'),
+                      'conditions':[{'type':c.get('type'),'status':c.get('status'),
+                          'reason':c.get('reason') if re.fullmatch(r'[A-Za-z0-9_-]{1,64}',str(c.get('reason',''))) else 'redacted'}
+                          for c in status.get('conditions',[]) if c.get('type') in ('Completed','Started')]}
+                  query=('resource.type="cloud_run_job" AND resource.labels.job_name="'+job+
+                      '" AND timestamp>="2026-10-16T14:24:20Z" AND timestamp<="2026-10-16T14:26:10Z"')
+                  entries,log_state=command(['logging','read',query,'--limit=300','--format=json'])
+                  report['logging_query']=log_state
+                  if isinstance(entries,list):
+                      allowed={
+                         'cloud_operation_failed','ulucks_browser_failed','ulucks_credentials_incomplete',
+                         'ulucks_login_page_unavailable','ulucks_ui_contract_changed',
+                         'ulucks_area_control_changed','ulucks_area_filter_not_exclusive',
+                         'ulucks_search_http_failed','ulucks_result_count_not_confirmed',
+                         'ulucks_print_link_not_verified','ulucks_export_too_large',
+                         'ulucks_export_size_invalid','ulucks_print_action_failed',
+                         'ulucks_original_pdf_not_received','ulucks_zero_result_not_stable',
+                         'ulucks_pdf_invalid','ulucks_download_is_not_pdf',
+                         'ulucks_pdf_invalid_or_no_extractable_text',
+                         'master_integrity_failed','ulucks_parser_qc_failed',
+                         'legacy_unit_identity_ambiguous','pdf_rows_do_not_match_result_count',
+                         'ingest_unmatched_or_suspect_rows','previous_head_changed',
+                         'collection_failed','collection_committed'}
+                      exception_classes=('PermissionDenied','NotFound','Forbidden','Unauthenticated',
+                          'DefaultCredentialsError','RefreshError','KeyError','TypeError',
+                          'ValueError','AttributeError','TimeoutError','FileNotFoundError',
+                          'OperationalError','IntegrityError','RuntimeError','CollectionError',
+                          'GoogleAPICallError','ServiceUnavailable','ResourceExhausted',
+                          'BrowserTypeLaunchError','TargetClosedError')
+                      observed=[];other_severities={}
+                      for e in entries:
+                          labels=e.get('labels') or {};resource=(e.get('resource') or {}).get('labels') or {}
+                          execution=resource.get('execution_name') or labels.get('run.googleapis.com/execution_name') or ''
+                          if execution and execution != name:continue
+                          severity=str(e.get('severity','DEFAULT'))
+                          other_severities[severity]=other_severities.get(severity,0)+1
+                          payload=e.get('jsonPayload') if isinstance(e.get('jsonPayload'),dict) else {}
+                          snippets=[str(payload.get('code','')),str(payload.get('status','')),
+                              str(payload.get('message','')),str(e.get('textPayload',''))]
+                          message=' '.join(snippets)
+                          codes=sorted({m for m in re.findall(r'\b[a-z][a-z0-9_]{4,75}\b',message) if m in allowed})
+                          classes=[x for x in exception_classes if re.search(r'\b'+re.escape(x)+r'\b',message)]
+                          sdk_status=sorted(set(re.findall(r'\b(?:PERMISSION_DENIED|NOT_FOUND|INVALID_ARGUMENT|UNAUTHENTICATED|FAILED_PRECONDITION|RESOURCE_EXHAUSTED|DEADLINE_EXCEEDED|UNAVAILABLE)\b',message)))
+                          if codes or classes or sdk_status or severity in ('ERROR','CRITICAL','ALERT','EMERGENCY'):
+                              observed.append({'timestamp':e.get('timestamp'),'severity':severity,
+                                  'codes':codes,'exception_classes':classes,'gcp_statuses':sdk_status,
+                                  'payload_type':'structured' if payload else 'text'})
+                      report['execution_logs']={'total_queried':len(entries),'severity_counts':other_severities,
+                          'relevant_entries':observed[:40]}
+          # No raw logs, identifiers, credential values, URLs, or user data are printed.
+          print('SAFE_FAILED_EXECUTION_DIAGNOSIS='+json.dumps(report,sort_keys=True,ensure_ascii=False))
+          PY
