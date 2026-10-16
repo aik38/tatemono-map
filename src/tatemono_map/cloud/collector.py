@@ -320,7 +320,16 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Coll
             raise CollectionError("ulucks_zero_result_not_stable")
         return Collected([], 0, True, {"search_counts": [0, 0], "scope_verified": True, "company_navigation": navigation})
     root.mkdir(parents=True, exist_ok=True)
-    paths, evidence = _capture_print(page, root)
+    _append_ui_observation(root, "print_started", {"stage": "print_started"})
+    print('ULUCKS_UI_SAFE={"stage":"print_started"}', flush=True)
+    try:
+        paths, evidence = _capture_print(page, root)
+    except CollectionError:
+        raise
+    except Exception:
+        _append_ui_observation(root, "print_exception", {"stage": "print_exception"})
+        print('ULUCKS_UI_SAFE={"stage":"print_exception"}', flush=True)
+        raise CollectionError("ulucks_print_browser_failed") from None
     return Collected(paths, count, False, {**evidence, "acquired_at": datetime.now(timezone.utc).isoformat(), "search_counts": [count], "scope_verified": True, "company_navigation": navigation})
 
 
