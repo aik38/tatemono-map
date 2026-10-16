@@ -63,7 +63,7 @@ def diagnostic():
         "ulucks_zero_result_not_stable ulucks_company_scope_navigation_failed ulucks_pdf_invalid ulucks_download_is_not_pdf "
         "ulucks_pdf_invalid_or_no_extractable_text cloud_operation_failed legacy_unit_identity_ambiguous "
         "ulucks_parser_qc_failed pdf_rows_do_not_match_result_count ingest_unmatched_or_suspect_rows "
-        "ulucks_company_target_links_ambiguous ui_observation_private_upload_failed"
+        "ulucks_company_target_links_ambiguous ui_observation_private_upload_failed ulucks_search_browser_failed"
     ).split())
     stage_names=(
         "area_checkbox search_form company_title search_action print_action login_username "
@@ -100,6 +100,19 @@ def diagnostic():
                         and all(type(i) is int and 0<=i<100 for i in values["link_cell_indexes"][:100])):
                         values["link_cell_indexes"]=values["link_cell_indexes"][:100]
                         ui_structure.append(values)
+                elif record.get("stage") == "search_controls":
+                    names=("form_count","checkbox_count","checked_count","text_input_count",
+                           "select_count","search_button_count","search_link_count")
+                    if (all(type(record.get(k)) is int and 0<=record[k]<=100 for k in names)
+                        and type(record.get("area_is_checked")) is bool):
+                        ui_structure.append({"stage":"search_controls",
+                            **{k:record[k] for k in names}, "area_is_checked":record["area_is_checked"]})
+                elif record.get("stage") == "search_exception":
+                    operation=record.get("operation")
+                    if operation in ("form_lookup","form_reset","checkbox_clear","text_clear",
+                                     "select_reset","area_check","scope_verify_before","search_action",
+                                     "search_response","search_dom_ready","scope_verify_after","result_count"):
+                        ui_structure.append({"stage":"search_exception","operation":operation})
                 elif record.get("stage") == "company_title_verified":
                     if record.get("navigation") in ("observed_company_link","authenticated_direct_verified") and record.get("verified_company_title") is True:
                         ui_structure.append({"stage":"company_title_verified","navigation":record["navigation"],
@@ -108,7 +121,7 @@ def diagnostic():
                 pass
     out["log_severity_counts"]=severity
     out["safe_failure_codes"]=sorted(codes)
-    out["safe_ui_observation"]=ui_structure[-3:]
+    out["safe_ui_observation"]=ui_structure[-6:]
     return out
 
 
