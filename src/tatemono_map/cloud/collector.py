@@ -6,6 +6,7 @@ never persisted. Login values are supplied by Secret Manager at runtime.
 """
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
@@ -186,6 +187,42 @@ def _capture_print(page, root: Path) -> tuple[list[Path], dict]:
     return captured, {"print_action": "area_property", "responses": descriptors}
 
 
+def _observe_company_row(page, row, root: Path) -> tuple[list, dict]:
+    """Inspect the actual authenticated row; never export its text or raw HTML.
+
+    The private record contains only structural counts and boolean matches.
+    Link destinations are evaluated in memory, not guessed from table columns.
+    """
+    root.parent.mkdir(parents=True, exist_ok=True)
+    links = row.locator("a[href]").all()
+    cells = row.locator("td").all()
+    candidates = []
+    for link in links:
+        href = link.get_attribute("href") or ""
+        url = urlsplit(urljoin(page.url, href))
+        if (url.scheme == "https" and url.netloc == urlsplit(ORIGIN).netloc
+                and url.path.rstrip("/") == "/company/lists/" + COMPANY_ID
+                and not url.query and not url.fragment):
+            candidates.append(link)
+    report = {
+        "stage": "company_row_observed",
+        "target_row_unique": True,
+        "cell_count": min(len(cells), 100),
+        "link_count": min(len(links), 100),
+        "link_cell_indexes": [
+            i for i, cell in enumerate(cells[:100]) if cell.locator("a[href]").count()
+        ],
+        "expected_company_link_count": min(len(candidates), 100),
+    }
+    (root.parent / "ulucks-ui.private.json").write_text(
+        json.dumps(report, ensure_ascii=False), encoding="utf-8"
+    )
+    # This allowlisted structural summary may also be read from Cloud Logging.
+    # It contains no member text, URL, raw HTML, cookie, session or credentials.
+    print("ULUCKS_UI_SAFE=" + json.dumps(report, ensure_ascii=False), flush=True)
+    return candidates, report
+
+
 def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Collected:
     validate_config(config)
     if not credentials.get("username") or not credentials.get("password"):
@@ -204,20 +241,33 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Coll
     company_search = only(page.get_by_role("link", name="会社検索", exact=True), "company_search")
     company_search.wait_for(state="visible", timeout=30000)
     company_search.click()
-    # In the observed /company list, the selected company appears as a table
-    # row; its 2nd cell ("物件数") contains the link to that company's listings.
-    # Choose the link through the company name, not a hard-coded HTML href;
-    # after clicking, independently verify the reviewed company ID in the URL.
+    # Inspect the live row before deciding how to navigate. A column index
+    # inferred from a screenshot is never used as an operational selector.
     company_row = only(page.get_by_role("row").filter(
         has_text=re.compile(re.escape(COMPANY_LABEL))), "company_row")
-    company_link = only(company_row.locator("td").nth(1).get_by_role("link"), "company_count_link")
-    company_link.click()
-    try:
-        page.wait_for_url(lambda url: (urlsplit(str(url)).netloc == urlsplit(ORIGIN).netloc
-            and urlsplit(str(url)).path.rstrip("/") == "/company/lists/8"), timeout=30000)
-    except Exception:
-        raise CollectionError("ulucks_company_scope_navigation_failed") from None
+    candidates, observation = _observe_company_row(page, company_row, root)
+    if len(candidates) > 1:
+        raise CollectionError("ulucks_company_target_links_ambiguous")
+    if len(candidates) == 1:
+        candidates[0].click()
+        navigation = "observed_company_link"
+        try:
+            page.wait_for_url(lambda url: (urlsplit(str(url)).netloc == urlsplit(ORIGIN).netloc
+                and urlsplit(str(url)).path.rstrip("/") == "/company/lists/8"), timeout=30000)
+        except Exception:
+            raise CollectionError("ulucks_company_scope_navigation_failed") from None
+    else:
+        # A known, user-reviewed URL may be used ONLY inside the authenticated
+        # session, and ONLY after checking the target company heading below.
+        response = page.goto(config["search_url"], wait_until="domcontentloaded", timeout=45000)
+        if response is None or response.status != 200 or urlsplit(page.url).path.rstrip("/") != "/company/lists/8":
+            raise CollectionError("ulucks_company_scope_navigation_failed")
+        navigation = "authenticated_direct_verified"
     only(page.get_by_text(re.compile(r"物件検索\s*[（(]\s*" + re.escape(COMPANY_LABEL) + r"\s*[）)]")), "company_title").wait_for(state="visible")
+    observation["verified_company_title"] = True
+    observation["navigation"] = navigation
+    print("ULUCKS_UI_SAFE=" + json.dumps({"stage": "company_title_verified", "navigation": navigation, "verified_company_title": True}, ensure_ascii=False), flush=True)
+    (root.parent / "ulucks-ui.private.json").write_text(json.dumps(observation, ensure_ascii=False), encoding="utf-8")
     count = _search(page)
     if count > int(config.get("max_rows", 5000)):
         raise CollectionError("ulucks_result_count_exceeds_limit")
@@ -226,10 +276,10 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Coll
         # results from a timeout/login failure or incomplete PDF generation.
         if _search(page) != 0:
             raise CollectionError("ulucks_zero_result_not_stable")
-        return Collected([], 0, True, {"search_counts": [0, 0], "scope_verified": True})
+        return Collected([], 0, True, {"search_counts": [0, 0], "scope_verified": True, "company_navigation": navigation})
     root.mkdir(parents=True, exist_ok=True)
     paths, evidence = _capture_print(page, root)
-    return Collected(paths, count, False, {**evidence, "acquired_at": datetime.now(timezone.utc).isoformat(), "search_counts": [count], "scope_verified": True})
+    return Collected(paths, count, False, {**evidence, "acquired_at": datetime.now(timezone.utc).isoformat(), "search_counts": [count], "scope_verified": True, "company_navigation": navigation})
 
 
 def unpack_export(target: Path, root: Path) -> list[Path]:

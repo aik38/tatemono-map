@@ -10,12 +10,17 @@ from playwright.sync_api import sync_playwright
 from tatemono_map.cloud.collector import CollectionError, ORIGIN, collect_with_page, unpack_export, validate_config
 
 
+@pytest.mark.parametrize("company_variant", ["second_cell", "third_cell", "no_link"])
 @pytest.mark.parametrize("count,wrong_scope", [(1, False), (0, False), (1, True)])
-def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(config, pdf, tmp_path, count, wrong_scope):
+def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(config, pdf, tmp_path, count, wrong_scope, company_variant):
     login = '<input type="text"><input type="password"><button onclick="location.href=\'/new\'">ログイン</button>'
     # Recreate the observed /company table: click the property's count link
     # in the unique row with the reviewed company name (not its literal href).
-    company = '<table><tbody><tr><td>株式会社不動産中央情報センター入居推進</td><td><a href="/company/lists/8">1047</a></td></tr><tr><td>別の不動産会社</td><td><a href="/company/lists/9">200</a></td></tr></tbody></table>'
+    count_cell = '<a href="/company/lists/8">1047</a>' if company_variant != "no_link" else '1047'
+    prefix = '<td>他の列</td>' if company_variant == "third_cell" else ''
+    company = ('<table><tbody><tr><td>株式会社不動産中央情報センター入居推進</td>'
+               + prefix + '<td>' + count_cell + '</td></tr>'
+               + '<tr><td>別の不動産会社</td><td><a href="/company/lists/9">200</a></td></tr></tbody></table>')
     search = '''<h2>物件検索（株式会社不動産中央情報センター）</h2>
 <a href="/observed-print-action?actual=1" target="_blank">(新)エリア・物件別で印刷</a>
 <form action="/company/lists/8" method="post">
@@ -89,6 +94,14 @@ def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(con
                     result = collect_with_page(page, config, {"username": "fake", "password": "fake"}, tmp_path / "downloads")
                     assert result.expected_rows == count
                     assert result.confirmed_zero == (count == 0)
+                    assert result.evidence["company_navigation"] == (
+                        "authenticated_direct_verified" if company_variant == "no_link"
+                        else "observed_company_link")
+                    import json
+                    observation = json.loads((tmp_path / "ulucks-ui.private.json").read_text())
+                    assert observation["verified_company_title"] is True
+                    assert observation["expected_company_link_count"] == (0 if company_variant == "no_link" else 1)
+                    assert "1047" not in str(observation)
                     if count:
                         assert result.pdfs[0].read_bytes() == pdf.read_bytes()
                         assert result.evidence["responses"][0]["path"] == "/observed-print-action"

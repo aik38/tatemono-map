@@ -40,7 +40,24 @@ def execute(store, config: dict, credentials: dict, work: Path, source_commit: s
     run = new_run_id()
     # Pre-update byte-for-byte backup; refusal/failure here prevents collection.
     store.upload(master, f"backups/{run}.sqlite3")
-    collected = collector(config, credentials, work / "pdf")
+    # The collector writes only allowlisted UI structure, never member HTML.
+    # Retain an observation even when live collection later fails.
+    observation = work / "ulucks-ui.private.json"
+    try:
+        collected = collector(config, credentials, work / "pdf")
+    except CollectionError as exc:
+        if observation.is_file():
+            try:
+                store.upload(observation, f"private-runs/{run}/ui-observation.json")
+            except Exception:
+                pass  # Do not replace the original, safely coded collection error.
+        exc.run_id = run
+        raise
+    if observation.is_file():
+        try:
+            store.upload(observation, f"private-runs/{run}/ui-observation.json")
+        except Exception:
+            raise CollectionError("ui_observation_private_upload_failed") from None
     if not isinstance(collected, Collected):
         collected = Collected(*collected)
     pdfs, count = collected.pdfs, collected.expected_rows
