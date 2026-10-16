@@ -99,6 +99,130 @@ def _assert_scope(page):
     return form
 
 
+def _area_structure(area) -> dict:
+    """Live DOM facts only: never return the input value, id, page text or HTML."""
+    return area.evaluate("""el => {
+        const labels = Array.from(el.labels || []);
+        const visible = node => {
+            const r = node.getBoundingClientRect();
+            const style = getComputedStyle(node);
+            return !!(r.width && r.height && style.visibility !== 'hidden' && style.display !== 'none');
+        };
+        return {
+            input_connected: el.isConnected,
+            input_is_checkbox: el.tagName === 'INPUT' && el.type === 'checkbox',
+            input_visible: visible(el),
+            input_disabled: !!el.disabled,
+            input_checked: !!el.checked,
+            associated_label_count: Math.min(labels.length, 10),
+            associated_label_visible: labels.length === 1 && visible(labels[0]),
+            label_wraps_input: labels.length === 1 && labels[0].contains(el),
+            label_for_input: labels.length === 1 && !!el.id && labels[0].htmlFor === el.id
+        };
+    }""")
+
+
+def _playwright_failure_reason(exc: Exception) -> str:
+    """Classify known Playwright actionability failures without publishing their text."""
+    message = str(exc).lower()
+    for needle, code in (
+        ("intercepts pointer events", "pointer_intercepted"),
+        ("not visible", "not_visible"),
+        ("detached", "element_detached"),
+        ("not enabled", "disabled"),
+        ("outside of the viewport", "outside_viewport"),
+        ("timeout", "timeout"),
+    ):
+        if needle in message:
+            return code
+    return "other"
+
+
+def _activate_observed_area(area, root: Path) -> None:
+    """Use the observed checkbox, then its *actual* associated label if needed.
+
+    A native Playwright check is preferred. The fallback is a real pointer click
+    on the unique DOM-associated label, never a fabricated selector/force=True.
+    Both paths must result in the same actual checked input.
+    """
+    before = _area_structure(area)
+    if not before["input_connected"] or not before["input_is_checkbox"] or before["input_disabled"]:
+        raise CollectionError("ulucks_area_dom_contract_invalid")
+    record = {"stage": "area_activation", "before": before, "method": "native_check"}
+    if area.is_checked():
+        record["method"] = "already_checked"
+    else:
+        try:
+            area.check(timeout=7500)
+        except Exception as exc:
+            record["first_error_class"] = type(exc).__name__ if type(exc).__name__ in (
+                "TimeoutError", "Error", "TargetClosedError") else "other"
+            record["first_error_reason"] = _playwright_failure_reason(exc)
+            # Query again after the action: event handlers may have replaced the input.
+            after_failure = _area_structure(area)
+            record["after_native_failure"] = after_failure
+            if not area.is_checked():
+                if (after_failure["associated_label_count"] != 1
+                        or not after_failure["associated_label_visible"]
+                        or after_failure["input_disabled"]):
+                    _append_ui_observation(root, "area_activation", record)
+                    print("ULUCKS_UI_SAFE=" + json.dumps(record, ensure_ascii=False), flush=True)
+                    raise CollectionError("ulucks_area_observed_label_unavailable") from None
+                label_handle = area.evaluate_handle(
+                    "el => el.labels && el.labels.length === 1 ? el.labels[0] : null")
+                label = label_handle.as_element()
+                if label is None:
+                    raise CollectionError("ulucks_area_observed_label_unavailable") from None
+                record["method"] = "observed_associated_label_click"
+                try:
+                    label.click(timeout=9000)
+                except Exception as label_exc:
+                    record["label_error_reason"] = _playwright_failure_reason(label_exc)
+                    record["label_error_class"] = type(label_exc).__name__ if type(label_exc).__name__ in (
+                        "TimeoutError", "Error", "TargetClosedError") else "other"
+    record["after"] = _area_structure(area)
+    _append_ui_observation(root, "area_activation", record)
+    print("ULUCKS_UI_SAFE=" + json.dumps(record, ensure_ascii=False), flush=True)
+    if not area.is_checked():
+        raise CollectionError("ulucks_area_not_activated")
+
+
+_SEARCH_ACTION_CSS = 'button, input[type="submit"], input[type="button"], input[type="image"], a, [role="button"]'
+
+
+def _observed_search_action(page, root: Path):
+    """Select only an actual, unique, visible search-labelled clickable in the DOM."""
+    result = page.evaluate("""css => {
+        const controls = Array.from(document.querySelectorAll(css));
+        const label = s => (s || '').normalize('NFKC').replace(/\\s+/g, '');
+        const visible = el => {
+            const r = el.getBoundingClientRect();
+            const style = getComputedStyle(el);
+            return !!(r.width && r.height && style.display !== 'none' && style.visibility !== 'hidden');
+        };
+        const matches = [];
+        controls.forEach((el, index) => {
+            const names = [el.innerText, el.value, el.alt, el.title, el.getAttribute('aria-label')];
+            if (visible(el) && !el.disabled && names.some(x => label(x) === '検索'))
+                matches.push({index: index, tag: el.tagName.toLowerCase(),
+                    type: ['submit', 'button', 'image'].includes(el.type) ? el.type : 'other'});
+        });
+        return {candidate_count: Math.min(controls.length, 100),
+            exact_search_count: Math.min(matches.length, 100), matches: matches.slice(0, 4)};
+    }""", _SEARCH_ACTION_CSS)
+    record = {"stage": "search_action_observed",
+              "candidate_count": result["candidate_count"],
+              "exact_search_count": result["exact_search_count"],
+              "matched_control_types": [
+                  {"tag": row["tag"], "type": row["type"]} for row in result["matches"]
+              ]}
+    _append_ui_observation(root, "search_action_observed", record)
+    print("ULUCKS_UI_SAFE=" + json.dumps(record, ensure_ascii=False), flush=True)
+    if result["exact_search_count"] != 1:
+        raise CollectionError("ulucks_search_action_not_unique")
+    return page.locator(_SEARCH_ACTION_CSS).nth(result["matches"][0]["index"])
+
+
 def _search(page, root: Path) -> int:
     phase = "form_lookup"
     try:
@@ -153,18 +277,15 @@ def _search(page, root: Path) -> int:
             if field.input_value().strip():
                 raise CollectionError("ulucks_nonempty_search_text_requires_review")
         phase = "area_check"
-        if not area.is_checked():
-            area.check()
+        _activate_observed_area(area, root)
         phase = "scope_verify_before"
         _assert_scope(page)
         phase = "search_action"
-        button = page.get_by_role("button", name=re.compile(r"^検\s*索$"))
-        if button.count() == 0:
-            button = page.get_by_role("link", name=re.compile(r"^検\s*索$"))
+        button = _observed_search_action(page, root)
         # Use only the actual browser request and response.
         phase = "search_response"
         with page.expect_response(lambda r: urlsplit(r.url).netloc == urlsplit(ORIGIN).netloc and r.request.resource_type in ("document", "xhr", "fetch"), timeout=45000) as pending:
-            only(button, "search_action").click()
+            button.click()
         response = pending.value
         if response.status != 200:
             raise CollectionError("ulucks_search_http_failed")
