@@ -177,7 +177,7 @@ def main():
     token = gc("auth", "print-access-token")
     store = GCSStore(bucket, client=storage.Client(project=project, credentials=Credentials(token)))
     try:
-        existing_head, _ = store.read_head()
+        existing_head, head_generation = store.read_head()
         validate_head(existing_head)
         needs_bootstrap = False
     except NotFound:
@@ -246,7 +246,12 @@ def main():
         validate_master(args.master)
         if Path(str(args.master) + "-wal").exists():
             raise SetupError("close_and_checkpoint_master_before_transfer")
-        if not needs_bootstrap and existing_head["master"]["sha256"] != args.master_sha256:
+        if not needs_bootstrap and args.resume_bootstrap:
+            from tatemono_map.cloud.bootstrap import verify_registered
+            verify_registered(store, existing_head, head_generation, args.output / 'bootstrap',
+                args.master_sha256, args.reviewed_commit,
+                previous_commits=args.previous_reviewed_commit, bucket=bucket)
+        elif not needs_bootstrap and existing_head["master"]["sha256"] != args.master_sha256:
             # SQLite backup changes file header/journal bytes. A successful
             # bootstrap receipt binds its immutable output to the reviewed input.
             if not (existing_head["report"].get("bootstrap") is True
@@ -344,10 +349,15 @@ def main():
         "ULUCKS_LOGIN_SECRET": f"projects/{project}/secrets/{config['login_secret']}/versions/latest",
     }
     if args.collection_config_env:
-        variables['ULUCKS_CONFIG_SECRET'] = ''
+        del variables['ULUCKS_CONFIG_SECRET']
         variables['ULUCKS_CONFIG_JSON'] = json.dumps(json.loads(args.collection_file.read_text()), ensure_ascii=False, separators=(',', ':'))
     for name, value in variables.items():
         command(["gh", "variable", "set", name, "--repo", REPOSITORY, "--body", value])
+    if args.collection_config_env and any(v['name'] == 'ULUCKS_CONFIG_SECRET' for v in command(
+            ['gh', 'variable', 'list', '--repo', REPOSITORY, '--json', 'name,value'], json_output=True)):
+        # GitHub rejects empty variable values. Remove only an existing obsolete
+        # Actions variable, after the JSON contract is set; never touch a Secret.
+        command(['gh', 'variable', 'delete', 'ULUCKS_CONFIG_SECRET', '--repo', REPOSITORY])
     command(["gh", "variable", "set", "CLOUD_ENABLED", "--repo", REPOSITORY, "--body", "true"])
     if not args.no_dispatch:
         command(["gh", "workflow", "run", "cloud_deploy.yml", "--repo", REPOSITORY, "--ref", "main"])

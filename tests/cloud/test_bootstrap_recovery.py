@@ -5,7 +5,7 @@ import pytest
 from google.api_core.exceptions import NotFound
 
 from conftest import MemoryStore
-from tatemono_map.cloud.bootstrap import prepare,register,review_existing
+from tatemono_map.cloud.bootstrap import prepare,register,review_existing,verify_registered
 from tatemono_map.cloud.collector import CollectionError
 from tatemono_map.cloud.public_db import sha256,snapshot_sqlite
 
@@ -93,3 +93,37 @@ def test_journal_binds_unchanged_input_and_allows_only_explicit_previous_code(ma
     store=MemoryStore(tmp_path/'objects')
     with pytest.raises(CollectionError,match='staged_file_changed'):register(store,fixed,work)
     assert store.objects=={}
+
+
+@pytest.mark.parametrize('change', ['receipt_missing', 'stage', 'input', 'bucket', 'commit', 'generation', 'sha', 'local', 'remote', 'head_race'])
+def test_registered_reuse_rejects_changed_receipt_or_bytes_without_writes(master, tmp_path, monkeypatch, change):
+    store = MemoryStore(tmp_path / 'objects'); work = tmp_path / 'bootstrap'
+    state = prepare(master, sha256(master), work, 'a'*40, bucket='test-bucket')
+    register(store, state, work)
+    head, generation = store.read_head()
+    path = work / 'bootstrap-progress.private.json'
+    if change == 'receipt_missing': path.unlink()
+    elif change == 'stage': state['stage'] = 'public_uploaded'
+    elif change == 'input': state['input_master_sha256'] = 'f'*64
+    elif change == 'bucket': state['bucket'] = 'other-bucket'
+    elif change == 'commit': state['source_commit'] = 'c'*40
+    elif change == 'generation': state['public']['generation'] += 1
+    elif change == 'sha': state['public_sha256'] = 'f'*64
+    elif change == 'local': (work / 'public.sqlite3').write_bytes(b'changed')
+    elif change == 'remote': store.objects[state['public']['object']][1].write_bytes(b'changed')
+    elif change == 'head_race': store.generation += 1
+    if path.exists(): path.write_text(json.dumps(state))
+    objects_before = {name: p.read_bytes() for name, (_, p) in store.objects.items()}
+    download = store.download
+    def checked_download(ref, output):
+        download(ref, output)
+        if sha256(output) != ref['sha256']:
+            raise CollectionError('object_checksum_mismatch')
+    monkeypatch.setattr(store, 'download', checked_download)
+    def forbidden(*a, **kw): raise AssertionError('write forbidden')
+    for method in ('upload','upload_verified','commit'): monkeypatch.setattr(store, method, forbidden)
+    with pytest.raises(CollectionError):
+        verify_registered(store, head, generation, work, sha256(master), 'b'*40,
+                          previous_commits=['a'*40], bucket='test-bucket')
+    assert {name: p.read_bytes() for name, (_, p) in store.objects.items()} == objects_before
+    assert store.head == head
