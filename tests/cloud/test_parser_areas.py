@@ -66,9 +66,18 @@ def test_county_and_city_headings_replace_previous_ward_and_continue(tmp_path):
 def test_geographic_prefixes_do_not_invent_a_town_or_retag_an_explicit_city():
     from tatemono_map.ulucks_geography import complement_print_address,municipality_of
     assert complement_print_address('富久町1-1','京都郡')=='富久町1-1'
-    assert complement_print_address('苅田町大字架空1-1','門司区')=='苅田町大字架空1-1'
+    assert complement_print_address('苅田町大字架空1-1','門司区')=='京都郡苅田町大字架空1-1'
     assert complement_print_address('福岡市中央区架空町1-1','門司区')=='福岡市中央区架空町1-1'
     assert municipality_of('京都郡富久町1-1') is None
     assert municipality_of('京都郡苅田町大字架空1-1')=='京都郡苅田町'
     assert complement_print_address('宮市町9番3号','行橋市')=='行橋市宮市町9番3号'
     assert complement_print_address('西宮市二丁目1番40号','行橋市')=='行橋市西宮市二丁目1番40号'
+
+def test_explicit_fukuoka_town_completes_its_unique_county_without_previous_ward():
+    from tatemono_map.ulucks_geography import complement_print_address,municipality_of
+    for raw in ('芦屋町架空町1-2','福岡県芦屋町架空町1-2'):
+        actual=complement_print_address(raw,'小倉北区')
+        assert actual.endswith('遠賀郡芦屋町架空町1-2')
+        assert municipality_of(actual)=='遠賀郡芦屋町'
+    assert complement_print_address('北九州市小倉北区魚町1-1-1','遠賀郡')=='北九州市小倉北区魚町1-1-1'
+    assert complement_print_address('兵庫県芦屋市架空町1-2','遠賀郡')=='兵庫県芦屋市架空町1-2'
