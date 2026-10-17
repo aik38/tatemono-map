@@ -229,7 +229,13 @@ def _can_auto_seed(
     if allow_relaxed_for_mr:
         if not _has_minimum_address_for_mansion_review(normalized_address):
             return False, "address_not_granular"
-    elif not _has_minimum_address_granularity(normalized_address):
+    elif not (_has_minimum_address_granularity(normalized_address) or (
+        normalized_source == "ulucks"
+        # Observed company-8 PDF has streets without chome: 田町3-31.
+        # Limit this exception to the reviewed ward and a full street/lot pair;
+        # missing numbers, ranges and other sources keep the existing gate.
+        and re.fullmatch(r"北九州市小倉北区[^\d、〜]+\d+-\d+", normalized_address)
+    )):
         return False, "address_not_granular"
     if match_reason in AUTO_SEED_BLOCKED_REASONS and not allow_relaxed_for_mr:
         return False, f"blocked_by_match_reason:{match_reason}"
@@ -521,8 +527,11 @@ def ingest_master_import_csv(
                     legacy_alias_key = make_legacy_alias_key(normalized.normalized_name, normalized.normalized_address)
                     building_id = alias_map.get(legacy_alias_key, "")
 
-                match = match_building(conn, normalized.normalized_name, normalized.normalized_address)
                 if not building_id:
+                    # An existing exact alias already fixes the canonical ID.
+                    # Re-scanning all historical source names per room cannot
+                    # improve that decision and made live weekly runs very slow.
+                    match = match_building(conn, normalized.normalized_name, normalized.normalized_address)
                     building_id = match.building_id
 
                 if not building_id and match.reason in {"unmatched", "address_without_digits"}:

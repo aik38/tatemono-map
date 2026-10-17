@@ -309,3 +309,35 @@ def test_unreadable_area_or_zero_rent_still_stops_collection(master, config, tmp
     pdf = make_pdf(tmp_path / 'invalid-terms.pdf', area=area, rent=rent)
     with pytest.raises(CollectionError, match='^pdf_rent_or_area_invalid$'):
         update_master(master, [pdf], 1, config, tmp_path, 'invalid')
+
+
+def test_trusted_ulucks_street_lot_can_add_new_building_without_chome(master, config, tmp_path):
+    config = {**config, 'auto_seed_high_confidence': True}
+    pdf = make_pdf(tmp_path / 'new-building.pdf', building='新規法人施設アルファ', address='北九州市小倉北区田町3-31')
+    report = update_master(master, [pdf], 1, config, tmp_path, 'new-building')
+    assert report['attached_rows'] == 1
+    assert report['counts_after']['buildings'] == report['counts_before']['buildings'] + 1
+    with readonly(master) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM buildings WHERE canonical_name='架空テストマンション'").fetchone()[0] == 1
+
+
+def test_exact_alias_never_rescans_historical_source_names(master, config, pdf, tmp_path, monkeypatch):
+    from importlib import import_module
+    mod = import_module('tatemono_map.building_registry.ingest_master_import')
+    update_master(master, [pdf], 1, config, tmp_path, 'establish-alias')
+    def unexpected_scan(*args):
+        raise AssertionError('Exact alias must retain its canonical ID without fuzzy matching')
+    monkeypatch.setattr(mod, 'match_building', unexpected_scan)
+    assert update_master(master, [pdf], 1, config, tmp_path, 'alias-fast-path')['attached_rows'] == 1
+
+
+@pytest.mark.parametrize('address,source', [
+    ('北九州市小倉北区田町3', 'ulucks'),
+    ('北九州市小倉北区田町3-31、3-32', 'ulucks'),
+    ('北九州市小倉北区田町3-31', 'realpro'),
+    ('北九州市小倉南区田町3-31', 'ulucks'),
+])
+def test_ulucks_street_lot_exception_does_not_weaken_other_address_gates(master, address, source):
+    from tatemono_map.building_registry.ingest_master_import import _can_auto_seed
+    with readonly(master) as conn:
+        assert _can_auto_seed(conn, '新規法人施設アルファ', address, 'unmatched', source)[0] is False
