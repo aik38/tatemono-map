@@ -54,3 +54,5 @@
 - main再開時d9383923240dcb5824ee7fddb6e8b615ed02eefb、draft PR#372 HEAD da18391f6493450145bc7fd3acba38784733085b。旧補助診断39051734508は失敗。新規取得はせず同じ原本を使用する。
 - 最初にCloud Run/Scheduler/GCS HEADを再照会し、郡・市修正後のPDFを1回だけ解析、解析フレームをprivate GCSへ保存する。二重解析を避け、次の部分取込検証に再利用する。
 - 次: 行単位の非公開保留、候補に対応する既存募集の保全、確認済みalias/却下判定の再利用、会社8正本/Pages→全業者→週次。正式完了の報告は実結果確認後のみ。
+
+- 2026-10-17 20:56 UTC 実環境再照会: Scheduler ENABLED / 0 4 * * 1 / Asia/Tokyo / 既存Job宛て、Job source6da44fd・実行中0。正式release/SHAは旧成功版と一致。scope診断39068465041は成功、PDF再解析済み。Cloud Logging到着順のため出力取得がphaseで早期終了した補助ログ回収を修正し、再実行せず保存済み結果だけ回収する。
