@@ -9,7 +9,7 @@ from tatemono_map.cloud.collector import ORIGIN, COMPANY_LABEL
 
 def test_full_parent_group_excludes_every_other_selected_area(tmp_path):
     inputs=''.join(f'<label><input type="checkbox" name="area" value="{i}">{label}</label>' for i,label in enumerate(AREA_LABELS))
-    body=f'''<h2>物件検索（{COMPANY_LABEL}）</h2>
+    body=f'''<meta charset="utf-8"><h2>物件検索（{COMPANY_LABEL}）</h2>
     <form method="post" action="{ORIGIN}/company/lists/8">
     <div><label><input type="checkbox" name="parent" value="north">北九州</label><div>{inputs}</div></div>
     <div><label><input type="checkbox" name="outside" value="fukuoka" checked>福岡市</label></div>
