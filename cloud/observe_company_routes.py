@@ -94,7 +94,7 @@ def main():
                     print('CURRENT_COLLECTION_PROGRESS='+json.dumps({'timestamp':entry.get('timestamp'),'stage':record['stage']}))
             payload=entry.get('jsonPayload') or {}
             if payload.get('status') in ('failed','committed') and isinstance(payload.get('code',''),str) and re.fullmatch('[a-z][a-z0-9_]{0,100}',payload.get('code','')):
-                print('CURRENT_COLLECTION_RESULT='+json.dumps({'timestamp':entry.get('timestamp'),'status':payload['status'],'code':payload['code']}))
+                print('CURRENT_COLLECTION_RESULT='+json.dumps({'timestamp':entry.get('timestamp'),'status':payload['status'],'code':payload['code'],'run_id':payload.get('run_id') if re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}',str(payload.get('run_id',''))) else None}))
     if outcome is None:raise SystemExit('route_observation_failed')
 
 if __name__=='__main__':main()
