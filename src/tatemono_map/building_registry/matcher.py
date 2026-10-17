@@ -141,7 +141,36 @@ def _pick_equivalent_duplicate(
     return MatchResult(picked_id, "address_equivalent_duplicate", candidate_ids, candidate_scores, variant)
 
 
-def match_building(conn: Any, normalized_name: str, normalized_address: str) -> MatchResult:
+def match_building(conn: Any, normalized_name: str, normalized_address: str, *, source_address_aliases: bool = False) -> MatchResult:
+    if source_address_aliases:
+        # A prior source may carry a verified full address that differs from
+        # the immutable canonical address. Require the complete name/address
+        # pair and a unique canonical ID; never infer a ward from a name.
+        source_hits = set()
+        address = _matching_address(normalized_address)
+        rows = conn.execute(
+            "SELECT s.building_id,s.raw_name,s.raw_address,b.norm_address FROM building_sources s JOIN buildings b ON b.building_id=s.building_id WHERE s.raw_name<>''"
+        ).fetchall()
+        for building, name, raw_address, canonical_address in rows:
+            if raw_address and _alias_name(name) == normalized_name and _matching_address(raw_address) == address:
+                source_hits.add(building)
+        if source_hits:
+            # Do not let a historical source alias override another exact
+            # canonical/source-name identity at the incoming address.
+            for building, name, raw_address, canonical_address in rows:
+                if _alias_name(name) == normalized_name and _matching_address(canonical_address or '') == address:
+                    source_hits.add(building)
+            for building, name, canonical_address in conn.execute(
+                "SELECT building_id,norm_name,norm_address FROM buildings"
+            ):
+                if name == normalized_name and _matching_address(canonical_address or '') == address:
+                    source_hits.add(building)
+        if len(source_hits) == 1:
+            building = next(iter(source_hits))
+            return MatchResult(building, "source_address_alias_exact", [building], [1.0])
+        if source_hits:
+            ids = sorted(source_hits)[:3]
+            return MatchResult(None, "alias_ambiguous", ids, [1.0] * len(ids))
     if _has_multi_lot_or_range(normalized_address):
         return MatchResult(None, "address_multi_or_range", [], [])
 

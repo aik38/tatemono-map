@@ -537,7 +537,7 @@ def ingest_master_import_csv(
                     # An existing exact alias already fixes the canonical ID.
                     # Re-scanning all historical source names per room cannot
                     # improve that decision and made live weekly runs very slow.
-                    match = match_building(conn, normalized.normalized_name, normalized.normalized_address)
+                    match = match_building(conn, normalized.normalized_name, normalized.normalized_address, source_address_aliases=ulucks_full_area)
                     building_id = match.building_id
 
                 if not building_id and match.reason in {"unmatched", "address_without_digits"}:
