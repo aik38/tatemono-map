@@ -51,6 +51,8 @@ def validate_config(config: dict) -> None:
     }
     if config.get('area_id') == 'kitakyushu':
         target.update(area_id='kitakyushu', area_label='北九州', address_contains='kitakyushu')
+        if config.get('collection_mode') == 'all_companies':
+            target.update(company_id='all', company_label='全業者', search_url=ORIGIN+'/company')
     if any(config.get(k) != v for k, v in target.items()):
         raise CollectionError("unsupported_collection_target")
     keys = config.get("baseline_listing_keys")
@@ -514,8 +516,7 @@ def _observe_company_row(page, row, root: Path) -> tuple[list, dict]:
     return candidates, report
 
 
-def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Collected:
-    validate_config(config)
+def login_to_company_index(page, credentials: dict) -> None:
     if not credentials.get("username") or not credentials.get("password"):
         raise CollectionError("ulucks_credentials_incomplete")
     response = page.goto(ORIGIN + "/", wait_until="domcontentloaded", timeout=45000)
@@ -532,6 +533,11 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Coll
     company_search = only(page.get_by_role("link", name="会社検索", exact=True), "company_search")
     company_search.wait_for(state="visible", timeout=30000)
     company_search.click()
+
+
+def collect_with_page(page, config: dict, credentials: dict, root: Path) -> Collected:
+    validate_config(config)
+    login_to_company_index(page, credentials)
     # Inspect the live row before deciding how to navigate. A column index
     # inferred from a screenshot is never used as an operational selector.
     company_row = only(page.get_by_role("row").filter(

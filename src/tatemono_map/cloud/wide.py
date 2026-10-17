@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urljoin
 
@@ -13,11 +15,20 @@ AREA_LABELS = ('小倉北区','小倉南区','八幡東区','八幡西区','若�
     '田川市','宗像市','宮若市','飯塚市','嘉穂郡','嘉麻市')
 
 
+class CompanyCatalog(list):
+    def __init__(self, entries, excluded, counts):
+        super().__init__(entries)
+        self.excluded=excluded
+        self.counts=counts
+
+
 def company_catalog(page) -> list[dict]:
     """Enumerate actual TD routes and actual index pagination; never scan IDs."""
     pending = []
     visited = set()
     companies = {}
+    excluded={}
+    census={'listed_rows':0,'zero_without_route':0,'other_without_route':0,'request_required':0}
     while True:
         here = page.url
         if here in visited:
@@ -26,11 +37,16 @@ def company_catalog(page) -> list[dict]:
         if len(visited) > 100:
             raise c.CollectionError('company_pagination_budget_exceeded')
         targets = page.locator('td[data-href]')
+        targets.first.wait_for(state='visible',timeout=30000)
         if targets.count() == 0:
             raise c.CollectionError('company_catalog_empty')
         for cell in targets.all():
             url = urljoin(page.url, cell.get_attribute('data-href') or '')
             parsed = urlsplit(url)
+            denied=re.fullmatch(r'/company/request/([0-9]+)/?',parsed.path)
+            if parsed.netloc == urlsplit(c.ORIGIN).netloc and parsed.scheme=='https' and denied and not parsed.query and not parsed.fragment:
+                excluded[denied[1]]={'company_id':denied[1],'status':'request_required'}
+                continue
             match = re.fullmatch(r'/company/lists/([0-9]+)/?',parsed.path)
             if parsed.netloc != urlsplit(c.ORIGIN).netloc or not match or parsed.query or parsed.fragment:
                 raise c.CollectionError('company_catalog_unexpected_target')
@@ -38,6 +54,24 @@ def company_catalog(page) -> list[dict]:
             if company_id in companies and companies[company_id]['search_url'] != url:
                 raise c.CollectionError('company_catalog_conflicting_routes')
             companies[company_id] = {'company_id':company_id,'search_url':url}
+        header=c.only(page.locator('th,td').filter(has_text=re.compile(r'^\s*物件数\s*$')),'company_count_header')
+        table=header.locator('xpath=ancestor::table[1]')
+        column=header.evaluate('el=>el.cellIndex')
+        for row in table.locator('tr').all():
+            cells=row.locator(':scope > td')
+            if cells.count()<=column:
+                continue
+            census['listed_rows']+=1
+            cell=cells.nth(column)
+            if cell.get_attribute('data-href'):
+                continue
+            value=c.normal(cell.inner_text()).replace(',','')
+            if value.isdigit() and int(value)==0:
+                census['zero_without_route']+=1
+            elif value.isdigit() and int(value)>0:
+                raise c.CollectionError('company_positive_count_without_observed_route')
+            else:
+                census['other_without_route']+=1
         # Follow only pagination URLs actually present on this index. Avoid
         # unrelated navigation and never synthesize a page number or company ID.
         for control in page.locator('a[href], [data-href]').all():
@@ -48,6 +82,9 @@ def company_catalog(page) -> list[dict]:
             parsed = urlsplit(url)
             if parsed.netloc == urlsplit(c.ORIGIN).netloc and parsed.path.rstrip('/') == '/company' and url not in visited and url not in pending:
                 pending.append(url)
+        for control in page.get_by_role('button').all():
+            if re.fullmatch(r'(?:次(?:へ|のページ)?|Next|[»›])',c.normal(control.inner_text()),re.I) and control.is_enabled():
+                raise c.CollectionError('company_pagination_button_requires_review')
         if not pending:
             break
         response = page.goto(pending.pop(0),wait_until='domcontentloaded',timeout=45000)
@@ -55,8 +92,10 @@ def company_catalog(page) -> list[dict]:
             raise c.CollectionError('company_pagination_navigation_failed')
     if '8' not in companies or '26' not in companies:
         raise c.CollectionError('company_catalog_known_companies_missing')
-    print('ULUCKS_WIDE_SAFE='+json.dumps({'stage':'catalog','company_count':len(companies),'pages':len(visited)}),flush=True)
-    return sorted(companies.values(), key=lambda value: int(value['company_id']))
+    census['request_required']=len(excluded)
+    census['collectable_companies']=len(companies)
+    print('ULUCKS_WIDE_SAFE='+json.dumps({'stage':'catalog','company_count':len(companies),'pages':len(visited),**census}),flush=True)
+    return CompanyCatalog(sorted(companies.values(), key=lambda value: int(value['company_id'])),list(excluded.values()),census)
 
 
 def area_of(address: str) -> str | None:
@@ -136,7 +175,10 @@ def search(page, root: Path, company: dict) -> int:
     response.finished()
     page.wait_for_load_state('domcontentloaded')
     page.wait_for_function(r"() => /検索結果\s*[\d,]+\s*件中/.test((document.body?.innerText||'').normalize('NFKC'))", timeout=45000)
-    return c._confirmed_result_count(c.normal(page.locator('body').inner_text()))
+    count=c._confirmed_result_count(c.normal(page.locator('body').inner_text()))
+    c._append_ui_observation(root,'search_completed',{'result_count':count,'child_area_count':len(AREA_LABELS),'scope_verified':True})
+    print('ULUCKS_WIDE_SAFE='+json.dumps({'stage':'search','result_count':count,'child_area_count':len(AREA_LABELS),'scope_verified':True}),flush=True)
+    return count
 
 
 def collect_with_page(page, config: dict, credentials: dict, root: Path) -> c.Collected:
@@ -145,8 +187,13 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> c.Co
     original_search = c._search
     original_observe = c._observe_company_row
     catalog = []
+    census={}
+    excluded=[]
     def observe(page, row, root):
-        catalog.extend(company_catalog(page))
+        observed=company_catalog(page)
+        catalog.extend(observed)
+        census.update(observed.counts)
+        excluded.extend(observed.excluded)
         target = next(x for x in catalog if x['company_id'] == '8')
         if target['search_url'].rstrip('/') != config['search_url'].rstrip('/'):
             raise c.CollectionError('company_catalog_reviewed_route_changed')
@@ -161,7 +208,75 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> c.Co
         result.evidence['area_labels'] = list(AREA_LABELS)
         result.evidence['area_id'] = 'kitakyushu'
         result.evidence['companies'] = catalog
+        result.evidence['company_census'] = census
+        result.evidence['excluded_companies'] = excluded
         return result
     finally:
         c._search = original_search
         c._observe_company_row = original_observe
+
+
+def observed_company_label(page) -> str:
+    # The sidebar also says 物件検索(ALL). Read the actual company title,
+    # excluding that observed navigation label without assuming an HTML tag.
+    pattern=re.compile(r'物件検索\s*[（(](?!\s*ALL\s*[）)])[^）)]+[）)]',re.I)
+    heading=c.only(page.get_by_text(pattern),'company_title')
+    match=re.search(r'物件検索\s*[（(]\s*([^）)]+?)\s*[）)]',c.normal(heading.inner_text()))
+    if not match:
+        raise c.CollectionError('company_discovered_heading_missing')
+    return match[1]
+
+
+def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list[dict]:
+    """One login, a complete live catalog, sequential per-company acquisition."""
+    from playwright.sync_api import sync_playwright
+    c.validate_config(config)
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True,executable_path=os.environ.get('TATEMONO_CHROMIUM_EXECUTABLE'))
+        context = browser.new_context(accept_downloads=True,locale='ja-JP')
+        context.set_default_timeout(30000)
+        page = context.new_page()
+        index = None
+        try:
+            c.login_to_company_index(page,credentials)
+            index = page.url
+            catalog = company_catalog(page)
+            on_company(None, catalog)
+            for target in catalog:
+                on_company(target,None)
+                response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
+                if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
+                    raise c.CollectionError('company_discovered_route_navigation_failed')
+                one = dict(config,**target,company_label=observed_company_label(page))
+                folder = root / target['company_id']
+                folder.mkdir(parents=True,exist_ok=True)
+                count = search(page,folder,one)
+                if count > int(config.get('max_rows',5000)):
+                    raise c.CollectionError('ulucks_result_count_exceeds_limit')
+                if count == 0:
+                    if search(page,folder,one) != 0:
+                        raise c.CollectionError('ulucks_zero_result_not_stable')
+                    result = c.Collected([],0,True,{'search_counts':[0,0],'scope_verified':True})
+                else:
+                    paths,evidence = c._capture_print(page,folder)
+                    result = c.Collected(paths,count,False,{**evidence,'search_counts':[count],'scope_verified':True})
+                result.evidence.update(acquired_at=datetime.now(timezone.utc).isoformat(),area_labels=list(AREA_LABELS),company_id=target['company_id'])
+                on_company(one,result)
+                for popup in context.pages:
+                    if popup != page:
+                        popup.close()
+            return catalog
+        except c.CollectionError:
+            raise
+        except Exception:
+            raise c.CollectionError('all_companies_browser_failed') from None
+        finally:
+            try:
+                if index and not page.is_closed():
+                    page.goto(index,wait_until='domcontentloaded',timeout=15000)
+                    logout=page.get_by_role('link',name='ログアウト',exact=True).or_(page.get_by_role('button',name='ログアウト',exact=True))
+                    if logout.count()==1:
+                        logout.click(timeout=5000)
+            except Exception:
+                pass
+            browser.close()

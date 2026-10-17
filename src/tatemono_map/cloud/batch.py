@@ -1,0 +1,140 @@
+"""A complete live company census commits one master/public release by CAS."""
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+from tatemono_map.cloud.collector import CollectionError, validate_config
+from tatemono_map.cloud.pipeline import update_master, validate_master
+from tatemono_map.cloud.pipeline import unit_room
+from tatemono_map.cloud.public_db import export_public, readonly, validate_public
+from tatemono_map.cloud.storage import commit_release, validate_head
+from tatemono_map.cloud.wide import collect_all
+
+
+def public_proof(path: Path, affected: set[str]) -> list[dict]:
+    with readonly(path) as conn:
+        if not affected:
+            # A successful batch may change only non-public buildings. Prove
+            # preservation using an existing public building, without exposing
+            # private IDs in the marker or inventing a public change.
+            affected={conn.execute('SELECT building_id FROM buildings ORDER BY building_id LIMIT 1').fetchone()[0]}
+        proof=[]
+        fields=('building_key','vacancy_count','rent_yen_min','rent_yen_max','area_sqm_min','area_sqm_max','layout_types_json')
+        for building in sorted(affected):
+            row=conn.execute('SELECT '+','.join(fields)+' FROM building_summaries WHERE building_key=?',(building,)).fetchone()
+            if row is None:
+                raise CollectionError('batch_public_proof_building_missing')
+            value=dict(zip(fields,row))
+            value['layout_types']=json.loads(value.pop('layout_types_json') or '[]')
+            fees=conn.execute('SELECT maint_yen_min,maint_yen_max FROM building_rental_summaries WHERE building_key=?',(building,)).fetchone()
+            value.update(zip(('maint_yen_min','maint_yen_max'),fees or (None,None)))
+            proof.append(value)
+    return proof
+
+
+def execute_all(store, config: dict, credentials: dict, work: Path, source_commit: str, *, collector=collect_all) -> dict:
+    from tatemono_map.cloud.run import new_run_id
+    validate_config(config)
+    if config.get('collection_mode')!='all_companies' or config.get('area_id')!='kitakyushu':
+        raise CollectionError('batch_target_contract_invalid')
+    head,generation=store.read_head()
+    validate_head(head)
+    master=work/'master.sqlite3'
+    baseline=work/'publication-baseline.sqlite3'
+    store.download(head['master'],master)
+    validate_master(master)
+    with readonly(master) as conn:
+        initial_buildings={row[0] for row in conn.execute('SELECT building_id FROM buildings')}
+    store.download(head['public'],baseline)
+    if validate_public(baseline)!=head['report']['public_counts']:
+        raise CollectionError('publication_baseline_counts_mismatch')
+    run=new_run_id()
+    store.upload(master,f'backups/{run}.sqlite3')
+    reports=[]
+    affected=set()
+    fresh_units=set()
+    trace={'run_id':run,'company_count':None,'active_company':None,'completed':[]}
+    def save_json(value,name):
+        file=work/(name+'.json')
+        file.write_text(json.dumps(value,ensure_ascii=False))
+        store.upload(file,f'private-runs/{run}/{name}.json')
+    def company(one,result):
+        if one is None:
+            trace['company_count']=len(result)
+            trace['company_census']=getattr(result,'counts',{})
+            trace['excluded_companies']=getattr(result,'excluded',[])
+            save_json(result,'company-catalog')
+            missing=set(head['report'].get('company_ids',[]))-{x['company_id'] for x in result}
+            if missing:
+                trace['missing_previously_active_companies']=sorted(missing)
+                raise CollectionError('company_catalog_missing_previously_active_company')
+            return
+        company_id=one['company_id']
+        if result is None:
+            trace['active_company']=company_id
+            return
+        directory=work/'companies'/company_id
+        directory.mkdir(parents=True,exist_ok=True)
+        for index,pdf in enumerate(result.pdfs):
+            store.upload(pdf,f'private-runs/{run}/companies/{company_id}/pdf/{index:03d}.pdf')
+        save_json(result.evidence,'company-'+company_id+'-evidence')
+        # Each source has its own immutable run and current pointer. No failed
+        # acquisition becomes zero; a failure prevents the final head commit.
+        report=update_master(master,result.pdfs,result.expected_rows,one,directory,run+'-company-'+company_id,
+            confirmed_zero=result.confirmed_zero,public_baseline=baseline)
+        with readonly(master) as conn:
+            from tatemono_map.normalize.effective_rentals import canonical_key
+            aliases=dict(conn.execute('SELECT alias_key,canonical_key FROM building_key_aliases'))
+            units=[(canonical_key(b,aliases),unit_room(room,explicit_labels=True)) for b,room in conn.execute(
+                'SELECT building_key,room_label FROM listings WHERE ingest_run_id=?',(report['ingest_run_id'],))]
+            report['matched_existing_rows_at_batch_start']=sum(b in initial_buildings for b,_ in units)
+            fresh_units.update(units)
+        reports.append(report)
+        affected.update(row['building_key'] for row in report['proof'])
+        trace['completed'].append({'company_id':company_id,'parsed_rows':report['parsed_rows'],
+            'pdf_count':report['pdf_count'],'new_buildings':report['counts_after']['buildings']-report['counts_before']['buildings'],
+            'overlap_rows':report['legacy_overlap_rows']})
+        trace['active_company']=None
+        print('ULUCKS_BATCH_SAFE='+json.dumps({'stage':'company_complete','completed':len(reports),
+            'company_count':trace['company_count'],'parsed_rows':sum(r['parsed_rows'] for r in reports)}),flush=True)
+    try:
+        catalog=collector(config,credentials,work/'pdf',company)
+        if not catalog or len(reports)!=len(catalog) or len({x['company_id'] for x in catalog})!=len(catalog):
+            raise CollectionError('all_companies_census_incomplete')
+        counts=export_public(master,work/'public.sqlite3',baseline=baseline)
+        proof=public_proof(work/'public.sqlite3',affected)
+        total=sum(r['parsed_rows'] for r in reports)
+        pdfs=sum(r['pdf_count'] for r in reports)
+        report={'collection_mode':'all_companies','area_id':'kitakyushu','company_count':len(catalog),
+            'company_census':getattr(catalog,'counts',{}),
+            'company_ids':[x['company_id'] for x in catalog],
+            'successful_companies':len(reports),'parsed_rows':total,'attached_rows':sum(r['attached_rows'] for r in reports),
+            'pdf_count':pdfs,'pdfs':[p for r in reports for p in r['pdfs']],
+            'acquisition_status':'pdf_verified' if pdfs else 'confirmed_zero',
+            'counts_before':reports[0]['counts_before'],'counts_after':reports[-1]['counts_after'],
+            'legacy_overlap_rows':sum(r['legacy_overlap_rows'] for r in reports),
+            'managed_overlap_rows':sum(r.get('managed_overlap_rows',0) for r in reports),
+            'matched_existing_rows':sum(r.get('matched_existing_rows_at_batch_start',0) for r in reports),
+            'cross_company_duplicate_rows':total-len(fresh_units),
+            'new_buildings':reports[-1]['counts_after']['buildings']-reports[0]['counts_before']['buildings'],
+            'historical_rows_preserved':True,'public_counts':counts,'proof':proof,
+            'processed_at':datetime.now(timezone.utc).isoformat()}
+        save_json(trace,'batch-result')
+        return commit_release(store,work,run,generation,report,source_commit)
+    except CollectionError as exc:
+        trace.update(code=str(exc),previous_head_unchanged=store.read_head()==(head,generation))
+        try:
+            save_json(trace,'batch-failure')
+            review=work/'companies'/str(trace['active_company'])/'overlap-review.private.json'
+            if review.is_file():
+                store.upload(review,f'private-runs/{run}/overlap-review.json')
+            for review in Path('tmp/review').glob('*.csv'):
+                if review.stat().st_size <= 10 * 1024 * 1024:
+                    store.upload(review,f'private-runs/{run}/review/{review.name}')
+        except Exception:
+            pass
+        print('ULUCKS_BATCH_SAFE='+json.dumps({'stage':'failed','completed':len(reports),'company_count':trace['company_count'],'run_id':run,'code':str(exc)}),flush=True)
+        exc.run_id=run
+        raise

@@ -70,6 +70,9 @@ def execute(store, config: dict, credentials: dict, work: Path, source_commit: s
     pdfs, count = collected.pdfs, collected.expected_rows
     for index, pdf in enumerate(pdfs):
         store.upload(pdf, f"private-runs/{run}/pdf/{index:03d}.pdf")
+    evidence = work / "collection-evidence.json"
+    evidence.write_text(json.dumps(collected.evidence, ensure_ascii=False))
+    store.upload(evidence, f"private-runs/{run}/collection-evidence.json")
     try:
         report = update_master(master, pdfs, count, config, work, run, confirmed_zero=collected.confirmed_zero, public_baseline=public_baseline)
     except CollectionError as exc:
@@ -78,14 +81,14 @@ def execute(store, config: dict, credentials: dict, work: Path, source_commit: s
         diagnostic.write_text(json.dumps({'run_id': run, 'code': str(exc), 'previous_head_unchanged': True, 'overlap_review': json.loads(overlap.read_text()) if overlap.exists() else None}, ensure_ascii=False))
         try:
             store.upload(diagnostic, f'private-runs/{run}/failure.json')
+            for review in Path('tmp/review').glob('*.csv'):
+                if review.stat().st_size <= 10 * 1024 * 1024:
+                    store.upload(review,f'private-runs/{run}/review/{review.name}')
         except Exception:
             pass
         exc.run_id = run
         raise
     report['acquired_at'] = collected.evidence.get('acquired_at')
-    evidence = work / "collection-evidence.json"
-    evidence.write_text(json.dumps(collected.evidence, ensure_ascii=False))
-    store.upload(evidence, f"private-runs/{run}/collection-evidence.json")
     return commit_release(store, work, run, generation, report, source_commit)
 
 
@@ -110,7 +113,11 @@ def main() -> int:
             else:
                 config = json.loads(os.environ["ULUCKS_CONFIG_JSON"]) if os.environ.get("ULUCKS_CONFIG_JSON") else secret_json(os.environ["ULUCKS_CONFIG_SECRET"])
                 credentials = secret_json(os.environ["ULUCKS_LOGIN_SECRET"])
-                head = execute(store, config, credentials, work, source_commit)
+                if config.get('collection_mode') == 'all_companies':
+                    from tatemono_map.cloud.batch import execute_all
+                    head = execute_all(store, config, credentials, work, source_commit)
+                else:
+                    head = execute(store, config, credentials, work, source_commit)
             print(json.dumps({"status": "committed", "run_id": head["run_id"], "public_sha256": head["public"]["sha256"]}))
         return 0
     except CollectionError as exc:

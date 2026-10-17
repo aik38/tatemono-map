@@ -24,13 +24,15 @@ def main():
             raise SystemExit("missing deployment setting: " + key)
     if not env.get('ULUCKS_CONFIG_JSON') and not env.get('ULUCKS_CONFIG_SECRET'):
         raise SystemExit('missing collection contract')
-    if env.get('ULUCKS_EXPANSION_STAGE') == 'company8':
+    if env.get('ULUCKS_EXPANSION_STAGE') in ('company8','all'):
         if not env.get('ULUCKS_CONFIG_JSON'):
             raise SystemExit('expansion_requires_existing_nonsecret_config')
         expanded = json.loads(env['ULUCKS_CONFIG_JSON'])
         if expanded.get('company_id') != '8' or expanded.get('baseline_listing_keys') or expanded.get('legacy_policy') != 'preserve_unknown':
             raise SystemExit('expansion_previous_scope_contract_changed')
         expanded.update(area_id='kitakyushu', area_label='北九州', address_contains='kitakyushu')
+        if env['ULUCKS_EXPANSION_STAGE']=='all':
+            expanded.update(collection_mode='all_companies',company_id='all',company_label='全業者',search_url='https://kitakyushu.ulucks.jp/company')
         env['ULUCKS_CONFIG_JSON'] = json.dumps(expanded, ensure_ascii=False)
     if env.get('ULUCKS_CONFIG_JSON'):
         from tatemono_map.cloud.collector import validate_config
@@ -82,7 +84,7 @@ def main():
     print('Private Job backup verified; immutable deployment intent recorded.', flush=True)
     gc("run", "jobs", "update", job, "--region", region, "--image", env["COLLECTOR_IMAGE"],
        "--service-account", env["GCP_RUNTIME_SERVICE_ACCOUNT"], "--command=python", "--args=-m,tatemono_map.cloud.run",
-       "--tasks=1", "--parallelism=1", "--max-retries=0", "--task-timeout=3600s", "--memory=2Gi", "--cpu=1",
+       "--tasks=1", "--parallelism=1", "--max-retries=0", "--task-timeout=21600s" if env.get('ULUCKS_EXPANSION_STAGE')=='all' else "--task-timeout=3600s", "--memory=2Gi", "--cpu=1",
        "--update-env-vars", "^|^" + "|".join(f"{k}={v}" for k, v in variables.items()),
        "--update-labels", f"managed-by=tatemono-cloud,source-commit={env['GITHUB_SHA']}")
     generation = gc("run", "jobs", "describe", job, "--region", region, "--format=value(metadata.generation)")

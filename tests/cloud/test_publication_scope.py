@@ -37,3 +37,18 @@ def test_existing_public_building_cannot_silently_disappear(master, tmp_path):
         conn.execute('DELETE FROM buildings WHERE building_id=(SELECT building_id FROM buildings LIMIT 1)')
     with pytest.raises(ValueError, match='existing_public_building_missing'):
         export_public(master, tmp_path / 'public.sqlite3', baseline=baseline)
+
+
+def test_already_hidden_buildings_and_aliases_are_not_the_publication_audience(master,tmp_path):
+    with connect(master) as conn:
+        conn.execute("INSERT INTO buildings(building_id,canonical_name,hidden_from_public) VALUES ('hidden-private','HIDDEN_PRIVATE_SENTINEL',1)")
+        conn.execute("INSERT INTO building_key_aliases(alias_key,canonical_key) VALUES ('hidden-private-alias','hidden-private')")
+    rebuild(str(master))
+    baseline=tmp_path/'baseline.sqlite3'
+    export_public(master,baseline)
+    public=tmp_path/'public.sqlite3'
+    export_public(master,public,baseline=baseline)
+    with readonly(public) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM buildings WHERE hidden_from_public<>0").fetchone()[0]==0
+        assert conn.execute("SELECT COUNT(*) FROM building_key_aliases WHERE canonical_key='hidden-private'").fetchone()[0]==0
+    assert b'HIDDEN_PRIVATE_SENTINEL' not in public.read_bytes()
