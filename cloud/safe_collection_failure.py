@@ -75,7 +75,7 @@ def diagnostic():
         'company_pagination_loop company_pagination_budget_exceeded company_pagination_navigation_failed '
         'company_pagination_button_requires_review company_catalog_missing_previously_active_company company_positive_count_without_observed_route '
         'company_discovered_route_navigation_failed company_discovered_heading_missing '
-        'all_companies_browser_failed all_companies_census_incomplete batch_target_contract_invalid '
+        'all_companies_browser_failed all_companies_operation_failed all_companies_census_incomplete batch_target_contract_invalid '
         'batch_public_proof_building_missing publication_baseline_counts_mismatch').split())
     stage_names=(
         "area_checkbox search_form company_title search_action print_action login_username "

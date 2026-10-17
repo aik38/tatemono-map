@@ -269,7 +269,7 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
         except c.CollectionError:
             raise
         except Exception:
-            raise c.CollectionError('all_companies_browser_failed') from None
+            raise c.CollectionError('all_companies_operation_failed') from None
         finally:
             try:
                 if index and not page.is_closed():

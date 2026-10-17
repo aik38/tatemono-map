@@ -24,6 +24,14 @@ def new_run_id() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ-") + uuid.uuid4().hex[:12]
 
 
+def all_company_proof_ready(head: dict, source_commit: str) -> bool:
+    report=head.get('report',{})
+    count=report.get('company_count',0)
+    return (head.get('qc')=='passed' and head.get('source_commit')==source_commit
+        and report.get('collection_mode')=='all_companies' and type(count) is int
+        and count>0 and report.get('successful_companies')==count)
+
+
 def bootstrap(store, master: Path, expected_sha256: str, work: Path, source_commit: str) -> dict:
     from tatemono_map.cloud.bootstrap import prepare, register
     state = prepare(master, expected_sha256, work, source_commit)
@@ -98,6 +106,7 @@ def main() -> int:
     parser.add_argument("--bucket", default=os.environ.get("TATEMONO_BUCKET"))
     parser.add_argument("--master", type=Path)
     parser.add_argument("--master-sha256")
+    parser.add_argument('--prove-expansion',action='store_true')
     args = parser.parse_args()
     try:
         if not args.bucket:
@@ -112,6 +121,12 @@ def main() -> int:
                 head = bootstrap(store, args.master, args.master_sha256, work, source_commit)
             else:
                 config = json.loads(os.environ["ULUCKS_CONFIG_JSON"]) if os.environ.get("ULUCKS_CONFIG_JSON") else secret_json(os.environ["ULUCKS_CONFIG_SECRET"])
+                if config.get('collection_mode')=='all_companies' and not args.prove_expansion:
+                    previous,_=store.read_head()
+                    validate_head(previous)
+                    if not all_company_proof_ready(previous,source_commit):
+                        print('{"status":"skipped","code":"all_company_initial_proof_required"}')
+                        return 0
                 credentials = secret_json(os.environ["ULUCKS_LOGIN_SECRET"])
                 if config.get('collection_mode') == 'all_companies':
                     from tatemono_map.cloud.batch import execute_all
