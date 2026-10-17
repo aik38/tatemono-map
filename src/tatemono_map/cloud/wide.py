@@ -130,21 +130,35 @@ def area_of(address: str) -> str | None:
 def set_checked(control, wanted: bool) -> None:
     if control.is_checked() == wanted:
         return
-    try:
-        control.set_checked(wanted, timeout=5000)
-    except Exception:
-        if control.is_checked() != wanted:
-            label = control.evaluate_handle('el => el.labels?.length === 1 ? el.labels[0] : null').as_element()
-            if label is None:
-                raise c.CollectionError('wide_area_associated_label_missing') from None
-            label.click(timeout=7500)
+    if control.is_visible():
+        try:
+            control.set_checked(wanted, timeout=5000)
+        except Exception:
+            pass
+    if control.is_checked() != wanted:
+        label = control.evaluate_handle('el => el.labels?.length === 1 ? el.labels[0] : null').as_element()
+        if label is None:
+            raise c.CollectionError('wide_area_associated_label_missing') from None
+        label.click(timeout=7500)
     if control.is_checked() != wanted:
         raise c.CollectionError('wide_area_checked_state_mismatch')
 
 
+def checkbox(locator, stage):
+    # Custom-styled native inputs can be hidden while their real labels are
+    # visible. Inspect their DOM identity; interact only through Playwright's
+    # native check or the actual associated label, then verify checked state.
+    from playwright.sync_api import TimeoutError
+    try:locator.first.wait_for(state='attached',timeout=30000)
+    except TimeoutError:raise c.CollectionError('ulucks_ui_'+stage+'_missing') from None
+    if locator.count()!=1 or locator.get_attribute('type')!='checkbox':
+        raise c.CollectionError('wide_checkbox_identity_changed')
+    return locator
+
+
 def group_form(page):
-    form, _ = c._search_form(page)
-    parent = c.only(form.get_by_label('北九州', exact=True), 'kitakyushu_parent')
+    parent = checkbox(page.get_by_label('北九州', exact=True), 'kitakyushu_parent')
+    form = c.only(parent.locator('xpath=ancestor::form[1]'), 'search_form')
     if parent.get_attribute('type') != 'checkbox':
         raise c.CollectionError('wide_parent_not_checkbox')
     # Smallest actual ancestor containing the parent and all 22 observed areas.
@@ -174,7 +188,7 @@ def search(page, root: Path, company: dict) -> int:
             set_checked(check, False)
     set_checked(parent, True)
     for label in AREA_LABELS:
-        set_checked(c.only(group.get_by_label(label, exact=True), 'wide_child'), True)
+        set_checked(checkbox(group.get_by_label(label, exact=True), 'wide_child'), True)
     if form.locator('input[type="checkbox"]:checked').count() != len(AREA_LABELS) + 1 or any(
         not group.get_by_label(label, exact=True).is_checked() for label in ('北九州',) + AREA_LABELS
     ):

@@ -103,6 +103,11 @@ def main():
                     if not re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}',reuse):
                         raise DeploymentError('published_release_identity_invalid')
                 args+=',--reuse-successful-release,'+reuse
+            if env.get('ULUCKS_REPLAY_ACQUISITION_RUN'):
+                import re
+                replay=env['ULUCKS_REPLAY_ACQUISITION_RUN']
+                if not re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}',replay):raise DeploymentError('replay_run_invalid')
+                args+=',--replay-acquisition-run,'+replay
             execute_args.append(args)
         elif env.get('ULUCKS_EXPANSION_STAGE')=='company8' and env.get('ULUCKS_REUSE_ACQUISITION'):
             execute_args.append('--args=-m,tatemono_map.cloud.run,--reuse-acquisition,'+env['ULUCKS_REUSE_ACQUISITION'])

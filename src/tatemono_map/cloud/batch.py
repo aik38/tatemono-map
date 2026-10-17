@@ -36,7 +36,7 @@ def public_proof(path: Path, affected: set[str]) -> list[dict]:
     return proof
 
 
-def execute_all(store, config: dict, credentials: dict, work: Path, source_commit: str, *, collector=collect_all,reuse_release: str | None = None) -> dict:
+def execute_all(store, config: dict, credentials: dict, work: Path, source_commit: str, *, collector=collect_all,reuse_release: str | None = None,replay_acquisition_run: str | None = None) -> dict:
     from tatemono_map.cloud.run import new_run_id
     validate_config(config)
     if config.get('collection_mode')!='all_companies' or config.get('area_id')!='kitakyushu':
@@ -120,6 +120,8 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             confirmed_zero=result.confirmed_zero,public_baseline=baseline)
         report['acquisition_manifest_ref']=manifest_ref
         report.update(company_id=company_id,area_id='kitakyushu',acquired_at=result.evidence.get('acquired_at'))
+        if result.evidence.get('replayed_acquisition_run'):
+            report['replayed_acquisition_run']=result.evidence['replayed_acquisition_run']
         review=directory/'review-rows.private.csv'
         if review.exists():report['review_ref']=store.upload(review,f'private-runs/{run}/companies/{company_id}/review-rows.csv')
         with readonly(master) as conn:
@@ -173,6 +175,15 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
                 save_json(trace,'checkpoint-'+one['company_id'])
                 print('ULUCKS_BATCH_SAFE='+json.dumps({'stage':'verified_scope_reused','completed':len(reports),'company_count':trace['company_count']}),flush=True)
                 return True
+        if one is not None and result is None and replay_acquisition_run:
+            from tatemono_map.cloud.replay import replay_company
+            try:saved=replay_company(store,replay_acquisition_run,one,config,work/'replay'/one['company_id'])
+            except CollectionError as exc:
+                failure(one,exc)
+                return True
+            if saved is not None:
+                company(*saved)
+                return True
         if one is None or result is None:
             return process_company(one,result)
         backup_file=work/'company-rollback.sqlite3'
@@ -215,7 +226,8 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             'acquisition_status':'pdf_verified' if pdfs else 'confirmed_zero',
             'counts_before':initial_counts,'counts_after':final_counts,
             'reused_companies':sum(bool(r.get('reused_scope')) for r in reports),
-            'newly_acquired_pdf_count':sum(r['pdf_count'] for r in reports if not r.get('reused_scope')),
+            'replayed_acquisition_companies':sum(bool(r.get('replayed_acquisition_run')) for r in reports),
+            'newly_acquired_pdf_count':sum(r['pdf_count'] for r in reports if not r.get('reused_scope') and not r.get('replayed_acquisition_run')),
             'legacy_overlap_rows':sum(r['legacy_overlap_rows'] for r in reports),
             'managed_overlap_rows':sum(r.get('managed_overlap_rows',0) for r in reports),
             'matched_existing_rows':sum(r.get('matched_existing_rows_at_batch_start',0) for r in reports),

@@ -1,4 +1,5 @@
 import os
+import pytest
 from urllib.parse import parse_qs
 
 from playwright.sync_api import sync_playwright
@@ -9,13 +10,15 @@ from tatemono_map.cloud.wide import observed_company_label
 from tatemono_map.cloud.collector import ORIGIN, COMPANY_LABEL
 
 
-def test_full_parent_group_excludes_every_other_selected_area(tmp_path):
+@pytest.mark.parametrize('hidden',[False,True])
+def test_full_parent_group_excludes_every_other_selected_area(tmp_path,hidden):
     inputs=''.join(f'<label><input type="checkbox" name="area" value="{i}">{label}</label>' for i,label in enumerate(AREA_LABELS))
     body=f'''<meta charset="utf-8"><h2>物件検索（{COMPANY_LABEL}）</h2>
     <form method="post" action="{ORIGIN}/company/lists/8">
     <div><label><input type="checkbox" name="parent" value="north">北九州</label><div>{inputs}</div></div>
     <div><label><input type="checkbox" name="outside" value="fukuoka" checked>福岡市</label></div>
     <input type="submit" value="検索"></form>'''
+    if hidden:body='<style>input[type=checkbox]{display:none}</style>'+body
     sent=[]
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True,executable_path=os.environ.get('TATEMONO_CHROMIUM_EXECUTABLE'))
