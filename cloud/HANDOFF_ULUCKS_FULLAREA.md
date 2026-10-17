@@ -1,4 +1,21 @@
 # Ulucks 全域・全業者 再開チェックポイント
+更新: 2026-10-17 21:49 UTC。以下の最新チェックポイントを優先し、下段は過去の経過記録として参照する。
+
+## 最新到達地点：工程A完了、工程B/C未完了
+- 保存前main HEAD: `2a12431ca2f55d734f7393487877d6f2c75dc7e2`。PR#372はmerge済み、実行source `6dacbcc75e1dd4292b72277203cb6f0be7f5ac31`。
+- 工程A実行39070843455成功。会社8の既取得54ページ/1,045行を再利用、追加PDF取得なし。採用822行（既存建物675行、新規86棟へ147行）、保留223行、異常0、重複0、保留関連の以前の募集12行を維持。
+- 地域分類は全1,045行成功。市7区965行、周辺市町80行。曖昧行はprivate DB/reviewへ保持。
+- 正式release `20261017T213307Z-b0e5d051d4be`。HEAD generation1792273143672260。master SHA256 `651037da41dc4f211da5cc88103f325dbd1e985dcf1a14c9f7cdc32ff0c783a1`、public SHA256 `94d3e8ce4008948928f7cdb8b709004619e8bd00baace7f528fbb91817d1f1b2`。
+- 正式建物6,982→7,068、listings53,280→54,102、raw_sources116,442→117,264、sale_listings11,907不変。canonical/既存履歴/他ソース保全QC後CAS成功。
+- 公開範囲は直前の表示対象6,977棟を固定維持。公開空室5,222。新規86棟は非公開。旧公開DBの6,982棟には非表示5棟が含まれるため表示件数と混同しない。
+- Pages39071854350全job成功。deployログ21:43:46 UTCに `verified_release=20261017T213307Z-b0e5d051d4be`。本番検証済み。
+- Scheduler enable step成功。ただし全業者版の初回成功/週次切替はこれから。月曜04:00日本時間の実際の無人定期成功は未確認。
+- 工程B開発PR https://github.com/aik38/tatemono-map/pull/373 。保存時HEAD `2f27fb2684aaa58e078d3deae08636544b32096b`。旧HEAD6a6bd1eのCI成功、最新CIを確認してからmerge。
+- 次はPR373 CI確認→merge title `ULUCKS_ALL_COMPANIES_20261018_INITIAL: collect the complete observed company census` で初回全業者実行。今回だけ公開確認済み会社8 snapshotを24h以内/現行HEAD/同scope pointerの厳密条件で再利用し、他社は新規実取得。週次は全社fresh。
+- 現在の未解決事項：最新全業者census/実収集、会社別採用・保留、全業者の正式GCS/Pages、同revisionの週次proofは未確認。会社一覧69件は前回観察値であり次の実画面で再照合する。
+- 同時起動禁止。既存実行を照会し、private company manifest/result/checkpointを再利用する。URLなし/request要求の業者に申請・0件化をしない。既知routeがrequest壁へ変わった場合は旧scopeを保持し他社更新を継続する。
+
+## 過去の経過記録（上の最新状態を優先）
 更新: 2026-10-17 21:17 UTC（日本時間 10/18 06:17）。最新のPR/Actions/GCS HEADを先に照会する。
 
 ## コードと現在工程
