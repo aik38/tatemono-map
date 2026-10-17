@@ -64,9 +64,20 @@ def publication_ids(baseline: Path) -> tuple[set[str], set[str]]:
     """
     validate_public(baseline)
     with readonly(baseline) as conn:
-        ids = {r[0] for r in conn.execute('SELECT building_id FROM buildings')}
+        ids = {r[0] for r in conn.execute('SELECT building_id FROM buildings WHERE COALESCE(hidden_from_public,0)=0')}
         has_aliases = conn.execute("SELECT 1 FROM sqlite_master WHERE name='building_key_aliases'").fetchone()
-        aliases = {r[0] for r in conn.execute('SELECT alias_key FROM building_key_aliases')} if has_aliases else set()
+        mapping = dict(conn.execute('SELECT alias_key,canonical_key FROM building_key_aliases')) if has_aliases else {}
+        aliases=set()
+        for key in mapping:
+            target=key
+            seen=set()
+            while target in mapping and mapping[target]!=target:
+                if target in seen:
+                    raise ValueError('publication_baseline_alias_cycle')
+                seen.add(target)
+                target=mapping[target]
+            if target in ids:
+                aliases.add(key)
     return ids, aliases
 
 
