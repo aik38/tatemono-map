@@ -3,7 +3,10 @@
 
 ## 全業者初回パイプライン起動（2026-10-17 21:55 UTC）
 - PR#373 merged。実行source/main merge `c17326ab9fbf18d8345af0f02c1c4b20c5cc65c9`、PR HEAD `ac135e62fb4a4445366570751ccfa0b6365fed0f`。CI39072502191成功（新規失敗なし、コンテナブラウザ成功）。
-- 本番実行 https://github.com/aik38/tatemono-map/actions/runs/39072887653 。再開時はこの結果とCloud Run実行中の有無を先に照会し、二重起動しない。
+- 本番実行 https://github.com/aik38/tatemono-map/actions/runs/39072887653 。Cloud Run実行 `tatemono-collection-poc-9t6dt` は22:02:27 UTC開始。run `20261017T220240Z-17086bbe5dd5`、22:02:42バックアップ確認。再開時はこの結果と実行中の有無を先に照会し、二重起動しない。
+- 22:02:54実環境照合：Job source=c17326ab、all_companies/company_id=all/area_id=kitakyushu、通常collect args・task1/parallelism1/retry0/timeout21600。Scheduler ENABLED、月曜04:00 Asia/Tokyo、同Job。全社初回proofは処理完了待ち。
+- 取得済み原本/処理結果は `private-runs/20261017T220240Z-17086bbe5dd5/` 配下の company-catalog.json、company-{id}-manifest.json/result.json、checkpoint-{id}.json、companies/{id}/pdf/*.pdf。bucket list不要、generation/SHAはrefを辿る。正式HEADはまだ工程A releaseであり、B成功前に完了扱いしない。
+- 最新の読み取り専用監視 workflow39073106477、job117515556449（再実行時は新job IDになる）。`ROUTES_READ_LOGS_ONLY=true` でJob/実行/Scheduler/直近15分safe progressだけを読み、ログインや収集を起動しない。
 - 全業者初回markerのdeploy条件漏れを修正済み。Actions待機上限360分・Cloud Run上限21600秒。1 task/parallelism1、GCS排他lease、Secret参照は維持。
 - 工程Aの正式release/Pages成功は下記。工程Bのrun ID・最新census・取得/採用/保留・GCS/Pages成功はこれから記録する。工程C未完了。
 - 次：39072887653のtest/deploy→Cloud Run safe progressを確認。会社8は公開確認済みactive snapshotを再利用、他社は実画面から新規取得。失敗会社はmanifest/result/checkpointを利用して修正再開。全社成功後、Pages本番verified_releaseとScheduler（月曜04:00JST、同Job、全社設定/初回proof）を照合。
