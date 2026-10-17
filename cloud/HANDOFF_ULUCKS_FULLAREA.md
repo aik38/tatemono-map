@@ -1,6 +1,15 @@
 # Ulucks 全域・全業者 再開チェックポイント
 更新: 2026-10-17 21:49 UTC。以下の最新チェックポイントを優先し、下段は過去の経過記録として参照する。
 
+## 最新再開地点（2026-10-17 22:28 UTC）
+- 保存前main `a44ab82166422c511b807821bf7647b5d12d09ff`。工程A正式反映/Pages成功、工程B修正中、工程C未完了。
+- 全社初回9t6dt/run20261017T220240Z-17086bbe5dd5は22:12:57に停止済み。正式HEADはAの `20261017T213307Z-b0e5d051d4be` のまま。停止runの孤立lease generation1792274558652523も厳密CAS解除済み。
+- 新Draft PR https://github.com/aik38/tatemono-map/pull/374 （保存時HEAD `98590325ea6b7add17bd39d14fa93307724c8161`）。branch `codex/ulucks-observed-form-recovery` にフォーム/郡補完/原本再利用/テストを保存。まだ本番適用しない。
+- 実診断①95行/6ページの会社4 PDFの地域失敗は2行のみ、住所は郡省略の芦屋町。②会社6では検索2件、次の26では全チェック/labelが非表示（選択状態保持）。検索欄の展開操作を実DOMで追加確認中。③会社2/3はforms0、閲覧・申請・許可の表示あり、0件化/申請は禁止。
+- private診断ref: `private-runs/20261017T220240Z-17086bbe5dd5/diagnostics/20261017T221944Z-1eeb603b1d6b/control-report.json` / generation1792275584223653 / SHA256 c3ec48d9738ea5af4799340e49943d0755087abdc56c4e0ca8d789f3ff2acdef。
+- 次：診断Actions39075168508の結果を先に確認（前39074954529は診断regexのescape誤りで失敗、修正済み）。実際のcollapse操作/申請表示を修正に組込み、PR374 CI成功後に全社実処理を再開。8の確認済みscopeと4等の保存済みmanifest/PDFを再利用、他社はfresh取得。週次常設はfreshのまま。
+- ローカル実行環境が現在応答しないため、GitHub API/Actions→既存WIF/GCP経路で継続中。公開ログに原文を出さず、private GCSと暗号化診断を保持する。環境/IAM/Secret/過去の取得は作り直さない。
+
 ## 全業者初回の重要な失敗（2026-10-17 22:18 UTC）
 - run `20261017T220240Z-17086bbe5dd5` の実画面一覧は131行/69 route/62 routeなし（request4）。会社2/3/11/16はcompany_title_missing、6/7/9/15/17はarea_checkbox_missing。会社4は新規PDF1/6ページ/95件を取得済みだがout_of_scope_addressで会社単位の反映を停止。
 - 会社8確認済みsnapshotの再利用1社を確認。他社の最初の処理で共通UI前提が不適合。会社8用 `c._search_form`（小倉北区label起点）が広域全社のform探索にも残っている。元資料不備と断定しない。
