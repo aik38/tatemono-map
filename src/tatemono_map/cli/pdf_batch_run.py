@@ -474,6 +474,11 @@ class UlucksParser:
                         built_raw = built_raw.replace("\\n", " ")
                         built_raw = re.sub(r"\s+", " ", built_raw).strip()
                         structure_raw = get_cell_text(r, idx, ["構造"])
+                        area_raw = get_cell_text(r, idx, ["面積"])
+                        # The live source can explicitly print 0.00 for an
+                        # unknown area. Preserve the unit, but never publish
+                        # zero square metres or invent a replacement value.
+                        area_source_zero = bool(re.fullmatch(r"0(?:\.0+)?(?:㎡|m2)?", nfkc(area_raw).replace(" ", "")))
                         raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")
                         # Keep the existing CSV contract; the importer reads
                         # labelled terms from raw_block. Positional values alone
@@ -494,7 +499,8 @@ class UlucksParser:
                                 "fee_man": parse_money_to_man(get_cell_text(r, idx, ["共益費"])),
                                 "floor": "",
                                 "layout": layout,
-                                "area_sqm": parse_area_sqm(get_cell_text(r, idx, ["面積"])),
+                                "area_sqm": float("nan") if area_source_zero else parse_area_sqm(area_raw),
+                                "area_source_zero": area_source_zero,
                                 "availability_raw": availability_raw,
                                 "built_raw": built_raw,
                                 "age_years": parse_built_raw_to_age_years(built_raw),
