@@ -354,11 +354,35 @@ def _search(page, root: Path) -> int:
         response.finished()
         phase = "search_dom_ready"
         page.wait_for_load_state("domcontentloaded")
-        phase = "scope_verify_after"
-        _assert_scope(page)
+        # Search scope was verified on the live submission form. The results
+        # may replace or omit its checkboxes. Requiring the old form after
+        # submission caused a false collection failure in live run 38944515298.
+        # Confirm actual results instead; PDF parsing enforces area per row.
         phase = "result_count"
+        try:
+            page.wait_for_function("""() => /検索結果\\s*[\\d,]+\\s*件中/.test(
+                (document.body && document.body.innerText || '').normalize('NFKC')
+            )""", timeout=45000)
+        except Exception:
+            _append_ui_observation(root, "post_search_state", {
+                "stage": "post_search_state",
+                "result_marker_present": False,
+                "form_present": page.locator("form").count() > 0,
+                "area_checkbox_present": page.get_by_label(AREA_LABEL, exact=True).count() > 0,
+                "response_resource_type": response.request.resource_type,
+                "response_ok": response.ok,
+            })
+            raise CollectionError("ulucks_result_count_not_confirmed") from None
         body = normal(page.locator("body").inner_text())
         matches = re.findall(r"検索結果\s*([\d,]+)\s*件中", body)
+        _append_ui_observation(root, "post_search_state", {
+            "stage": "post_search_state",
+            "result_marker_present": bool(matches),
+            "form_present": page.locator("form").count() > 0,
+            "area_checkbox_present": page.get_by_label(AREA_LABEL, exact=True).count() > 0,
+            "response_resource_type": response.request.resource_type,
+            "response_ok": response.ok,
+        })
         if len(matches) != 1:
             raise CollectionError("ulucks_result_count_not_confirmed")
         _append_ui_observation(root, "search_completed", {"result_count": int(matches[0].replace(",", ""))})
