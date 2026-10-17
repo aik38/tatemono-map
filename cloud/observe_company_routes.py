@@ -104,7 +104,7 @@ def main():
     if raw:
         for entry in json.loads(raw):
             value=entry.get('textPayload') or (entry.get('jsonPayload') or {}).get('message','')
-            if isinstance(value,str) and value.startswith(('COMPANY_ROUTE_SHAPES=','COMPANY_ROUTE_ROWS=','COMPANY_ROUTE_SAVED=','COMPANY_ROUTE_ERROR=','CURRENT_STATE_SAFE=','REVIEW_INSPECTION_PHASE=','REVIEW_PRIVATE_SAVED=','REVIEW_INSPECTION_SAFE=','REVIEW_INSPECTION_ERROR=','ENCRYPTED_REVIEW=')):
+            if isinstance(value,str) and value.startswith(('COMPANY_ROUTE_SHAPES=','COMPANY_ROUTE_ROWS=','COMPANY_ROUTE_SAVED=','COMPANY_ROUTE_ERROR=','CURRENT_STATE_SAFE=','REVIEW_INSPECTION_PHASE=','REVIEW_PRIVATE_SAVED=','REVIEW_INSPECTION_SAFE=','REVIEW_INSPECTION_ERROR=','ENCRYPTED_REVIEW=','BATCH_DIAGNOSTIC_PRIVATE_REF=','BATCH_DIAGNOSTIC_ENCRYPTED=','BATCH_DIAGNOSTIC_SAFE=')):
                 print(value)
             elif isinstance(value,str) and value.startswith(('ULUCKS_COLLECTION_SAFE=','ULUCKS_BATCH_SAFE=')):
                 record=json.loads(value.split('=',1)[1])
