@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Any
+from functools import lru_cache
 
 from .normalization import normalize_address_for_matching, normalize_building_input
 
@@ -14,6 +15,16 @@ UNIQUE_MARGIN = 0.02
 RE_FUSED_BAN = re.compile(r"^(.*?)(\d{2,4})(?:番)?$")
 RE_SERIES_SUFFIX = re.compile(r"(?:\s|-)?(?:(\d{1,2})|(I{1,4}))$")
 MULTI_LOT_TOKENS = ("、", "〜")
+
+
+@lru_cache(maxsize=65536)
+def _matching_address(value: str) -> str:
+    return normalize_address_for_matching(value)
+
+
+@lru_cache(maxsize=65536)
+def _alias_name(value: str) -> str:
+    return normalize_building_input(value, '').normalized_name
 
 
 @dataclass(frozen=True)
@@ -39,11 +50,11 @@ def _format_top(candidates: list[tuple[str, float]]) -> tuple[list[str], list[fl
 
 
 def _address_variants(normalized_address: str) -> list[str]:
-    base = normalize_address_for_matching(normalized_address)
+    base = _matching_address(normalized_address)
     variants: list[str] = []
 
     def _add(value: str) -> None:
-        val = normalize_address_for_matching(value)
+        val = _matching_address(value)
         if val and val not in variants:
             variants.append(val)
 
@@ -145,8 +156,8 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str) -> 
     alias_hits: list[str] = []
     input_address_variants = set(_address_variants(normalized_address))
     for row in alias_rows:
-        alias_norm = normalize_building_input(row[1], "").normalized_name
-        source_addr = normalize_address_for_matching(row[2] or "")
+        alias_norm = _alias_name(row[1])
+        source_addr = _matching_address(row[2] or "")
         address_matches = bool(source_addr and source_addr in input_address_variants)
         if alias_norm and alias_norm == normalized_name and address_matches and row[0] not in alias_hits:
             alias_hits.append(row[0])
@@ -160,11 +171,11 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str) -> 
         return MatchResult(None, "address_without_digits", [], [])
 
     for idx, variant in enumerate(_address_variants(normalized_address)):
-        matched = [row for row in addr_rows if normalize_address_for_matching(row[2] or "") == variant]
+        matched = [row for row in addr_rows if _matching_address(row[2] or "") == variant]
         if not matched:
             continue
         equivalent_duplicate = _pick_equivalent_duplicate(
-            [(row[0], row[1] or "", normalize_address_for_matching(row[2] or "")) for row in matched],
+            [(row[0], row[1] or "", _matching_address(row[2] or "")) for row in matched],
             normalized_name=normalized_name,
             normalized_address=variant,
             variant=variant if idx > 0 else "",
@@ -184,7 +195,7 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str) -> 
         scored = []
         for row in matched:
             name_score = _score_name(normalized_name, row[1] or "")
-            addr_score = _score_address(variant, normalize_address_for_matching(row[2] or ""))
+            addr_score = _score_address(variant, _matching_address(row[2] or ""))
             total = name_score * 0.7 + addr_score * 0.3
             if _has_series_suffix_conflict(normalized_name, row[1] or ""):
                 continue
