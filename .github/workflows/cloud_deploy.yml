@@ -394,3 +394,24 @@ jobs:
           # No raw logs, identifiers, credential values, URLs, or user data are printed.
           print('SAFE_FAILED_EXECUTION_DIAGNOSIS='+json.dumps(report,sort_keys=True,ensure_ascii=False))
           PY
+
+  observe_full_area_once:
+    if: github.repository == 'aik38/tatemono-map' && github.event_name == 'push' && contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_OBSERVE_20261018')
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_JOB: ${{ vars.GCP_JOB }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Observe live companies and geography through unchanged runtime
+        run: python cloud/observe_full_area.py
