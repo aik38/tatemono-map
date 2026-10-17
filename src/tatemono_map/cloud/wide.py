@@ -256,7 +256,8 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
             catalog = complete_catalog(company_catalog(page),config.get('previous_verified_companies',[]))
             on_company(None, catalog)
             for target in catalog:
-                on_company(target,None)
+                if on_company(target,None) is True:
+                    continue  # Explicitly approved, still-active verified snapshot.
                 try:
                     response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
                     if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
@@ -281,10 +282,12 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
                 except Exception:
                     on_company(target,c.CollectionError('company_acquisition_failed'))
                     continue
-                on_company(one,result)
                 for popup in context.pages:
                     if popup != page:
                         popup.close()
+                # The verified PDF is already on disk. Release the browser PDF
+                # viewer before parsing while keeping the single login session.
+                on_company(one,result)
             return catalog
         except c.CollectionError:
             raise

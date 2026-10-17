@@ -58,3 +58,24 @@ def test_failed_company_is_rolled_back_while_healthy_company_updates(store,confi
     assert 'all_company_proof' not in head['report']
     assert any('failed-company-26' in name for name in store.objects)
     assert len([name for name in store.objects if '/companies/' in name and name.endswith('.pdf')])==2
+
+
+def test_failure_after_mutation_restores_only_that_company(store,config,tmp_path,monkeypatch):
+    import tatemono_map.cloud.batch as batch
+    cfg=all_config(config)
+    a=make_pdf(tmp_path/'a.pdf')
+    b=make_pdf(tmp_path/'b.pdf',rent='6万円')
+    original=batch.update_master
+    def fail_after_write(*args,**kwargs):
+        result=original(*args,**kwargs)
+        if args[3]['company_id']=='26':raise CollectionError('synthetic_after_mutation')
+        return result
+    monkeypatch.setattr(batch,'update_master',fail_after_write)
+    work=tmp_path/'work';work.mkdir()
+    head=batch.execute_all(store,cfg,{},work,'c'*40,collector=fake_catalog(cfg,a,b))
+    assert head['report']['successful_companies']==1
+    assert head['report']['public_counts']['vacancies']==2
+    master=tmp_path/'master-copy.sqlite3';store.download(head['master'],master)
+    with readonly(master) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM listings WHERE rent_yen=60000").fetchone()[0]==0
+        assert conn.execute("SELECT COUNT(*) FROM listings WHERE source_kind='ulucks'").fetchone()[0]==1

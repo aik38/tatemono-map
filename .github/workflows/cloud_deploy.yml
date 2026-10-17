@@ -81,6 +81,7 @@ jobs:
       ULUCKS_LOGIN_SECRET: ${{ vars.ULUCKS_LOGIN_SECRET }}
       ULUCKS_EXPANSION_STAGE: ${{ contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_COMPANY8_20261018') && 'company8' || 'all' }}
       ULUCKS_REUSE_ACQUISITION: ${{ contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_COMPANY8_20261018') && '20261017T160944Z-10bd49a595a4' || '' }}
+      ULUCKS_REUSE_SUCCESSFUL_RELEASE: ${{ contains(github.event.head_commit.message, 'ULUCKS_ALL_COMPANIES_20261018_INITIAL') && 'published' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2

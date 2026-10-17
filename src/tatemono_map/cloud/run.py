@@ -127,6 +127,7 @@ def main() -> int:
     parser.add_argument("--master-sha256")
     parser.add_argument('--prove-expansion',action='store_true')
     parser.add_argument('--reuse-acquisition')
+    parser.add_argument('--reuse-successful-release')
     args = parser.parse_args()
     try:
         if not args.bucket:
@@ -157,7 +158,7 @@ def main() -> int:
                     credentials = {} if args.reuse_acquisition else secret_json(os.environ["ULUCKS_LOGIN_SECRET"])
                     if config.get('collection_mode') == 'all_companies':
                         from tatemono_map.cloud.batch import execute_all
-                        head = execute_all(store, config, credentials, work, source_commit)
+                        head = execute_all(store, config, credentials, work, source_commit,reuse_release=args.reuse_successful_release)
                     else:
                         if args.reuse_acquisition:
                             from tatemono_map.cloud.acquisition import reuse_verified

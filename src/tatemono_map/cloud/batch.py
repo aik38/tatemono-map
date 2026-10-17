@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import copy
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,7 +36,7 @@ def public_proof(path: Path, affected: set[str]) -> list[dict]:
     return proof
 
 
-def execute_all(store, config: dict, credentials: dict, work: Path, source_commit: str, *, collector=collect_all) -> dict:
+def execute_all(store, config: dict, credentials: dict, work: Path, source_commit: str, *, collector=collect_all,reuse_release: str | None = None) -> dict:
     from tatemono_map.cloud.run import new_run_id
     validate_config(config)
     if config.get('collection_mode')!='all_companies' or config.get('area_id')!='kitakyushu':
@@ -48,6 +49,7 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
     validate_master(master)
     with readonly(master) as conn:
         initial_buildings={row[0] for row in conn.execute('SELECT building_id FROM buildings')}
+        initial_counts={t:conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('buildings','listings','sale_listings','raw_sources')}
     store.download(head['public'],baseline)
     if validate_public(baseline)!=head['report']['public_counts']:
         raise CollectionError('publication_baseline_counts_mismatch')
@@ -67,6 +69,17 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
     store.upload(master,f'backups/{run}.sqlite3')
     print('ULUCKS_COLLECTION_SAFE='+json.dumps({'stage':'backup_verified','run_id':run}),flush=True)
     reports=[]
+    cached={}
+    if reuse_release:
+        if reuse_release!=head['run_id']:
+            raise CollectionError('resume_head_changed')
+        if head['report'].get('company_id')=='8' and head['report'].get('area_id')=='kitakyushu':
+            cached['8']=copy.deepcopy(head['report'])
+        elif head['report'].get('collection_mode')=='all_companies':
+            for entry in head['report'].get('company_results',[]):
+                path=work/('cached-'+entry['company_id']+'.json')
+                store.download(entry['result_ref'],path)
+                cached[entry['company_id']]=json.loads(path.read_text())
     affected=set()
     fresh_units=set()
     trace={'run_id':run,'company_count':None,'active_company':None,'completed':[],'failed':[]}
@@ -106,6 +119,7 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         report=update_master(master,result.pdfs,result.expected_rows,one,directory,run+'-company-'+company_id,
             confirmed_zero=result.confirmed_zero,public_baseline=baseline)
         report['acquisition_manifest_ref']=manifest_ref
+        report.update(company_id=company_id,area_id='kitakyushu',acquired_at=result.evidence.get('acquired_at'))
         review=directory/'review-rows.private.csv'
         if review.exists():report['review_ref']=store.upload(review,f'private-runs/{run}/companies/{company_id}/review-rows.csv')
         with readonly(master) as conn:
@@ -135,6 +149,30 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         if isinstance(result,CollectionError):
             failure(one,result)
             return
+        if one is not None and result is None and one['company_id'] in cached:
+            report=cached[one['company_id']]
+            from tatemono_map.cloud.fetch_public import accounted_collection
+            try:age=(datetime.now(timezone.utc)-datetime.fromisoformat(report.get('acquired_at','').replace('Z','+00:00'))).total_seconds()
+            except (ValueError,TypeError):age=-1
+            with readonly(master) as conn:
+                active=conn.execute('SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?',(report.get('scope_key'),)).fetchone()
+                units=conn.execute('SELECT building_key,room_label FROM listings WHERE ingest_run_id=?',(report.get('ingest_run_id'),)).fetchall()
+                from tatemono_map.normalize.effective_rentals import canonical_key
+                aliases=dict(conn.execute('SELECT alias_key,canonical_key FROM building_key_aliases'))
+                units=[(canonical_key(b,aliases),room) for b,room in units]
+            if (0<=age<=24*3600 and active and active[0]==report.get('ingest_run_id')
+                and report.get('integration_contract')=='ulucks-partial-v1' and accounted_collection(report)):
+                report.update(reused_scope=True,reused_from_release=reuse_release,
+                    matched_existing_rows_at_batch_start=sum(b in initial_buildings for b,room in units))
+                fresh_units.update((b,unit_room(room,explicit_labels=True)) for b,room in units)
+                reports.append(report)
+                affected.update(row['building_key'] for row in report['proof'])
+                ref=save_json(report,'company-'+one['company_id']+'-result')
+                trace['completed'].append({'company_id':one['company_id'],'parsed_rows':report['parsed_rows'],
+                    'result_ref':ref,'manifest_ref':report.get('acquisition_manifest_ref'),'reused_scope':True})
+                save_json(trace,'checkpoint-'+one['company_id'])
+                print('ULUCKS_BATCH_SAFE='+json.dumps({'stage':'verified_scope_reused','completed':len(reports),'company_count':trace['company_count']}),flush=True)
+                return True
         if one is None or result is None:
             return process_company(one,result)
         backup_file=work/'company-rollback.sqlite3'
@@ -144,9 +182,14 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         except CollectionError as exc:
             # Only this disposable company's changes are rolled back. Other
             # companies keep their accepted updates; the failed scope stays old.
+            import gc,traceback
+            code=str(exc)
+            traceback.clear_frames(exc.__traceback__)
+            exc.__traceback__=None
+            gc.collect()
             for file in (master,Path(str(master)+'-wal'),Path(str(master)+'-shm')):file.unlink(missing_ok=True)
             shutil.copyfile(backup_file,master)
-            failure(one,exc)
+            failure(one,CollectionError(code))
         finally:
             backup_file.unlink(missing_ok=True)
     try:
@@ -155,6 +198,8 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             raise CollectionError('all_companies_census_incomplete')
         if not reports:raise CollectionError('all_companies_failed')
         counts=export_public(master,work/'public.sqlite3',baseline=baseline)
+        with readonly(master) as conn:
+            final_counts={t:conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in initial_counts}
         proof=public_proof(work/'public.sqlite3',affected)
         total=sum(r['parsed_rows'] for r in reports)
         pdfs=sum(r['pdf_count'] for r in reports)
@@ -168,7 +213,9 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             'failed_companies':trace['failed'],'company_results':trace['completed'],
             'pdf_count':pdfs,'pdfs':[p for r in reports for p in r['pdfs']],
             'acquisition_status':'pdf_verified' if pdfs else 'confirmed_zero',
-            'counts_before':reports[0]['counts_before'],'counts_after':reports[-1]['counts_after'],
+            'counts_before':initial_counts,'counts_after':final_counts,
+            'reused_companies':sum(bool(r.get('reused_scope')) for r in reports),
+            'newly_acquired_pdf_count':sum(r['pdf_count'] for r in reports if not r.get('reused_scope')),
             'legacy_overlap_rows':sum(r['legacy_overlap_rows'] for r in reports),
             'managed_overlap_rows':sum(r.get('managed_overlap_rows',0) for r in reports),
             'matched_existing_rows':sum(r.get('matched_existing_rows_at_batch_start',0) for r in reports),
@@ -177,7 +224,7 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             'anomaly_rows':sum(r.get('anomaly_rows',0) for r in reports),
             'duplicate_rows':sum(r.get('duplicate_rows',0) for r in reports),
             'retained_rows':sum(r.get('retained_rows',0) for r in reports),
-            'new_buildings':reports[-1]['counts_after']['buildings']-reports[0]['counts_before']['buildings'],
+            'new_buildings':final_counts['buildings']-initial_counts['buildings'],
             'historical_rows_preserved':True,'public_counts':counts,'proof':proof,
             'processed_at':datetime.now(timezone.utc).isoformat()}
         if not trace['failed']:
