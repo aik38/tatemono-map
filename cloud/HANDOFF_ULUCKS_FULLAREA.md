@@ -1,7 +1,15 @@
 # Ulucks 全域・全業者 再開チェックポイント
 更新: 2026-10-17 21:49 UTC。以下の最新チェックポイントを優先し、下段は過去の経過記録として参照する。
 
-## 最新到達地点：工程A完了、工程B/C未完了
+## 全業者初回パイプライン起動（2026-10-17 21:55 UTC）
+- PR#373 merged。実行source/main merge `c17326ab9fbf18d8345af0f02c1c4b20c5cc65c9`、PR HEAD `ac135e62fb4a4445366570751ccfa0b6365fed0f`。CI39072502191成功（新規失敗なし、コンテナブラウザ成功）。
+- 本番実行 https://github.com/aik38/tatemono-map/actions/runs/39072887653 。再開時はこの結果とCloud Run実行中の有無を先に照会し、二重起動しない。
+- 全業者初回markerのdeploy条件漏れを修正済み。Actions待機上限360分・Cloud Run上限21600秒。1 task/parallelism1、GCS排他lease、Secret参照は維持。
+- 工程Aの正式release/Pages成功は下記。工程Bのrun ID・最新census・取得/採用/保留・GCS/Pages成功はこれから記録する。工程C未完了。
+- 次：39072887653のtest/deploy→Cloud Run safe progressを確認。会社8は公開確認済みactive snapshotを再利用、他社は実画面から新規取得。失敗会社はmanifest/result/checkpointを利用して修正再開。全社成功後、Pages本番verified_releaseとScheduler（月曜04:00JST、同Job、全社設定/初回proof）を照合。
+- 監視は既存read-only `observe_company_routes.py` の `ROUTES_READ_LOGS_ONLY=true` jobを使う。Jobの再実行・ログインを伴わない。監視workflowの完了もPagesを起動するため、正式commit後は監視rerunを止め、最後のPages公開をキャンセルしない。
+
+## 工程A完了の記録（工程B/Cは上の状態を優先）
 - 保存前main HEAD: `2a12431ca2f55d734f7393487877d6f2c75dc7e2`。PR#372はmerge済み、実行source `6dacbcc75e1dd4292b72277203cb6f0be7f5ac31`。
 - 工程A実行39070843455成功。会社8の既取得54ページ/1,045行を再利用、追加PDF取得なし。採用822行（既存建物675行、新規86棟へ147行）、保留223行、異常0、重複0、保留関連の以前の募集12行を維持。
 - 地域分類は全1,045行成功。市7区965行、周辺市町80行。曖昧行はprivate DB/reviewへ保持。
