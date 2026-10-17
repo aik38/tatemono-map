@@ -21,9 +21,9 @@ def test_full_parent_group_excludes_every_other_selected_area(tmp_path):
         def route(r):
             if r.request.method=='POST':
                 sent.append(parse_qs(r.request.post_data))
-                r.fulfill(status=200,content_type='text/html',body='検索結果1045件中')
+                r.fulfill(status=200,content_type='text/html; charset=utf-8',body='検索結果1045件中')
             else:
-                r.fulfill(status=200,content_type='text/html',body=body)
+                r.fulfill(status=200,content_type='text/html; charset=utf-8',body=body)
         page.route(ORIGIN+'/**',route)
         page.goto(ORIGIN+'/company/lists/8')
         try:
