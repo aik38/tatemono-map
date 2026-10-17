@@ -12,8 +12,10 @@ from tatemono_map.cloud.collector import CollectionError, ORIGIN, collect_with_p
 
 @pytest.mark.parametrize("button_outside_form", [False, True])
 @pytest.mark.parametrize("company_variant", ["second_cell", "third_cell", "no_link"])
-@pytest.mark.parametrize("count,wrong_scope", [(1, False), (0, False), (1, True)])
-def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(config, pdf, tmp_path, count, wrong_scope, company_variant, button_outside_form):
+@pytest.mark.parametrize("count,results_without_form", [
+    (1, False), (0, False), (1, True)
+])
+def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(config, pdf, tmp_path, count, results_without_form, company_variant, button_outside_form):
     login = '<input type="text"><input type="password"><button onclick="location.href=\'/new\'">ログイン</button>'
     # Recreate the observed /company table: click the property's count link
     # in the unique row with the reviewed company name (not its literal href).
@@ -77,7 +79,14 @@ def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(con
                     posted = request.request.post_data or ""
                     if request.request.method == "POST":
                         assert "area=north" in posted and "area=south" not in posted
-                    html = search.replace("OTHER", "checked" if request.request.method != "POST" or wrong_scope else "")
+                    html = search.replace("OTHER", "checked" if request.request.method != "POST" else "")
+                    if request.request.method == "POST" and results_without_form:
+                        # The real results screen may not preserve the original
+                        # area form; the previously verified request is the
+                        # scope evidence, not a search form on the result page.
+                        html = ('<h2>検索結果</h2>'
+                            '<a href="/observed-print-action?actual=1" target="_blank">(新)エリア・物件別で印刷</a>'
+                            '<div>検索結果 1 件中　1～1件を表示</div>')
                 request.fulfill(content_type="text/html; charset=utf-8", body=html)
         context.route(ORIGIN + "/**", route)
         page = context.new_page()
@@ -92,30 +101,28 @@ def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(con
         from unittest.mock import patch
         try:
             with patch.object(Route, "fetch", fixture_fetch):
-                if wrong_scope:
-                    with pytest.raises(CollectionError, match="not_exclusive"):
-                        collect_with_page(page, config, {"username": "fake", "password": "fake"}, tmp_path / "downloads")
+                result = collect_with_page(page, config, {"username": "fake", "password": "fake"}, tmp_path / "downloads")
+                assert result.expected_rows == count
+                assert result.confirmed_zero == (count == 0)
+                assert result.evidence["company_navigation"] == (
+                    "authenticated_direct_verified" if company_variant == "no_link"
+                    else "observed_company_link")
+                import json
+                observation = json.loads((tmp_path / "ulucks-ui.private.json").read_text())
+                assert observation["verified_company_title"] is True
+                assert observation["search_controls"]["checkbox_count"] == 2
+                assert observation["search_controls"]["page_search_button_count"] == 1
+                assert observation["search_controls"]["search_button_count"] == (0 if button_outside_form else 1)
+                assert observation["search_completed"]["result_count"] == count
+                assert observation["post_search_state"]["result_marker_present"] is True
+                assert observation["post_search_state"]["form_present"] is not results_without_form
+                assert observation["expected_company_link_count"] == (0 if company_variant == "no_link" else 1)
+                assert "1047" not in str(observation)
+                if count:
+                    assert result.pdfs[0].read_bytes() == pdf.read_bytes()
+                    assert result.evidence["responses"][0]["path"] == "/observed-print-action"
                 else:
-                    result = collect_with_page(page, config, {"username": "fake", "password": "fake"}, tmp_path / "downloads")
-                    assert result.expected_rows == count
-                    assert result.confirmed_zero == (count == 0)
-                    assert result.evidence["company_navigation"] == (
-                        "authenticated_direct_verified" if company_variant == "no_link"
-                        else "observed_company_link")
-                    import json
-                    observation = json.loads((tmp_path / "ulucks-ui.private.json").read_text())
-                    assert observation["verified_company_title"] is True
-                    assert observation["search_controls"]["checkbox_count"] == 2
-                    assert observation["search_controls"]["page_search_button_count"] == 1
-                    assert observation["search_controls"]["search_button_count"] == (0 if button_outside_form else 1)
-                    assert observation["search_completed"]["result_count"] == count
-                    assert observation["expected_company_link_count"] == (0 if company_variant == "no_link" else 1)
-                    assert "1047" not in str(observation)
-                    if count:
-                        assert result.pdfs[0].read_bytes() == pdf.read_bytes()
-                        assert result.evidence["responses"][0]["path"] == "/observed-print-action"
-                    else:
-                        assert result.evidence["search_counts"] == [0, 0]
+                    assert result.evidence["search_counts"] == [0, 0]
         finally:
             browser.close()
             server.shutdown()
@@ -246,5 +253,22 @@ def test_observed_company_menu_link_must_never_override_unique_search_form_submi
             record = json.loads((tmp_path / "ulucks-ui.private.json").read_text())["search_action_observed"]
             assert record["selection_reason"] == "form_search_label"
             assert record["search_related_count"] == 4
+        finally:
+            browser.close()
+
+
+
+def test_before_submission_rejects_unrelated_checked_filter():
+    """Do not weaken the initial exclusive-area guarantee while allowing result pages to change."""
+    from tatemono_map.cloud.collector import _assert_scope
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            page.set_content("""<h2>物件検索（株式会社不動産中央情報センター）</h2>
+                <form><label><input type="checkbox" checked>小倉北区</label>
+                <label><input type="checkbox" checked>未知の条件</label></form>""")
+            with pytest.raises(CollectionError, match="ulucks_area_filter_not_exclusive"):
+                _assert_scope(page)
         finally:
             browser.close()
