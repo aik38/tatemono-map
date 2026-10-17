@@ -93,7 +93,7 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             trace['company_census']=getattr(result,'counts',{})
             trace['excluded_companies']=getattr(result,'excluded',[])
             trace['company_catalog_ref']=save_json(result,'company-catalog')
-            missing=set(head['report'].get('company_ids',[]))-{x['company_id'] for x in result}
+            missing=set(head['report'].get('company_ids',[]))-{x['company_id'] for x in result}-set(getattr(result,'counts',{}).get('unavailable_previous_ids',[]))
             if missing:
                 trace['missing_previously_active_companies']=sorted(missing)
                 raise CollectionError('company_catalog_missing_previously_active_company')

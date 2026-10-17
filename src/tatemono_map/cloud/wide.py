@@ -29,6 +29,7 @@ def complete_catalog(current: CompanyCatalog, previous: list[dict]) -> CompanyCa
     known={entry['company_id'] for entry in current}
     requested={entry['company_id'] for entry in current.excluded}
     extra=[]
+    unavailable=[]
     for entry in previous:
         company_id=entry.get('company_id','')
         parsed=urlsplit(entry.get('search_url',''))
@@ -36,16 +37,17 @@ def complete_catalog(current: CompanyCatalog, previous: list[dict]) -> CompanyCa
             or parsed.netloc!=urlsplit(c.ORIGIN).netloc or parsed.path.rstrip('/')!='/company/lists/'+company_id
             or parsed.query or parsed.fragment):
             raise c.CollectionError('previous_company_catalog_invalid')
-        if company_id in requested:
-            raise c.CollectionError('previous_company_now_requires_access_request')
+        if company_id in requested and company_id not in known:
+            unavailable.append(company_id)
+            continue  # Preserve its old scope; never request access or infer zero.
         if company_id not in known:
             extra.append({'company_id':company_id,'search_url':entry['search_url']})
             known.add(company_id)
     return CompanyCatalog(sorted(list(current)+extra,key=lambda x:int(x['company_id'])),current.excluded,
-        {**current.counts,'prior_route_checks':len(extra)})
+        {**current.counts,'prior_route_checks':len(extra),'unavailable_previous_ids':unavailable})
 
 
-def company_catalog(page) -> list[dict]:
+def company_catalog(page, previous_verified_ids=()) -> list[dict]:
     """Enumerate actual TD routes and actual index pagination; never scan IDs."""
     pending = []
     visited = set()
@@ -113,7 +115,7 @@ def company_catalog(page) -> list[dict]:
         response = page.goto(pending.pop(0),wait_until='domcontentloaded',timeout=45000)
         if response is None or response.status != 200:
             raise c.CollectionError('company_pagination_navigation_failed')
-    if '8' not in companies or '26' not in companies:
+    if not {'8','26'} <= (set(companies)|set(previous_verified_ids)):
         raise c.CollectionError('company_catalog_known_companies_missing')
     census['request_required']=len(excluded)
     census['collectable_companies']=len(companies)
@@ -253,7 +255,8 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
         try:
             c.login_to_company_index(page,credentials)
             index = page.url
-            catalog = complete_catalog(company_catalog(page),config.get('previous_verified_companies',[]))
+            previous=config.get('previous_verified_companies',[])
+            catalog = complete_catalog(company_catalog(page,[x['company_id'] for x in previous]),previous)
             on_company(None, catalog)
             for target in catalog:
                 if on_company(target,None) is True:

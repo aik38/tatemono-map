@@ -13,8 +13,10 @@ def test_missing_index_link_uses_only_a_previous_verified_route_for_live_recheck
     assert result.counts['prior_route_checks']==1
     # A previous successful fetch must never bypass an explicit new access wall.
     current.excluded=[{'company_id':'26','status':'request_required'}]
-    with pytest.raises(CollectionError,match='now_requires_access_request'):
-        complete_catalog(current,old)
+    result=complete_catalog(current,old)
+    assert [x['company_id'] for x in result]==['8']
+    assert result.counts['unavailable_previous_ids']==['26']
+    assert current.excluded[0]['status']=='request_required'
 
 
 def test_previous_routes_never_accept_guessed_or_foreign_targets():
