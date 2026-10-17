@@ -165,6 +165,14 @@ def diagnostic():
                             "search_related_count": record["search_related_count"],
                             "selection_reason": record["selection_reason"],
                             "candidate_structures": choices})
+                elif record.get("stage") == "post_search_state":
+                    # Log structural booleans only; never release request URLs,
+                    # form values, result text, credentials or member HTML.
+                    keys=("result_marker_present","form_present","area_checkbox_present","response_ok")
+                    kind=record.get("response_resource_type")
+                    if all(type(record.get(k)) is bool for k in keys) and kind in ("document","xhr","fetch"):
+                        ui_structure.append({"stage":"post_search_state",
+                            **{k:record[k] for k in keys},"response_resource_type":kind})
                 elif record.get("stage") == "search_exception":
                     operation=record.get("operation")
                     if operation in ("form_lookup","area_controls","area_other_wards_clear",
