@@ -270,6 +270,18 @@ def split_building_and_room(name: str, room: str = "") -> Tuple[str, str]:
     return src, ""
 
 
+def ulucks_building_name(name: str, room: str) -> str:
+    """Remove an explicitly labelled room only when the separate cell agrees.
+
+    PDF line wrapping can split 501号室 into '5 01号室'. Keep the
+    original cell in raw_block, and never strip an unlabelled building suffix.
+    """
+    match = re.search(r"(?<![0-9])((?:[0-9]\s*){2,4})号室\s*$", nfkc(name))
+    if match and re.sub(r"\s+", "", match.group(1)) == re.sub(r"\s+", "", nfkc(room)).removesuffix("号室"):
+        return nfkc(name)[:match.start()].strip()
+    return name
+
+
 def apply_name_and_row_filters(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, Dict[str, int]]:
     if len(df) == 0:
         out = df.copy()
@@ -461,6 +473,7 @@ class UlucksParser:
                         address = complement_address_with_ward(address, table_ward)
                         room = get_cell_text(r, idx, ["号室"])
                         room = re.sub(r"\s*《.*?》\s*", "", room).strip()
+                        building = ulucks_building_name(building, room)
                         layout_detail = get_cell_text(r, idx, ["間取詳細"])
                         layout = nfkc(layout_detail.split(":")[0]) if layout_detail else ""
                         availability_raw = get_cell_text(r, idx, ["入居時期", "状態・入居時期", "入居可能日", "退予"])
