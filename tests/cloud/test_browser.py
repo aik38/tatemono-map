@@ -12,8 +12,10 @@ from tatemono_map.cloud.collector import CollectionError, ORIGIN, collect_with_p
 
 @pytest.mark.parametrize("button_outside_form", [False, True])
 @pytest.mark.parametrize("company_variant", ["second_cell", "third_cell", "no_link"])
-@pytest.mark.parametrize("count,wrong_scope", [(1, False), (0, False), (1, True)])
-def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(config, pdf, tmp_path, count, wrong_scope, company_variant, button_outside_form):
+@pytest.mark.parametrize("count,wrong_scope,results_without_form", [
+    (1, False, False), (0, False, False), (1, True, False), (1, False, True)
+])
+def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(config, pdf, tmp_path, count, wrong_scope, results_without_form, company_variant, button_outside_form):
     login = '<input type="text"><input type="password"><button onclick="location.href=\'/new\'">ログイン</button>'
     # Recreate the observed /company table: click the property's count link
     # in the unique row with the reviewed company name (not its literal href).
@@ -78,6 +80,13 @@ def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(con
                     if request.request.method == "POST":
                         assert "area=north" in posted and "area=south" not in posted
                     html = search.replace("OTHER", "checked" if request.request.method != "POST" or wrong_scope else "")
+                    if request.request.method == "POST" and results_without_form:
+                        # The real results screen may not preserve the original
+                        # area form; the previously verified request is the
+                        # scope evidence, not a search form on the result page.
+                        html = ('<h2>検索結果</h2>'
+                            '<a href="/observed-print-action?actual=1" target="_blank">(新)エリア・物件別で印刷</a>'
+                            '<div>検索結果 1 件中　1～1件を表示</div>')
                 request.fulfill(content_type="text/html; charset=utf-8", body=html)
         context.route(ORIGIN + "/**", route)
         page = context.new_page()
@@ -109,6 +118,8 @@ def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(con
                     assert observation["search_controls"]["page_search_button_count"] == 1
                     assert observation["search_controls"]["search_button_count"] == (0 if button_outside_form else 1)
                     assert observation["search_completed"]["result_count"] == count
+                    assert observation["post_search_state"]["result_marker_present"] is True
+                    assert observation["post_search_state"]["form_present"] is not results_without_form
                     assert observation["expected_company_link_count"] == (0 if company_variant == "no_link" else 1)
                     assert "1047" not in str(observation)
                     if count:
