@@ -257,23 +257,30 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
             on_company(None, catalog)
             for target in catalog:
                 on_company(target,None)
-                response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
-                if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
-                    raise c.CollectionError('company_discovered_route_navigation_failed')
-                one = dict(config,**target,company_label=observed_company_label(page))
-                folder = root / target['company_id']
-                folder.mkdir(parents=True,exist_ok=True)
-                count = search(page,folder,one)
-                if count > int(config.get('max_rows',5000)):
-                    raise c.CollectionError('ulucks_result_count_exceeds_limit')
-                if count == 0:
-                    if search(page,folder,one) != 0:
-                        raise c.CollectionError('ulucks_zero_result_not_stable')
-                    result = c.Collected([],0,True,{'search_counts':[0,0],'scope_verified':True})
-                else:
-                    paths,evidence = c._capture_print(page,folder)
-                    result = c.Collected(paths,count,False,{**evidence,'search_counts':[count],'scope_verified':True})
-                result.evidence.update(acquired_at=datetime.now(timezone.utc).isoformat(),area_labels=list(AREA_LABELS),company_id=target['company_id'])
+                try:
+                    response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
+                    if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
+                        raise c.CollectionError('company_discovered_route_navigation_failed')
+                    one = dict(config,**target,company_label=observed_company_label(page))
+                    folder = root / target['company_id']
+                    folder.mkdir(parents=True,exist_ok=True)
+                    count = search(page,folder,one)
+                    if count > int(config.get('max_rows',5000)):
+                        raise c.CollectionError('ulucks_result_count_exceeds_limit')
+                    if count == 0:
+                        if search(page,folder,one) != 0:
+                            raise c.CollectionError('ulucks_zero_result_not_stable')
+                        result = c.Collected([],0,True,{'search_counts':[0,0],'scope_verified':True})
+                    else:
+                        paths,evidence = c._capture_print(page,folder)
+                        result = c.Collected(paths,count,False,{**evidence,'search_counts':[count],'scope_verified':True})
+                    result.evidence.update(acquired_at=datetime.now(timezone.utc).isoformat(),area_labels=list(AREA_LABELS),company_id=target['company_id'])
+                except c.CollectionError as exc:
+                    on_company(target,exc)
+                    continue
+                except Exception:
+                    on_company(target,c.CollectionError('company_acquisition_failed'))
+                    continue
                 on_company(one,result)
                 for popup in context.pages:
                     if popup != page:

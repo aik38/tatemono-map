@@ -277,9 +277,11 @@ def ulucks_building_name(name: str, room: str) -> str:
     PDF line wrapping can split 501号室 into '5 01号室'. Keep the
     original cell in raw_block, and never strip an unlabelled building suffix.
     """
-    match = re.search(r"(?<![0-9])((?:[0-9]\s*){2,4})号室\s*$", nfkc(name))
-    if match and re.sub(r"\s+", "", match.group(1)) == re.sub(r"\s+", "", nfkc(room)).removesuffix("号室"):
-        return nfkc(name)[:match.start()].strip()
+    explicit_room = re.sub(r"\s+", "", nfkc(room)).removesuffix("号室")
+    if re.fullmatch(r"[0-9]{2,4}", explicit_room):
+        match = re.search(r"(?<![0-9])" + r"\s*".join(explicit_room) + r"号室\s*$", nfkc(name))
+        if match:
+            return nfkc(name)[:match.start()].strip()
     return name
 
 

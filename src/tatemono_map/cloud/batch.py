@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 from tatemono_map.cloud.collector import CollectionError, validate_config
 from tatemono_map.cloud.pipeline import update_master, validate_master
 from tatemono_map.cloud.pipeline import unit_room
-from tatemono_map.cloud.public_db import export_public, readonly, validate_public
+from tatemono_map.cloud.public_db import export_public, readonly, validate_public, snapshot_sqlite
 from tatemono_map.cloud.storage import commit_release, validate_head
 from tatemono_map.cloud.wide import collect_all
 
@@ -68,12 +69,12 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
     reports=[]
     affected=set()
     fresh_units=set()
-    trace={'run_id':run,'company_count':None,'active_company':None,'completed':[]}
+    trace={'run_id':run,'company_count':None,'active_company':None,'completed':[],'failed':[]}
     def save_json(value,name):
         file=work/(name+'.json')
         file.write_text(json.dumps(value,ensure_ascii=False))
         return store.upload(file,f'private-runs/{run}/{name}.json')
-    def company(one,result):
+    def process_company(one,result):
         if one is None:
             trace['company_count']=len(result)
             trace['company_census']=getattr(result,'counts',{})
@@ -90,9 +91,12 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             return
         directory=work/'companies'/company_id
         directory.mkdir(parents=True,exist_ok=True)
+        pdf_refs=[]
         for index,pdf in enumerate(result.pdfs):
-            store.upload(pdf,f'private-runs/{run}/companies/{company_id}/pdf/{index:03d}.pdf')
-        save_json(result.evidence,'company-'+company_id+'-evidence')
+            pdf_refs.append(store.upload(pdf,f'private-runs/{run}/companies/{company_id}/pdf/{index:03d}.pdf'))
+        evidence_ref=save_json(result.evidence,'company-'+company_id+'-evidence')
+        manifest_ref=save_json({'config':one,'pdfs':pdf_refs,'evidence':evidence_ref,'expected_rows':result.expected_rows,
+            'confirmed_zero':result.confirmed_zero},'company-'+company_id+'-manifest')
         from tatemono_map.cli.pdf_batch_run import page_count_fast
         print('ULUCKS_COLLECTION_SAFE='+json.dumps({'stage':'pdf_acquired','run_id':run,'pdf_count':len(result.pdfs),
             'pdf_pages':sum(page_count_fast(pdf) for pdf in result.pdfs),'expected_rows':result.expected_rows,
@@ -101,6 +105,9 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         # acquisition becomes zero; a failure prevents the final head commit.
         report=update_master(master,result.pdfs,result.expected_rows,one,directory,run+'-company-'+company_id,
             confirmed_zero=result.confirmed_zero,public_baseline=baseline)
+        report['acquisition_manifest_ref']=manifest_ref
+        review=directory/'review-rows.private.csv'
+        if review.exists():report['review_ref']=store.upload(review,f'private-runs/{run}/companies/{company_id}/review-rows.csv')
         with readonly(master) as conn:
             from tatemono_map.normalize.effective_rentals import canonical_key
             aliases=dict(conn.execute('SELECT alias_key,canonical_key FROM building_key_aliases'))
@@ -110,16 +117,43 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             fresh_units.update(units)
         reports.append(report)
         affected.update(row['building_key'] for row in report['proof'])
-        trace['completed'].append({'company_id':company_id,'parsed_rows':report['parsed_rows'],
+        result_ref=save_json(report,'company-'+company_id+'-result')
+        trace['completed'].append({'company_id':company_id,'parsed_rows':report['parsed_rows'],'result_ref':result_ref,'manifest_ref':manifest_ref,
             'pdf_count':report['pdf_count'],'new_buildings':report['counts_after']['buildings']-report['counts_before']['buildings'],
             'overlap_rows':report['legacy_overlap_rows']})
         trace['active_company']=None
         print('ULUCKS_BATCH_SAFE='+json.dumps({'stage':'company_complete','completed':len(reports),
             'company_count':trace['company_count'],'parsed_rows':sum(r['parsed_rows'] for r in reports)}),flush=True)
+        save_json(trace,'checkpoint-'+company_id)
+    def failure(one,error):
+        trace['failed'].append({'company_id':one['company_id'],'code':str(error)})
+        trace['active_company']=None
+        save_json(trace,'failed-company-'+one['company_id'])
+        print('ULUCKS_BATCH_SAFE='+json.dumps({'stage':'company_failed','completed':len(reports),'company_count':trace['company_count'],
+            'run_id':run,'company_id':one['company_id'],'code':str(error)}),flush=True)
+    def company(one,result):
+        if isinstance(result,CollectionError):
+            failure(one,result)
+            return
+        if one is None or result is None:
+            return process_company(one,result)
+        backup_file=work/'company-rollback.sqlite3'
+        snapshot_sqlite(master,backup_file)
+        try:
+            process_company(one,result)
+        except CollectionError as exc:
+            # Only this disposable company's changes are rolled back. Other
+            # companies keep their accepted updates; the failed scope stays old.
+            for file in (master,Path(str(master)+'-wal'),Path(str(master)+'-shm')):file.unlink(missing_ok=True)
+            shutil.copyfile(backup_file,master)
+            failure(one,exc)
+        finally:
+            backup_file.unlink(missing_ok=True)
     try:
         catalog=collector({**config,'previous_verified_companies':previous},credentials,work/'pdf',company)
-        if not catalog or len(reports)!=len(catalog) or len({x['company_id'] for x in catalog})!=len(catalog):
+        if not catalog or len(reports)+len(trace['failed'])!=len(catalog) or len({x['company_id'] for x in catalog})!=len(catalog):
             raise CollectionError('all_companies_census_incomplete')
+        if not reports:raise CollectionError('all_companies_failed')
         counts=export_public(master,work/'public.sqlite3',baseline=baseline)
         proof=public_proof(work/'public.sqlite3',affected)
         total=sum(r['parsed_rows'] for r in reports)
@@ -129,16 +163,27 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             'company_ids':[x['company_id'] for x in catalog],
             'company_catalog_ref':trace['company_catalog_ref'],
             'successful_companies':len(reports),'parsed_rows':total,'attached_rows':sum(r['attached_rows'] for r in reports),
+            'failed_companies':trace['failed'],'company_results':trace['completed'],
             'pdf_count':pdfs,'pdfs':[p for r in reports for p in r['pdfs']],
             'acquisition_status':'pdf_verified' if pdfs else 'confirmed_zero',
             'counts_before':reports[0]['counts_before'],'counts_after':reports[-1]['counts_after'],
             'legacy_overlap_rows':sum(r['legacy_overlap_rows'] for r in reports),
             'managed_overlap_rows':sum(r.get('managed_overlap_rows',0) for r in reports),
             'matched_existing_rows':sum(r.get('matched_existing_rows_at_batch_start',0) for r in reports),
-            'cross_company_duplicate_rows':total-len(fresh_units),
+            'cross_company_duplicate_rows':sum(r['attached_rows'] for r in reports)-len(fresh_units),
+            'held_rows':sum(r.get('held_rows',0) for r in reports),
+            'anomaly_rows':sum(r.get('anomaly_rows',0) for r in reports),
+            'duplicate_rows':sum(r.get('duplicate_rows',0) for r in reports),
+            'retained_rows':sum(r.get('retained_rows',0) for r in reports),
             'new_buildings':reports[-1]['counts_after']['buildings']-reports[0]['counts_before']['buildings'],
             'historical_rows_preserved':True,'public_counts':counts,'proof':proof,
             'processed_at':datetime.now(timezone.utc).isoformat()}
+        if not trace['failed']:
+            report['all_company_proof']={'run_id':run,'source_commit':source_commit,'company_count':len(catalog)}
+        else:
+            from tatemono_map.cloud.run import all_company_proof_ready
+            if all_company_proof_ready(head,source_commit):
+                report['all_company_proof']=head['report'].get('all_company_proof') or {'run_id':head['run_id'],'source_commit':source_commit,'company_count':head['report']['company_count']}
         save_json(trace,'batch-result')
         return commit_release(store,work,run,generation,report,source_commit)
     except CollectionError as exc:

@@ -94,6 +94,8 @@ def main():
             # One reviewed proof execution; the persistent weekly Job retains
             # normal args and waits for this exact revision's complete proof.
             execute_args.append('--args=-m,tatemono_map.cloud.run,--prove-expansion')
+        elif env.get('ULUCKS_EXPANSION_STAGE')=='company8' and env.get('ULUCKS_REUSE_ACQUISITION'):
+            execute_args.append('--args=-m,tatemono_map.cloud.run,--reuse-acquisition,'+env['ULUCKS_REUSE_ACQUISITION'])
         gc(*execute_args)
     except DeploymentError:
         after = executions()

@@ -152,6 +152,7 @@ class Report:
     auto_seed_blocked_count: int = 0
     auto_seed_enabled: bool = True
     ingest_run_id: int | None = None
+    row_counts: dict | None = None
 
 
 def _score_similarity(left: str, right: str) -> float:
@@ -433,6 +434,8 @@ def ingest_master_import_csv(
     snapshot_source: str | None = None,
     snapshot_key: str | None = None,
     ulucks_full_area: bool = False,
+    collection_company: str = '',
+    row_anomalies: dict | None = None,
 ) -> Report:
     conn = connect(db_path)
     renormalize_buildings(conn)
@@ -453,6 +456,10 @@ def ingest_master_import_csv(
     alias_map = {row["alias_key"]: row["canonical_key"] for row in alias_rows}
 
     try:
+        partial = None
+        if ulucks_full_area:
+            from tatemono_map.cloud.partial import PartialIngest
+            partial = PartialIngest(conn, run_source, ingest_run_id, collection_company, row_anomalies)
         with Path(csv_path).open("r", encoding="utf-8-sig", newline="") as fh:
             reader = csv.DictReader(fh)
             got = tuple(reader.fieldnames or ())
@@ -497,7 +504,17 @@ def ingest_master_import_csv(
                 domain = source_domain(normalized_source)
 
                 normalized = normalize_building_input(_clean_text(row.get("building_name")), _clean_text(row.get("address")))
+                if ulucks_full_area and normalized_source == 'ulucks':
+                    from dataclasses import replace
+                    from .normalization import normalize_ulucks_name
+                    normalized = replace(normalized, normalized_name=normalize_ulucks_name(normalized.raw_name))
                 evidence_id = _row_evidence_id(row, source_url)
+                reviewed_id = None
+                if partial:
+                    proceed, reviewed_id = partial.begin(row, normalized, evidence_id)
+                    if not proceed:
+                        report.unresolved += 1
+                        continue
                 if not normalized.raw_name and not normalized.raw_address:
                     reason = "missing_name_and_address"
                     report.unresolved += 1
@@ -528,7 +545,7 @@ def ingest_master_import_csv(
                     continue
 
                 alias_key = make_alias_key(normalized.normalized_name, normalized.normalized_address)
-                building_id = alias_map.get(alias_key, "")
+                building_id = reviewed_id or alias_map.get(alias_key, "")
                 if not building_id:
                     legacy_alias_key = make_legacy_alias_key(normalized.normalized_name, normalized.normalized_address)
                     building_id = alias_map.get(legacy_alias_key, "")
@@ -671,6 +688,19 @@ def ingest_master_import_csv(
                     )
                     continue
 
+                if building_id and partial:
+                    from .matcher import _has_series_suffix_conflict
+                    from .normalization import normalize_ulucks_name
+                    original_name = conn.execute('SELECT canonical_name FROM buildings WHERE building_id=?',(building_id,)).fetchone()
+                    if building_id in partial.blocked_legacy:
+                        partial.hold(evidence_id,'legacy_room_identity_ambiguous',[building_id])
+                        report.unresolved += 1
+                        continue
+                    if not reviewed_id and original_name and _has_series_suffix_conflict(normalized.normalized_name,normalize_ulucks_name(original_name[0] or ''),strict=True):
+                        partial.hold(evidence_id,'name_suffix_conflict',[building_id])
+                        report.unresolved += 1
+                        continue
+
                 if building_id:
                     alias_key_current = make_alias_key(normalized.normalized_name, normalized.normalized_address)
                     if alias_key_current and alias_map.get(alias_key_current) != building_id:
@@ -745,7 +775,7 @@ def ingest_master_import_csv(
                 building_structure = structure_raw or structure
                 availability_label = move_in_label or None
 
-                if building_id:
+                if building_id and not partial:
                     conn.execute(
                         """
                         UPDATE buildings
@@ -897,7 +927,12 @@ def ingest_master_import_csv(
                         ),
                     )
                 report.attached_listings += 1
+                if partial:
+                    partial.accepted(evidence_id,building_id,listing_key)
 
+        if partial:
+            report.row_counts = partial.finish()
+            report.attached_listings = conn.execute('SELECT COUNT(*) FROM listings WHERE ingest_run_id=?',(ingest_run_id,)).fetchone()[0]
         conn.execute("UPDATE ingest_runs SET status='completed', finished_at=CURRENT_TIMESTAMP WHERE id=?", (ingest_run_id,))
         report.buildings_total = conn.execute("SELECT COUNT(*) FROM buildings").fetchone()[0]
         conn.commit()

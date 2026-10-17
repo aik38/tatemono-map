@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import re
 import tempfile
+import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from tatemono_map.cloud.collector import CollectionError
@@ -32,6 +34,27 @@ class GCSStore:
         blob.reload()
         generation = int(blob.generation)
         return json.loads(blob.download_as_bytes(if_generation_match=generation)), generation
+
+    @contextmanager
+    def collection_lease(self, owner):
+        """A seven-hour lease exceeds the Job's six-hour maximum lifetime."""
+        from google.api_core.exceptions import PreconditionFailed
+        blob=self.bucket.blob('state/collection-lock.json')
+        value=json.dumps({'owner':owner,'expires_at':time.time()+7*3600})
+        try:
+            blob.upload_from_string(value,content_type='application/json',if_generation_match=0)
+        except PreconditionFailed:
+            blob.reload();generation=int(blob.generation)
+            old=json.loads(blob.download_as_bytes(if_generation_match=generation))
+            if float(old.get('expires_at',float('inf')))>=time.time():
+                raise CollectionError('collection_lock_held') from None
+            blob.upload_from_string(value,content_type='application/json',if_generation_match=generation)
+        generation=int(blob.generation)
+        try:
+            yield
+        finally:
+            try:blob.delete(if_generation_match=generation)
+            except Exception:pass  # Never mask a committed release or delete another owner's lease.
 
     def download(self, ref: dict, output: Path) -> None:
         blob = self.bucket.blob(ref["object"], generation=int(ref["generation"]))

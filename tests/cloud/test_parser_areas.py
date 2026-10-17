@@ -70,3 +70,5 @@ def test_geographic_prefixes_do_not_invent_a_town_or_retag_an_explicit_city():
     assert complement_print_address('福岡市中央区架空町1-1','門司区')=='福岡市中央区架空町1-1'
     assert municipality_of('京都郡富久町1-1') is None
     assert municipality_of('京都郡苅田町大字架空1-1')=='京都郡苅田町'
+    assert complement_print_address('宮市町9番3号','行橋市')=='行橋市宮市町9番3号'
+    assert complement_print_address('西宮市二丁目1番40号','行橋市')=='行橋市西宮市二丁目1番40号'

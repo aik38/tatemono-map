@@ -20,7 +20,7 @@ on:
         type: string
 
 concurrency:
-  group: ${{ contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_COMPANY_ROUTES_20261018') && format('ulucks-read-only-{0}', github.run_id) || 'ulucks-cloud-deployment' }}
+  group: ${{ contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_') && format('ulucks-read-only-{0}', github.run_id) || 'ulucks-cloud-deployment' }}
   cancel-in-progress: false
 
 permissions:
@@ -28,7 +28,7 @@ permissions:
 
 jobs:
   test:
-    if: "!contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_COMPANY_ROUTES_20261018')"
+    if: "!contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -62,9 +62,9 @@ jobs:
     needs: test
     # A repair merge must not race the resumable operator's explicit dispatch.
     # One controlled recovery on the reviewed PR merge; all other pushes remain test-only.
-    if: vars.CLOUD_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (contains(github.event.head_commit.message, 'ULUCKS_ALL_COMPANIES_20261018') || contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_COMPANY8_20261018') || contains(github.event.head_commit.message, 'ULUCKS_UI_ONESHOT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_COMPANY_ROW_ONESHOT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_DOM_OBSERVE_20261017') || contains(github.event.head_commit.message, 'ULUCKS_SEARCH_OBSERVE_20261017') || contains(github.event.head_commit.message, 'ULUCKS_AREA_ONLY_20261017') || contains(github.event.head_commit.message, 'ULUCKS_LIVE_DOM_20261017') || contains(github.event.head_commit.message, 'ULUCKS_SEARCH_DOM_20261017') || contains(github.event.head_commit.message, 'ULUCKS_FORM_SUBMIT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_POST_SEARCH_RESULTS_20261017'))))
+    if: vars.CLOUD_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_COMPANY8_20261018') || contains(github.event.head_commit.message, 'ULUCKS_UI_ONESHOT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_COMPANY_ROW_ONESHOT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_DOM_OBSERVE_20261017') || contains(github.event.head_commit.message, 'ULUCKS_SEARCH_OBSERVE_20261017') || contains(github.event.head_commit.message, 'ULUCKS_AREA_ONLY_20261017') || contains(github.event.head_commit.message, 'ULUCKS_LIVE_DOM_20261017') || contains(github.event.head_commit.message, 'ULUCKS_SEARCH_DOM_20261017') || contains(github.event.head_commit.message, 'ULUCKS_FORM_SUBMIT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_POST_SEARCH_RESULTS_20261017'))))
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 75
     permissions:
       contents: read
       id-token: write
@@ -79,7 +79,8 @@ jobs:
       ULUCKS_CONFIG_SECRET: ${{ vars.ULUCKS_CONFIG_SECRET }}
       ULUCKS_CONFIG_JSON: ${{ vars.ULUCKS_CONFIG_JSON }}
       ULUCKS_LOGIN_SECRET: ${{ vars.ULUCKS_LOGIN_SECRET }}
-      ULUCKS_EXPANSION_STAGE: all
+      ULUCKS_EXPANSION_STAGE: ${{ contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_COMPANY8_20261018') && 'company8' || 'all' }}
+      ULUCKS_REUSE_ACQUISITION: ${{ contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_COMPANY8_20261018') && '20261017T160944Z-10bd49a595a4' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
@@ -464,3 +465,25 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
       - name: Inspect actual company routes without PDF or release changes
         run: python cloud/observe_company_routes.py
+
+  inspect_preserved_acquisition_once:
+    if: github.repository == 'aik38/tatemono-map' && github.event_name == 'push' && contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_REVIEW_20261018')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_JOB: ${{ vars.GCP_JOB }}
+      GCP_SCHEDULER_JOB: ${{ vars.GCP_SCHEDULER_JOB }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Inspect the preserved PDF and canonical review privately
+        run: python cloud/inspect_failed_acquisition.py

@@ -18,11 +18,15 @@ def effective_rentals(conn):
     rows = conn.execute("""
         SELECT l.* FROM listings l
         WHERE (l.ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
+          OR EXISTS (SELECT 1 FROM cloud_retained_listings h JOIN current_ingest_snapshots s
+            ON s.source=h.scope_key AND s.ingest_run_id=h.ingest_run_id WHERE h.listing_key=l.listing_key)
           OR (l.ingest_run_id IS NULL AND NOT EXISTS (SELECT 1 FROM current_ingest_snapshots)))
-        AND NOT EXISTS (
+        AND (EXISTS (SELECT 1 FROM cloud_retained_listings h JOIN current_ingest_snapshots s
+            ON s.source=h.scope_key AND s.ingest_run_id=h.ingest_run_id WHERE h.listing_key=l.listing_key)
+          OR NOT EXISTS (
           SELECT 1 FROM cloud_baseline_ownership o
           JOIN current_ingest_snapshots s ON s.source=o.scope_key
-          WHERE o.listing_key=l.listing_key)
+          WHERE o.listing_key=l.listing_key))
         AND NOT EXISTS (
           SELECT 1 FROM cloud_unit_overlaps o JOIN current_ingest_snapshots s
             ON s.source=o.scope_key AND s.ingest_run_id=o.ingest_run_id

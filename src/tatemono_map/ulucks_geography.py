@@ -30,7 +30,10 @@ def municipality_of(address):
 def complement_print_address(address, heading):
     value = unicodedata.normalize('NFKC', address or '').strip()
     bare = value.removeprefix('福岡県')
-    if municipality_of(value) or re.match(r'[^0-9\s-]+?[市郡]', bare):
+    # A neighbourhood can contain 市 (宮市町 / 西宮市二丁目). A bare
+    # occurrence of that character is insufficient to identify another city.
+    explicit_city=re.match(r'[^0-9\s-]+?市(?!町|[一二三四五六七八九十0-9]+(?:丁目|番|号))',bare)
+    if value.startswith('福岡県') or municipality_of(value) or explicit_city or re.match(r'[^0-9\s-]+?郡',bare):
         return value
     if any(bare.startswith(w) for w in AREA_LABELS if w.endswith('区')):
         return '北九州市'+bare
