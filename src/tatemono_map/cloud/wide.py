@@ -22,6 +22,31 @@ class CompanyCatalog(list):
         self.counts=counts
 
 
+def complete_catalog(current: CompanyCatalog, previous: list[dict]) -> CompanyCatalog:
+    """Recheck only generation-pinned previously observed routes when absent.
+
+    A company can lose its index link after its final listing disappears. Its
+    prior verified route still needs two live zero searches; absence is not zero.
+    """
+    known={entry['company_id'] for entry in current}
+    requested={entry['company_id'] for entry in current.excluded}
+    extra=[]
+    for entry in previous:
+        company_id=entry.get('company_id','')
+        parsed=urlsplit(entry.get('search_url',''))
+        if (not re.fullmatch('[0-9]+',company_id) or parsed.scheme!='https'
+            or parsed.netloc!=urlsplit(c.ORIGIN).netloc or parsed.path.rstrip('/')!='/company/lists/'+company_id
+            or parsed.query or parsed.fragment):
+            raise c.CollectionError('previous_company_catalog_invalid')
+        if company_id in requested:
+            raise c.CollectionError('previous_company_now_requires_access_request')
+        if company_id not in known:
+            extra.append({'company_id':company_id,'search_url':entry['search_url']})
+            known.add(company_id)
+    return CompanyCatalog(sorted(list(current)+extra,key=lambda x:int(x['company_id'])),current.excluded,
+        {**current.counts,'prior_route_checks':len(extra)})
+
+
 def company_catalog(page) -> list[dict]:
     """Enumerate actual TD routes and actual index pagination; never scan IDs."""
     pending = []
@@ -240,7 +265,7 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
         try:
             c.login_to_company_index(page,credentials)
             index = page.url
-            catalog = company_catalog(page)
+            catalog = complete_catalog(company_catalog(page),config.get('previous_verified_companies',[]))
             on_company(None, catalog)
             for target in catalog:
                 on_company(target,None)

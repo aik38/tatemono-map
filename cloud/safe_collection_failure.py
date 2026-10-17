@@ -76,7 +76,7 @@ def diagnostic():
         'company_pagination_button_requires_review company_catalog_missing_previously_active_company company_positive_count_without_observed_route '
         'company_discovered_route_navigation_failed company_discovered_heading_missing '
         'all_companies_browser_failed all_companies_operation_failed all_companies_census_incomplete batch_target_contract_invalid '
-        'batch_public_proof_building_missing publication_baseline_counts_mismatch').split())
+        'batch_public_proof_building_missing publication_baseline_counts_mismatch previous_company_catalog_invalid previous_company_now_requires_access_request previous_company_catalog_reference_invalid previous_company_catalog_too_large').split())
     stage_names=(
         "area_checkbox search_form company_title search_action print_action login_username "
         "login_password login_action company_search company_link company_row company_count_link kitakyushu_parent wide_child"

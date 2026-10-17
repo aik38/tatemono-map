@@ -50,6 +50,18 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
     store.download(head['public'],baseline)
     if validate_public(baseline)!=head['report']['public_counts']:
         raise CollectionError('publication_baseline_counts_mismatch')
+    previous=[]
+    reference=head['report'].get('company_catalog_ref')
+    if reference is not None:
+        if reference.get('object')!=f"private-runs/{head['run_id']}/company-catalog.json":
+            raise CollectionError('previous_company_catalog_reference_invalid')
+        previous_file=work/'previous-company-catalog.json'
+        store.download(reference,previous_file)
+        if previous_file.stat().st_size>2*1024*1024:
+            raise CollectionError('previous_company_catalog_too_large')
+        previous=json.loads(previous_file.read_text())
+        if not isinstance(previous,list) or len(previous)>5000:
+            raise CollectionError('previous_company_catalog_invalid')
     run=new_run_id()
     store.upload(master,f'backups/{run}.sqlite3')
     print('ULUCKS_COLLECTION_SAFE='+json.dumps({'stage':'backup_verified','run_id':run}),flush=True)
@@ -60,13 +72,13 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
     def save_json(value,name):
         file=work/(name+'.json')
         file.write_text(json.dumps(value,ensure_ascii=False))
-        store.upload(file,f'private-runs/{run}/{name}.json')
+        return store.upload(file,f'private-runs/{run}/{name}.json')
     def company(one,result):
         if one is None:
             trace['company_count']=len(result)
             trace['company_census']=getattr(result,'counts',{})
             trace['excluded_companies']=getattr(result,'excluded',[])
-            save_json(result,'company-catalog')
+            trace['company_catalog_ref']=save_json(result,'company-catalog')
             missing=set(head['report'].get('company_ids',[]))-{x['company_id'] for x in result}
             if missing:
                 trace['missing_previously_active_companies']=sorted(missing)
@@ -105,7 +117,7 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         print('ULUCKS_BATCH_SAFE='+json.dumps({'stage':'company_complete','completed':len(reports),
             'company_count':trace['company_count'],'parsed_rows':sum(r['parsed_rows'] for r in reports)}),flush=True)
     try:
-        catalog=collector(config,credentials,work/'pdf',company)
+        catalog=collector({**config,'previous_verified_companies':previous},credentials,work/'pdf',company)
         if not catalog or len(reports)!=len(catalog) or len({x['company_id'] for x in catalog})!=len(catalog):
             raise CollectionError('all_companies_census_incomplete')
         counts=export_public(master,work/'public.sqlite3',baseline=baseline)
@@ -115,6 +127,7 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         report={'collection_mode':'all_companies','area_id':'kitakyushu','company_count':len(catalog),
             'company_census':getattr(catalog,'counts',{}),
             'company_ids':[x['company_id'] for x in catalog],
+            'company_catalog_ref':trace['company_catalog_ref'],
             'successful_companies':len(reports),'parsed_rows':total,'attached_rows':sum(r['attached_rows'] for r in reports),
             'pdf_count':pdfs,'pdfs':[p for r in reports for p in r['pdfs']],
             'acquisition_status':'pdf_verified' if pdfs else 'confirmed_zero',
