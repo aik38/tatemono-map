@@ -82,6 +82,19 @@ def main():
             value=entry.get('textPayload') or (entry.get('jsonPayload') or {}).get('message','')
             if isinstance(value,str) and value.startswith(('COMPANY_ROUTE_SHAPES=','COMPANY_ROUTE_ROWS=','COMPANY_ROUTE_SAVED=','COMPANY_ROUTE_ERROR=')):
                 print(value)
+            elif isinstance(value,str) and value.startswith('ULUCKS_WIDE_SAFE='):
+                record=json.loads(value.split('=',1)[1])
+                if record.get('stage') in ('catalog','search'):
+                    keys=('company_count','pages','listed_rows','zero_without_route','other_without_route','request_required','collectable_companies','result_count','child_area_count','scope_verified')
+                    safe={k:record[k] for k in keys if type(record.get(k)) in (int,bool)}
+                    print('CURRENT_COLLECTION_PROGRESS='+json.dumps({'timestamp':entry.get('timestamp'),'stage':record['stage'],**safe},ensure_ascii=False))
+            elif isinstance(value,str) and value.startswith('ULUCKS_UI_SAFE='):
+                record=json.loads(value.split('=',1)[1])
+                if record.get('stage') in ('print_started','print_exception','company_title_verified'):
+                    print('CURRENT_COLLECTION_PROGRESS='+json.dumps({'timestamp':entry.get('timestamp'),'stage':record['stage']}))
+            payload=entry.get('jsonPayload') or {}
+            if payload.get('status') in ('failed','committed') and isinstance(payload.get('code',''),str) and re.fullmatch('[a-z][a-z0-9_]{0,100}',payload.get('code','')):
+                print('CURRENT_COLLECTION_RESULT='+json.dumps({'timestamp':entry.get('timestamp'),'status':payload['status'],'code':payload['code']}))
     if outcome is None:raise SystemExit('route_observation_failed')
 
 if __name__=='__main__':main()
