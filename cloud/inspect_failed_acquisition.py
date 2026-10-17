@@ -71,6 +71,11 @@ try:
         pdfref=read('private-runs/'+RUN+'/pdf/000.pdf',pdf)
         report={'acquisition_run':RUN,'reviewed_patch_commit':PATCH_COMMIT,'pdf_sha256':pdfref['sha256'],'pdf_pages':page_count_fast(pdf),
             'expected_rows':count,'acquired_at':evidence.get('acquired_at'),'company_census':evidence.get('company_census')}
+        parsed=pipeline.UlucksParser().parse(pdf).df
+        from tatemono_map.cloud.wide import area_of
+        report['parsed_rows']=len(parsed)
+        report['parsed_area_counts']=dict(Counter(str(area_of(a)) for a in parsed['address']))
+        report['bad_scope_rows']=parsed.loc[parsed['address'].map(area_of).isna(),['building_name','room','address','evidence_id','raw_block']].head(30).to_dict(orient='records')
         try:
             result=update_master(master,[pdf],count,config,work,RUN+'-analysis',public_baseline=baseline)
             report['result']=result
@@ -90,7 +95,7 @@ try:
         report['reason_counts']=dict(Counter({str(k[2]):sum(g['rows'] for kk,g in groups.items() if kk[2]==k[2]) for k in groups}))
         report['unique_unresolved_groups']=len(groups)
         values=list(groups.values())
-        imported=list(csv.DictReader((work/'master_import.csv').open(encoding='utf-8-sig')))
+        imported=list(csv.DictReader((work/'master_import.csv').open(encoding='utf-8-sig'))) if (work/'master_import.csv').exists() else []
         for value in values:
             value['parsed_units']=[{k:r.get(k) for k in ('building_name','room','address','raw_block')} for r in imported if r.get('building_name')==value.get('name') and r.get('address')==value.get('address')][:1]
             value.pop('source_id',None)
@@ -121,7 +126,7 @@ try:
         report['official_head_unchanged']=store.read_head()==before
         from tatemono_map.cloud.run import new_run_id
         diagnostic_prefix='private-runs/'+RUN+'/diagnostics/'+new_run_id()
-        report['parsed_csv_ref']=store.upload(work/'master_import.csv',diagnostic_prefix+'/parsed.csv')
+        if (work/'master_import.csv').exists():report['parsed_csv_ref']=store.upload(work/'master_import.csv',diagnostic_prefix+'/parsed.csv')
         full_report=work/'private-review.json'
         full_report.write_text(json.dumps(report,ensure_ascii=False))
         ref=store.upload(full_report,diagnostic_prefix+'/review.json')
@@ -132,7 +137,7 @@ try:
         if len(payload)>48000:raise RuntimeError('private_review_transport_budget_exceeded')
         chunks=[base64.b64encode(encrypt(payload[i:i+400])).decode() for i in range(0,len(payload),400)]
         print('ENCRYPTED_REVIEW='+json.dumps({'algorithm':'RSA-OAEP-SHA256+zlib','chunks':chunks}),flush=True)
-        print('REVIEW_INSPECTION_SAFE='+json.dumps({'pdf_pages':report['pdf_pages'],'expected_rows':count,'review_counts':counts,
+        print('REVIEW_INSPECTION_SAFE='+json.dumps({'pdf_pages':report['pdf_pages'],'expected_rows':count,'review_counts':counts,'failure_code':report.get('failure_code'),'parsed_area_counts':report.get('parsed_area_counts'),
             'reason_counts':report['reason_counts'],'unique_groups':len(groups),'official_head_unchanged':report['official_head_unchanged']}),flush=True)
 except Exception as exc:
     print('REVIEW_INSPECTION_ERROR='+json.dumps({'class':type(exc).__name__}),flush=True)
