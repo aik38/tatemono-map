@@ -1,6 +1,13 @@
 # Ulucks 全域・全業者 再開チェックポイント
 更新: 2026-10-17 21:49 UTC。以下の最新チェックポイントを優先し、下段は過去の経過記録として参照する。
 
+## 全業者初回の重要な失敗（2026-10-17 22:18 UTC）
+- run `20261017T220240Z-17086bbe5dd5` の実画面一覧は131行/69 route/62 routeなし（request4）。会社2/3/11/16はcompany_title_missing、6/7/9/15/17はarea_checkbox_missing。会社4は新規PDF1/6ページ/95件を取得済みだがout_of_scope_addressで会社単位の反映を停止。
+- 会社8確認済みsnapshotの再利用1社を確認。他社の最初の処理で共通UI前提が不適合。会社8用 `c._search_form`（小倉北区label起点）が広域全社のform探索にも残っている。元資料不備と断定しない。
+- 無効巡回継続を避けるため、source c17326ab と execution 9t6dt を厳密照合して停止し、完了確認後だけ同Jobで隔離診断する。新PDF取得/正式HEAD更新は診断で行わない。実会社2/3/6/26は保存済みcatalogのrouteから実DOMを確認、会社4保存済みPDFを再解析。原文はprivate GCS、公開ログには安全な構造情報と暗号化データのみ。
+- 最新mainに `cloud/diagnose_batch_scope.py` と一回限りmarker `ULUCKS_BATCH_SCOPE_DIAGNOSTIC_20261018` を追加。次はそのActions結果を確認し、UI/住所解析修正→既取得原本を再利用して全社処理を再開する。
+- 工程Aは正式GCS/Pages成功済み。B/C未完了。下段の「起動」は経過記録であり全社成功ではない。
+
 ## 全業者初回パイプライン起動（2026-10-17 21:55 UTC）
 - PR#373 merged。実行source/main merge `c17326ab9fbf18d8345af0f02c1c4b20c5cc65c9`、PR HEAD `ac135e62fb4a4445366570751ccfa0b6365fed0f`。CI39072502191成功（新規失敗なし、コンテナブラウザ成功）。
 - 本番実行 https://github.com/aik38/tatemono-map/actions/runs/39072887653 。Cloud Run実行 `tatemono-collection-poc-9t6dt` は22:02:27 UTC開始。run `20261017T220240Z-17086bbe5dd5`、22:02:42バックアップ確認。再開時はこの結果と実行中の有無を先に照会し、二重起動しない。
