@@ -10,8 +10,8 @@ from tatemono_map.cloud.wide import observed_company_label
 from tatemono_map.cloud.collector import ORIGIN, COMPANY_LABEL
 
 
-@pytest.mark.parametrize('hidden',[False,True])
-def test_full_parent_group_excludes_every_other_selected_area(tmp_path,hidden):
+@pytest.mark.parametrize('hidden,collapsed',[(False,False),(True,False),(False,True)])
+def test_full_parent_group_excludes_every_other_selected_area(tmp_path,hidden,collapsed):
     inputs=''.join(f'<label><input type="checkbox" name="area" value="{i}">{label}</label>' for i,label in enumerate(AREA_LABELS))
     body=f'''<meta charset="utf-8"><h2>物件検索（{COMPANY_LABEL}）</h2>
     <form method="post" action="{ORIGIN}/company/lists/8">
@@ -19,6 +19,9 @@ def test_full_parent_group_excludes_every_other_selected_area(tmp_path,hidden):
     <div><label><input type="checkbox" name="outside" value="fukuoka" checked>福岡市</label></div>
     <input type="submit" value="検索"></form>'''
     if hidden:body='<style>input[type=checkbox]{display:none}</style>'+body
+    if collapsed:
+        body=body.replace('<h2>', '<h2 onclick="document.querySelector(\'form\').style.display=\'block\'">')
+        body=body.replace('<form method=', '<form style="display:none" method=')
     sent=[]
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True,executable_path=os.environ.get('TATEMONO_CHROMIUM_EXECUTABLE'))
@@ -72,3 +75,24 @@ def test_company_heading_excludes_observed_all_properties_sidebar():
             assert observed_company_label(page)=='架空甲社'
         finally:
             browser.close()
+
+
+def test_explicit_access_notice_is_retained_as_unavailable_not_an_empty_snapshot(monkeypatch):
+    import hashlib
+    from tatemono_map.cloud import wide
+    notice='この架空会社の物件は許可申請後に公開されます'
+    monkeypatch.setattr(wide,'ACCESS_NOTICE_SHA256',frozenset({hashlib.sha256(notice.encode()).hexdigest()}))
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True,executable_path=os.environ.get('TATEMONO_CHROMIUM_EXECUTABLE'))
+        page=browser.new_page()
+        try:
+            page.set_content('<p>'+notice+'</p>')
+            state=wide.access_unavailable(page)
+            assert state.code=='access_request_required' and state.evidence['request_sent'] is False
+            page.set_content('<nav><a>'+notice+'</a></nav>')
+            assert wide.access_unavailable(page) is None
+            page.set_content('<p>'+notice+'</p><form></form>')
+            assert wide.access_unavailable(page) is None
+            page.set_content('<p>公開と許可申請の文字を含む未知の障害</p>')
+            assert wide.access_unavailable(page) is None
+        finally:browser.close()
