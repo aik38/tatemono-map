@@ -69,6 +69,30 @@ def main():
         return p.stdout
     region=os.environ['GCP_REGION'];job=os.environ['GCP_JOB']
     logs_only=os.environ.get('ROUTES_READ_LOGS_ONLY')=='true'
+    if logs_only:
+        raw_job=gc(['run','jobs','describe',job,'--region',region,'--format=json'])
+        if raw_job:
+            observed=json.loads(raw_job)
+            template=observed.get('spec',{}).get('template',{}).get('spec',{})
+            task=template.get('template',{}).get('spec',{})
+            container=(task.get('containers') or [{}])[0]
+            variables={x['name']:x.get('value','') for x in container.get('env',[])}
+            config=json.loads(variables.get('ULUCKS_CONFIG_JSON') or '{}')
+            print('CURRENT_JOB_SAFE='+json.dumps({'source_commit':variables.get('TATEMONO_SOURCE_COMMIT'),
+                'collection_mode':config.get('collection_mode'),'company_id':config.get('company_id'),
+                'area_id':config.get('area_id'),'normal_collect_args':container.get('args',[])==['-m','tatemono_map.cloud.run'],
+                'task_count':template.get('taskCount'),'parallelism':template.get('parallelism'),
+                'timeout_seconds':task.get('timeoutSeconds'),'max_retries':task.get('maxRetries')}),flush=True)
+        raw_executions=gc(['run','jobs','executions','list','--job',job,'--region',region,'--limit=4','--format=json'])
+        if raw_executions:
+            print('CURRENT_EXECUTIONS_SAFE='+json.dumps([{'name':x.get('metadata',{}).get('name'),
+                'start':x.get('status',{}).get('startTime'),'completed':x.get('status',{}).get('completionTime'),
+                'conditions':[{k:c.get(k) for k in ('type','status','reason')} for c in x.get('status',{}).get('conditions',[])]}
+                for x in json.loads(raw_executions)]),flush=True)
+        raw_scheduler=gc(['scheduler','jobs','describe',os.environ.get('GCP_SCHEDULER_JOB','tatemono-ulucks-weekly'),
+            '--location',region,'--format=json(state,schedule,timeZone,httpTarget.uri,lastAttemptTime,status.code)'])
+        if raw_scheduler:
+            print('CURRENT_SCHEDULER_SAFE='+json.dumps(json.loads(raw_scheduler)),flush=True)
     rows='[]' if logs_only else gc(['run','jobs','executions','list','--job',job,'--region',region,'--format=json'])
     if rows is None or any(not x.get('status',{}).get('completionTime') for x in json.loads(rows)):
         raise SystemExit('active_or_unreadable_executions_refusing_observation')
