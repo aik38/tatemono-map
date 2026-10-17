@@ -55,6 +55,7 @@ def execute(store, config: dict, credentials: dict, work: Path, source_commit: s
     run = new_run_id()
     # Pre-update byte-for-byte backup; refusal/failure here prevents collection.
     store.upload(master, f"backups/{run}.sqlite3")
+    print('ULUCKS_COLLECTION_SAFE='+json.dumps({'stage':'backup_verified','run_id':run}),flush=True)
     # The collector writes only allowlisted UI structure, never member HTML.
     # Retain an observation even when live collection later fails.
     observation = work / "ulucks-ui.private.json"
@@ -81,6 +82,9 @@ def execute(store, config: dict, credentials: dict, work: Path, source_commit: s
     evidence = work / "collection-evidence.json"
     evidence.write_text(json.dumps(collected.evidence, ensure_ascii=False))
     store.upload(evidence, f"private-runs/{run}/collection-evidence.json")
+    from tatemono_map.cli.pdf_batch_run import page_count_fast
+    print('ULUCKS_COLLECTION_SAFE='+json.dumps({'stage':'pdf_acquired','run_id':run,'pdf_count':len(pdfs),
+        'pdf_pages':sum(page_count_fast(pdf) for pdf in pdfs),'expected_rows':count}),flush=True)
     try:
         report = update_master(master, pdfs, count, config, work, run, confirmed_zero=collected.confirmed_zero, public_baseline=public_baseline)
     except CollectionError as exc:

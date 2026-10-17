@@ -186,6 +186,7 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
     source_zero = frame.get("area_source_zero", pd.Series(False, index=frame.index)).eq(True)
     if frame["rent_man"].isna().any() or (frame["rent_man"] <= 0).any() or (frame["area_sqm"].isna() & ~source_zero).any() or (frame["area_sqm"] <= 0).any():
         raise CollectionError("pdf_rent_or_area_invalid")
+    print('ULUCKS_COLLECTION_SAFE='+json.dumps({'stage':'parsed','run_id':run_id,'parsed_rows':len(frame)}),flush=True)
     csv_path = work / "master_import.csv"
     key = scope_key(config)
     retired = []

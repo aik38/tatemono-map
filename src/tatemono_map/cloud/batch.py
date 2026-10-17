@@ -52,6 +52,7 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         raise CollectionError('publication_baseline_counts_mismatch')
     run=new_run_id()
     store.upload(master,f'backups/{run}.sqlite3')
+    print('ULUCKS_COLLECTION_SAFE='+json.dumps({'stage':'backup_verified','run_id':run}),flush=True)
     reports=[]
     affected=set()
     fresh_units=set()
@@ -80,6 +81,10 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         for index,pdf in enumerate(result.pdfs):
             store.upload(pdf,f'private-runs/{run}/companies/{company_id}/pdf/{index:03d}.pdf')
         save_json(result.evidence,'company-'+company_id+'-evidence')
+        from tatemono_map.cli.pdf_batch_run import page_count_fast
+        print('ULUCKS_COLLECTION_SAFE='+json.dumps({'stage':'pdf_acquired','run_id':run,'pdf_count':len(result.pdfs),
+            'pdf_pages':sum(page_count_fast(pdf) for pdf in result.pdfs),'expected_rows':result.expected_rows,
+            'completed_companies':len(reports)}),flush=True)
         # Each source has its own immutable run and current pointer. No failed
         # acquisition becomes zero; a failure prevents the final head commit.
         report=update_master(master,result.pdfs,result.expected_rows,one,directory,run+'-company-'+company_id,
