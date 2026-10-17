@@ -5,6 +5,7 @@ from playwright.sync_api import sync_playwright
 
 from tatemono_map.cloud.wide import AREA_LABELS, search
 from tatemono_map.cloud.wide import company_catalog
+from tatemono_map.cloud.wide import observed_company_label
 from tatemono_map.cloud.collector import ORIGIN, COMPANY_LABEL
 
 
@@ -52,5 +53,16 @@ def test_company_census_follows_actual_pagination_and_td_routes():
             page.goto(ORIGIN+'/company')
             assert [x['company_id'] for x in company_catalog(page)]==['8','26']
             assert visited==[ORIGIN+'/company',ORIGIN+'/company?page=2']
+        finally:
+            browser.close()
+
+
+def test_company_heading_excludes_observed_all_properties_sidebar():
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True,executable_path=os.environ.get('TATEMONO_CHROMIUM_EXECUTABLE'))
+        page=browser.new_page()
+        try:
+            page.set_content('<a>物件検索(ALL)</a><h2>物件検索（架空甲社）</h2>')
+            assert observed_company_label(page)=='架空甲社'
         finally:
             browser.close()

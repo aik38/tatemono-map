@@ -176,6 +176,17 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> c.Co
         c._observe_company_row = original_observe
 
 
+def observed_company_label(page) -> str:
+    # The sidebar also says 物件検索(ALL). Read the actual company title,
+    # excluding that observed navigation label without assuming an HTML tag.
+    pattern=re.compile(r'物件検索\s*[（(](?!\s*ALL\s*[）)])[^）)]+[）)]',re.I)
+    heading=c.only(page.get_by_text(pattern),'company_title')
+    match=re.search(r'物件検索\s*[（(]\s*([^）)]+?)\s*[）)]',c.normal(heading.inner_text()))
+    if not match:
+        raise c.CollectionError('company_discovered_heading_missing')
+    return match[1]
+
+
 def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list[dict]:
     """One login, a complete live catalog, sequential per-company acquisition."""
     from playwright.sync_api import sync_playwright
@@ -196,11 +207,7 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
                 response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
                 if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
                     raise c.CollectionError('company_discovered_route_navigation_failed')
-                heading = c.only(page.get_by_text(re.compile(r'物件検索\s*[（(][^）)]+[）)]')), 'company_title')
-                label_match = re.search(r'物件検索\s*[（(]\s*([^）)]+?)\s*[）)]',c.normal(heading.inner_text()))
-                if not label_match:
-                    raise c.CollectionError('company_discovered_heading_missing')
-                one = dict(config,**target,company_label=label_match[1])
+                one = dict(config,**target,company_label=observed_company_label(page))
                 folder = root / target['company_id']
                 folder.mkdir(parents=True,exist_ok=True)
                 count = search(page,folder,one)
