@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import re
 import json
+import os
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urljoin
 
@@ -26,6 +28,7 @@ def company_catalog(page) -> list[dict]:
         if len(visited) > 100:
             raise c.CollectionError('company_pagination_budget_exceeded')
         targets = page.locator('td[data-href]')
+        targets.first.wait_for(state='visible',timeout=30000)
         if targets.count() == 0:
             raise c.CollectionError('company_catalog_empty')
         for cell in targets.all():
@@ -48,6 +51,9 @@ def company_catalog(page) -> list[dict]:
             parsed = urlsplit(url)
             if parsed.netloc == urlsplit(c.ORIGIN).netloc and parsed.path.rstrip('/') == '/company' and url not in visited and url not in pending:
                 pending.append(url)
+        for control in page.get_by_role('button').all():
+            if re.fullmatch(r'(?:次(?:へ|のページ)?|Next|[»›])',c.normal(control.inner_text()),re.I) and control.is_enabled():
+                raise c.CollectionError('company_pagination_button_requires_review')
         if not pending:
             break
         response = page.goto(pending.pop(0),wait_until='domcontentloaded',timeout=45000)
@@ -136,7 +142,10 @@ def search(page, root: Path, company: dict) -> int:
     response.finished()
     page.wait_for_load_state('domcontentloaded')
     page.wait_for_function(r"() => /検索結果\s*[\d,]+\s*件中/.test((document.body?.innerText||'').normalize('NFKC'))", timeout=45000)
-    return c._confirmed_result_count(c.normal(page.locator('body').inner_text()))
+    count=c._confirmed_result_count(c.normal(page.locator('body').inner_text()))
+    c._append_ui_observation(root,'search_completed',{'result_count':count,'child_area_count':len(AREA_LABELS),'scope_verified':True})
+    print('ULUCKS_WIDE_SAFE='+json.dumps({'stage':'search','result_count':count,'child_area_count':len(AREA_LABELS),'scope_verified':True}),flush=True)
+    return count
 
 
 def collect_with_page(page, config: dict, credentials: dict, root: Path) -> c.Collected:
@@ -165,3 +174,62 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> c.Co
     finally:
         c._search = original_search
         c._observe_company_row = original_observe
+
+
+def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list[dict]:
+    """One login, a complete live catalog, sequential per-company acquisition."""
+    from playwright.sync_api import sync_playwright
+    c.validate_config(config)
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True,executable_path=os.environ.get('TATEMONO_CHROMIUM_EXECUTABLE'))
+        context = browser.new_context(accept_downloads=True,locale='ja-JP')
+        context.set_default_timeout(30000)
+        page = context.new_page()
+        index = None
+        try:
+            c.login_to_company_index(page,credentials)
+            index = page.url
+            catalog = company_catalog(page)
+            on_company(None, catalog)
+            for target in catalog:
+                on_company(target,None)
+                response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
+                if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
+                    raise c.CollectionError('company_discovered_route_navigation_failed')
+                heading = c.only(page.get_by_text(re.compile(r'物件検索\s*[（(][^）)]+[）)]')), 'company_title')
+                label_match = re.search(r'物件検索\s*[（(]\s*([^）)]+?)\s*[）)]',c.normal(heading.inner_text()))
+                if not label_match:
+                    raise c.CollectionError('company_discovered_heading_missing')
+                one = dict(config,**target,company_label=label_match[1])
+                folder = root / target['company_id']
+                folder.mkdir(parents=True,exist_ok=True)
+                count = search(page,folder,one)
+                if count > int(config.get('max_rows',5000)):
+                    raise c.CollectionError('ulucks_result_count_exceeds_limit')
+                if count == 0:
+                    if search(page,folder,one) != 0:
+                        raise c.CollectionError('ulucks_zero_result_not_stable')
+                    result = c.Collected([],0,True,{'search_counts':[0,0],'scope_verified':True})
+                else:
+                    paths,evidence = c._capture_print(page,folder)
+                    result = c.Collected(paths,count,False,{**evidence,'search_counts':[count],'scope_verified':True})
+                result.evidence.update(acquired_at=datetime.now(timezone.utc).isoformat(),area_labels=list(AREA_LABELS),company_id=target['company_id'])
+                on_company(one,result)
+                for popup in context.pages:
+                    if popup != page:
+                        popup.close()
+            return catalog
+        except c.CollectionError:
+            raise
+        except Exception:
+            raise c.CollectionError('all_companies_browser_failed') from None
+        finally:
+            try:
+                if index and not page.is_closed():
+                    page.goto(index,wait_until='domcontentloaded',timeout=15000)
+                    logout=page.get_by_role('link',name='ログアウト',exact=True).or_(page.get_by_role('button',name='ログアウト',exact=True))
+                    if logout.count()==1:
+                        logout.click(timeout=5000)
+            except Exception:
+                pass
+            browser.close()

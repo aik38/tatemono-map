@@ -68,6 +68,15 @@ def diagnostic():
         "ulucks_area_dom_contract_invalid ulucks_area_observed_label_unavailable ulucks_area_not_activated "
         "ulucks_search_action_not_unique"
     ).split())
+    allowed.update(('wide_area_associated_label_missing wide_area_checked_state_mismatch wide_parent_not_checkbox '
+        'wide_parent_children_contract_changed wide_area_not_exclusive wide_collection_publication_baseline_required '
+        'company_catalog_empty company_catalog_unexpected_target company_catalog_conflicting_routes '
+        'company_catalog_known_companies_missing company_catalog_reviewed_route_changed '
+        'company_pagination_loop company_pagination_budget_exceeded company_pagination_navigation_failed '
+        'company_pagination_button_requires_review company_catalog_missing_previously_active_company '
+        'company_discovered_route_navigation_failed company_discovered_heading_missing '
+        'all_companies_browser_failed all_companies_census_incomplete batch_target_contract_invalid '
+        'batch_public_proof_building_missing publication_baseline_counts_mismatch').split())
     stage_names=(
         "area_checkbox search_form company_title search_action print_action login_username "
         "login_password login_action company_search company_link company_row company_count_link"

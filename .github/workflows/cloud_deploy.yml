@@ -61,9 +61,9 @@ jobs:
     needs: test
     # A repair merge must not race the resumable operator's explicit dispatch.
     # One controlled recovery on the reviewed PR merge; all other pushes remain test-only.
-    if: vars.CLOUD_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_COMPANY8_20261018') || contains(github.event.head_commit.message, 'ULUCKS_UI_ONESHOT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_COMPANY_ROW_ONESHOT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_DOM_OBSERVE_20261017') || contains(github.event.head_commit.message, 'ULUCKS_SEARCH_OBSERVE_20261017') || contains(github.event.head_commit.message, 'ULUCKS_AREA_ONLY_20261017') || contains(github.event.head_commit.message, 'ULUCKS_LIVE_DOM_20261017') || contains(github.event.head_commit.message, 'ULUCKS_SEARCH_DOM_20261017') || contains(github.event.head_commit.message, 'ULUCKS_FORM_SUBMIT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_POST_SEARCH_RESULTS_20261017'))))
+    if: vars.CLOUD_ENABLED == 'true' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (contains(github.event.head_commit.message, 'ULUCKS_ALL_COMPANIES_20261018') || contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_COMPANY8_20261018') || contains(github.event.head_commit.message, 'ULUCKS_UI_ONESHOT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_COMPANY_ROW_ONESHOT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_DOM_OBSERVE_20261017') || contains(github.event.head_commit.message, 'ULUCKS_SEARCH_OBSERVE_20261017') || contains(github.event.head_commit.message, 'ULUCKS_AREA_ONLY_20261017') || contains(github.event.head_commit.message, 'ULUCKS_LIVE_DOM_20261017') || contains(github.event.head_commit.message, 'ULUCKS_SEARCH_DOM_20261017') || contains(github.event.head_commit.message, 'ULUCKS_FORM_SUBMIT_20261017') || contains(github.event.head_commit.message, 'ULUCKS_POST_SEARCH_RESULTS_20261017'))))
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 360
     permissions:
       contents: read
       id-token: write
@@ -78,7 +78,7 @@ jobs:
       ULUCKS_CONFIG_SECRET: ${{ vars.ULUCKS_CONFIG_SECRET }}
       ULUCKS_CONFIG_JSON: ${{ vars.ULUCKS_CONFIG_JSON }}
       ULUCKS_LOGIN_SECRET: ${{ vars.ULUCKS_LOGIN_SECRET }}
-      ULUCKS_EXPANSION_STAGE: company8
+      ULUCKS_EXPANSION_STAGE: all
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
