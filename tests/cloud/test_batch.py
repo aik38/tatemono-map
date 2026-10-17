@@ -79,3 +79,37 @@ def test_failure_after_mutation_restores_only_that_company(store,config,tmp_path
     with readonly(master) as conn:
         assert conn.execute("SELECT COUNT(*) FROM listings WHERE rent_yen=60000").fetchone()[0]==0
         assert conn.execute("SELECT COUNT(*) FROM listings WHERE source_kind='ulucks'").fetchone()[0]==1
+
+
+def test_unavailable_company_preserves_previous_scope_and_all_available_companies_complete(store,config,tmp_path):
+    import json
+    from tatemono_map.cloud.wide import CompanyUnavailable
+    from tatemono_map.cloud.run import all_company_proof_ready
+    cfg=all_config(config)
+    a=make_pdf(tmp_path/'a.pdf')
+    b=make_pdf(tmp_path/'b.pdf',rooms=('202',))
+    first=tmp_path/'first';first.mkdir()
+    old=execute_all(store,cfg,{},first,'c'*40,collector=fake_catalog(cfg,a,b))
+    result_file=tmp_path/'old-result.json'
+    store.download(old['report']['company_results'][1]['result_ref'],result_file)
+    previous=json.loads(result_file.read_text())
+    catalog=[{'company_id':str(i),'search_url':ORIGIN+'/company/lists/'+str(i)} for i in (8,26)]
+    def collect(config,credentials,root,emit):
+        emit(None,catalog)
+        emit(catalog[0],None)
+        emit(dict(config,**catalog[0],company_label='架空業者8'),Collected([a],1,False,{}))
+        emit(catalog[1],None)
+        emit(catalog[1],CompanyUnavailable({'notice':'synthetic private access notice','request_sent':False}))
+        return catalog
+    work=tmp_path/'next';work.mkdir()
+    new=execute_all(store,cfg,{},work,'c'*40,collector=collect)
+    assert new['report']['successful_companies']==1 and new['report']['company_count']==2
+    assert new['report']['failed_companies']==[]
+    assert len(new['report']['unavailable_companies'])==1
+    assert new['report']['public_counts']['vacancies']==old['report']['public_counts']['vacancies']==3
+    assert all_company_proof_ready(new,'c'*40)
+    master=tmp_path/'master-next.sqlite3';store.download(new['master'],master)
+    with readonly(master) as conn:
+        assert conn.execute('SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?',(previous['scope_key'],)).fetchone()[0]==previous['ingest_run_id']
+    marker=fetch(store,tmp_path/'pub-next.sqlite3',tmp_path/'marker-next.json')
+    assert 'synthetic private access notice' not in json.dumps(marker)
