@@ -5,7 +5,10 @@
 - 工程A（会社8全域の部分反映/GCS/Pages）は完了。工程Bは実画面差分を修正し本番再開中。工程C（全社初回proof後の週次確立）は未完了。
 - 保存前main/source: `9b50d79351da81f37fd1550f2b580f355044c30f`。PR372/373/374はmerged。
 - 最新PR374 HEAD `9398fdb86e9604ea2c32e1e312726b815b4fee61`、CI39075498040成功（必須/core・全suite新規失敗なし・コンテナブラウザ）。
-- 再開本番Actions: https://github.com/aik38/tatemono-map/actions/runs/39075913827 。この結果とCloud Run実行中の有無を先に確認。新run IDは起動後に追記する。
+- 新Cloud Run execution `tatemono-collection-poc-nrppk` は2026-10-17 22:46:37 UTC開始、run `20261017T224648Z-cfcacaf910f6`。22:47:19に実Job source9b50d793/all_companies/kitakyushu/通常args/task1/parallelism1/retry0/21600秒を照合。
+- 新runでも一覧131行/69 lists URLを確認。会社2/3は既知の許可申請案内としてcompany_unavailable記録済み。会社4は保存済み95行PDFを再解析中。正式HEAD/Pagesはまだ工程A、全社完了とは報告しない。
+- 新runの原本・manifest/result/checkpointは `private-runs/20261017T224648Z-cfcacaf910f6/` 配下。二重起動せず、この実行結果とprivate company結果から再開する。
+- 再開本番Actions: https://github.com/aik38/tatemono-map/actions/runs/39075913827 。この結果とCloud Run実行中の有無を先に確認。新run IDは上記。
 - 初回再開だけ公開確認済み会社8scopeと旧全社runの取得済みPDFを再利用。通常週次は全社fresh。marker `ULUCKS_ALL_COMPANIES_20261018_RECOVER_FORMS` は今回のみ。
 - GCP project `tatemono-map` / region `asia-northeast1` / bucket `tatemono-map-poc-523194690131` / Job `tatemono-collection-poc`。
 - Schedulerは実照合でENABLED、`0 4 * * 1`、Asia/Tokyo、同Job。Jobは全社/kitakyushu・task1/parallelism1/retry0/timeout21600。新sourceの全社初回proof前は週次収集をスキップ。実際の無人定期成功は未確認。
