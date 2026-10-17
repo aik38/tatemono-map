@@ -54,6 +54,8 @@ def test_explicit_source_unit_labels_are_literal_and_unknown_rooms_still_stop():
     for room in ('A','A棟','2-E','C-1'):
         assert unit_room(room,explicit_labels=True)==room
     assert unit_room('A棟',explicit_labels=True)!=unit_room('A',explicit_labels=True)
-    for room in ('001','A-01','','未定','不明','-'):
+    assert unit_room('001',explicit_labels=True) != unit_room('1',explicit_labels=True)
+    assert unit_room('A-01',explicit_labels=True) != unit_room('A-1',explicit_labels=True)
+    for room in ('','未定','不明','-'):
         with pytest.raises(CollectionError,match='identity_ambiguous'):
             unit_room(room,explicit_labels=True)

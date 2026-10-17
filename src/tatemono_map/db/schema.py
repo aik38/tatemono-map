@@ -13,6 +13,9 @@ class TableSchema:
 
 
 TABLE_SCHEMAS: tuple[TableSchema, ...] = (
+    TableSchema(name='cloud_collection_rows', ddl='CREATE TABLE IF NOT EXISTS cloud_collection_rows (scope_key TEXT NOT NULL,ingest_run_id INTEGER NOT NULL,evidence_id TEXT NOT NULL,company_id TEXT NOT NULL,review_key TEXT NOT NULL,classification TEXT NOT NULL,building_id TEXT,room_raw TEXT,raw_json TEXT NOT NULL,reason TEXT NOT NULL,candidate_ids_json TEXT NOT NULL,listing_key TEXT, PRIMARY KEY (ingest_run_id,evidence_id))', columns=('scope_key', 'ingest_run_id', 'evidence_id', 'company_id', 'review_key', 'classification', 'building_id', 'room_raw', 'raw_json', 'reason', 'candidate_ids_json', 'listing_key')),
+    TableSchema(name='cloud_retained_listings', ddl='CREATE TABLE IF NOT EXISTS cloud_retained_listings (listing_key TEXT NOT NULL,scope_key TEXT NOT NULL,ingest_run_id INTEGER NOT NULL,review_evidence_id TEXT NOT NULL, PRIMARY KEY (listing_key,scope_key,ingest_run_id))', columns=('listing_key', 'scope_key', 'ingest_run_id', 'review_evidence_id')),
+    TableSchema(name='cloud_review_decisions', ddl='CREATE TABLE IF NOT EXISTS cloud_review_decisions (review_key TEXT PRIMARY KEY,decision TEXT NOT NULL,building_id TEXT,room_label TEXT,reviewer TEXT NOT NULL,reviewed_at TEXT NOT NULL)', columns=('review_key', 'decision', 'building_id', 'room_label', 'reviewer', 'reviewed_at')),
     TableSchema(
         name="cloud_scope_bindings",
         ddl="""

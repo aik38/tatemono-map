@@ -92,3 +92,9 @@ def normalize_building_input(name: str | None, address: str | None) -> Normalize
         normalized_name=normalize_building_name(raw_name),
         normalized_address=strip_prefecture_prefix(canonical_address),
     )
+
+
+def normalize_ulucks_name(name: str) -> str:
+    # Ulucks provides a separate room column. An unlabelled trailing number
+    # belongs to the building name (e.g. 第1 versus 第3), not an inferred room.
+    return normalize_building_name(name or '', strip_room_suffix=False)

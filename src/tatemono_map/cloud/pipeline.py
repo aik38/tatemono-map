@@ -80,6 +80,11 @@ def _prepare_scope(conn, config: dict, key: str) -> None:
 
 def unit_room(value, *, explicit_labels=False):
     # Do not infer room identities from rents/areas/names or strip leading zeroes.
+    if explicit_labels:
+        from tatemono_map.cloud.partial import literal_room
+        result=literal_room(value)
+        if result is None:raise CollectionError('legacy_unit_identity_ambiguous')
+        return result
     value = normal(value or "").replace(" ", "").upper()
     if value.endswith("号室"):
         value = value[:-2]
@@ -112,7 +117,9 @@ def prepare_unit_overlaps(conn, key, run, diagnostic=None, *, allow_managed=Fals
     old = conn.execute("""SELECT l.listing_key,l.building_key,l.room_label,r.source
         FROM listings l LEFT JOIN ingest_runs r ON r.id=l.ingest_run_id
         WHERE l.source_kind='ulucks' AND l.ingest_run_id<>?
-        AND l.ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
+        AND (l.ingest_run_id IN (SELECT ingest_run_id FROM current_ingest_snapshots)
+          OR EXISTS (SELECT 1 FROM cloud_retained_listings h JOIN current_ingest_snapshots s
+            ON s.source=h.scope_key AND s.ingest_run_id=h.ingest_run_id WHERE h.listing_key=l.listing_key))
         AND NOT EXISTS (SELECT 1 FROM cloud_baseline_ownership o WHERE o.listing_key=l.listing_key)
         """, (run,)).fetchall()
     matches = []
@@ -164,11 +171,16 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
     if not empty and (not pdfs or expected_rows <= 0):
         raise CollectionError("no_confirmed_pdf_rows")
     frames = []
+    wide = config.get('area_id') == 'kitakyushu'
     for pdf in pdfs:
         parsed = UlucksParser().parse(pdf)
-        if qc_check(parsed.df, "ulucks") or parsed.warnings:
+        if (not wide and qc_check(parsed.df, "ulucks")) or parsed.warnings:
             raise CollectionError("ulucks_parser_qc_failed")
         frames.append(parsed.df)
+        # pdfplumber page caches can form cycles. Release them between company
+        # PDFs while the single authenticated browser session remains open.
+        import gc
+        gc.collect()
     from tatemono_map.cli.pdf_batch_run import FINAL_SCHEMA
     frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=FINAL_SCHEMA)
     if len(frame) != expected_rows:
@@ -179,13 +191,15 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
     in_scope = (lambda value: area_of(str(value)) is not None) if config.get('area_id') == 'kitakyushu' else (lambda value: normal(config['address_contains']) in normal(str(value)))
     if not frame['address'].map(in_scope).all():
         raise CollectionError("pdf_contains_out_of_scope_address")
-    if frame[["building_name", "address", "room"]].apply(lambda col: col.map(lambda value: not normal(str(value)))).any().any():
+    if not wide and frame[["building_name", "address", "room"]].apply(lambda col: col.map(lambda value: not normal(str(value)))).any().any():
         raise CollectionError("pdf_identity_field_missing")
-    if frame.duplicated(["building_name", "address", "room"]).any():
+    if not wide and frame.duplicated(["building_name", "address", "room"]).any():
         raise CollectionError("duplicate_pdf_units")
     source_zero = frame.get("area_source_zero", pd.Series(False, index=frame.index)).eq(True)
-    if frame["rent_man"].isna().any() or (frame["rent_man"] <= 0).any() or (frame["area_sqm"].isna() & ~source_zero).any() or (frame["area_sqm"] <= 0).any():
+    invalid_terms=frame['rent_man'].isna() | (frame['rent_man']<=0) | (frame['area_sqm'].isna() & ~source_zero) | (frame['area_sqm']<=0)
+    if not wide and invalid_terms.any():
         raise CollectionError("pdf_rent_or_area_invalid")
+    print('ULUCKS_COLLECTION_SAFE='+json.dumps({'stage':'parsed','run_id':run_id,'parsed_rows':len(frame)}),flush=True)
     csv_path = work / "master_import.csv"
     key = scope_key(config)
     retired = []
@@ -194,6 +208,7 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
     # Export filenames repeat every week/company. Preserve evidence history as
     # well as listing history: source+pdf:ulucks-000.pdf is not a global ID.
     frame["evidence_id"] = frame["evidence_id"].map(lambda value: f"cloud:{key}:{run_id}:{value}")
+    anomalies={str(e):'invalid_rent_or_area' for e in frame.loc[invalid_terms,'evidence_id']}
     write_master_import_csv(frame, csv_path)
     with connect(master) as conn:
         counts_before = {t: conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('buildings', 'listings', 'sale_listings', 'raw_sources')}
@@ -203,6 +218,8 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
         _prepare_scope(conn, config, key)
         previous = conn.execute("SELECT COUNT(*) FROM listings WHERE ingest_run_id=(SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?)", (key,)).fetchone()[0]
         previous_buildings = {row[0] for row in conn.execute("SELECT DISTINCT building_key FROM listings WHERE ingest_run_id=(SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?)", (key,))}
+        for old_scope in retired:
+            previous_buildings.update(row[0] for row in conn.execute('SELECT DISTINCT building_key FROM listings WHERE ingest_run_id=(SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?)',(old_scope,)))
         previous_buildings.update(row[0] for row in conn.execute("SELECT DISTINCT l.building_key FROM listings l JOIN cloud_baseline_ownership o ON o.listing_key=l.listing_key WHERE o.scope_key=?", (key,)))
         if previous and not empty and expected_rows < previous * (1 - float(config.get("max_drop_ratio", 0.25))):
             raise CollectionError("scope_row_count_drop_exceeds_limit")
@@ -211,9 +228,12 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
             raise CollectionError("baseline_row_count_drop_exceeds_limit")
         preserved = preservation_state(conn)
         others = {r[0]: r[1] for r in conn.execute('SELECT source,ingest_run_id FROM current_ingest_snapshots WHERE source<>?', (key,)) if r[0] not in retired}
-    report = ingest_master_import_csv(str(master), str(csv_path), source="ulucks", snapshot_source=key, snapshot_key=run_id, auto_seed_high_confidence=bool(config.get("auto_seed_high_confidence", False)), ulucks_full_area=config.get('area_id') == 'kitakyushu')
-    if report.attached_listings != expected_rows or report.unmatched_count or report.suspect_count:
+    report = ingest_master_import_csv(str(master), str(csv_path), source="ulucks", snapshot_source=key, snapshot_key=run_id, auto_seed_high_confidence=bool(config.get("auto_seed_high_confidence", False)), ulucks_full_area=wide, collection_company=config['company_id'], row_anomalies=anomalies)
+    if not wide and (report.attached_listings != expected_rows or report.unmatched_count or report.suspect_count):
         raise CollectionError("ingest_unmatched_or_suspect_rows")
+    row_counts=report.row_counts or {'accepted_existing':report.attached_listings}
+    if sum(row_counts.values()) != expected_rows:
+        raise CollectionError('collection_row_accounting_mismatch')
     with connect(master) as conn:
         for building_id, value in canonical.items():
             row = conn.execute("SELECT canonical_name, canonical_address FROM buildings WHERE building_id=?", (building_id,)).fetchone()
@@ -221,13 +241,17 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
                 raise CollectionError("canonical_identity_changed")
         # Bootstrap can assign NULL run IDs once; snapshot after that explicit
         # migration so subsequent ingestion may only append historical records.
+        retained=0
+        if wide:
+            from tatemono_map.cloud.partial import retain_pending
+            retained=retain_pending(conn,key,retired,report.ingest_run_id,work/'review-rows.private.csv')
         set_current_snapshot(conn, key, report.ingest_run_id)
         for previous_scope in retired:
             conn.execute('DELETE FROM current_ingest_snapshots WHERE source=?', (previous_scope,))
         if dict(conn.execute("SELECT source,ingest_run_id FROM current_ingest_snapshots WHERE source<>?", (key,))) != others:
             raise CollectionError("other_source_current_snapshot_changed")
         actual = conn.execute("SELECT COUNT(*) FROM listings WHERE ingest_run_id=?", (report.ingest_run_id,)).fetchone()[0]
-        if actual != expected_rows:
+        if actual != row_counts.get('accepted_existing',0)+row_counts.get('accepted_new',0):
             raise CollectionError("ingested_row_count_mismatch")
         if preservation_state(conn, preserved[0])[1] != preserved[1]:
             raise CollectionError("existing_private_records_changed")
@@ -251,6 +275,8 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
         affected = previous_buildings | {row[0] for row in conn.execute("SELECT DISTINCT building_key FROM listings WHERE ingest_run_id=?", (report.ingest_run_id,))}
         if public_ids is not None:
             affected &= public_ids
+            if not affected and public_ids:
+                affected={min(public_ids)}
         proof = []
         for building in sorted(affected):
             fields = ('building_key','vacancy_count','rent_yen_min','rent_yen_max','area_sqm_min','area_sqm_max','layout_types_json')
@@ -263,4 +289,4 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
             value.update(zip(('maint_yen_min','maint_yen_max'), fees or (None,None)))
             proof.append(value)
     from tatemono_map.cli.pdf_batch_run import page_count_fast, sha256_file
-    return {"scope_key": key, "legacy_overlap_rows": overlaps, "managed_overlap_rows": managed_overlaps, "matched_existing_rows": existing_attached, "new_buildings": counts_after["buildings"]-counts_before["buildings"], "area_counts": {str(k): int(v) for k,v in frame["address"].map(area_of).value_counts().items()} if config.get("area_id")=="kitakyushu" else {}, "historical_rows_preserved": True, "acquisition_status": "confirmed_zero" if empty else "pdf_verified", "pdf_count": len(pdfs), "pdfs": [{"pages": page_count_fast(p), "sha256": sha256_file(p)} for p in pdfs], "processed_at": datetime.now(timezone.utc).isoformat(), "counts_before": counts_before, "counts_after": counts_after, "parsed_rows": len(frame), "attached_rows": actual, "ingest_run_id": report.ingest_run_id, "public_counts": counts, "proof": proof}
+    return {"scope_key": key, "integration_contract":"ulucks-partial-v1", "row_counts": row_counts, "held_rows": row_counts.get("held",0), "anomaly_rows": row_counts.get("anomaly",0), "duplicate_rows": row_counts.get("duplicate",0), "retained_rows":retained, "legacy_overlap_rows": overlaps, "managed_overlap_rows": managed_overlaps, "matched_existing_rows": existing_attached, "new_buildings": counts_after["buildings"]-counts_before["buildings"], "area_counts": {str(k): int(v) for k,v in frame["address"].map(area_of).value_counts().items()} if config.get("area_id")=="kitakyushu" else {}, "historical_rows_preserved": True, "acquisition_status": "confirmed_zero" if empty else "pdf_verified", "pdf_count": len(pdfs), "pdfs": [{"pages": page_count_fast(p), "sha256": sha256_file(p)} for p in pdfs], "processed_at": datetime.now(timezone.utc).isoformat(), "counts_before": counts_before, "counts_after": counts_after, "parsed_rows": len(frame), "attached_rows": actual, "ingest_run_id": report.ingest_run_id, "public_counts": counts, "proof": proof}

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
 from importlib import import_module
+from tatemono_map.ulucks_geography import AREA_RE as ULUCKS_AREA_RE, complement_print_address
 
 FINAL_SCHEMA = [
     "category",
@@ -270,6 +271,20 @@ def split_building_and_room(name: str, room: str = "") -> Tuple[str, str]:
     return src, ""
 
 
+def ulucks_building_name(name: str, room: str) -> str:
+    """Remove an explicitly labelled room only when the separate cell agrees.
+
+    PDF line wrapping can split 501号室 into '5 01号室'. Keep the
+    original cell in raw_block, and never strip an unlabelled building suffix.
+    """
+    explicit_room = re.sub(r"\s+", "", nfkc(room)).removesuffix("号室")
+    if re.fullmatch(r"[0-9]{2,4}", explicit_room):
+        match = re.search(r"(?<![0-9])" + r"\s*".join(explicit_room) + r"号室\s*$", nfkc(name))
+        if match:
+            return nfkc(name)[:match.start()].strip()
+    return name
+
+
 def apply_name_and_row_filters(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, Dict[str, int]]:
     if len(df) == 0:
         out = df.copy()
@@ -438,7 +453,7 @@ class UlucksParser:
                         top = table.bbox[1]
                         if top > previous_bottom:
                             heading = page.crop((0, previous_bottom, page.width, top)).extract_text() or ""
-                            areas = re.findall(rf"(?:^|\n)\s*({WARD_RE})\s+\S", heading)
+                            areas = re.findall(rf"(?:^|\n)\s*({ULUCKS_AREA_RE})\s+\S", heading)
                             if areas:
                                 current_ward = areas[-1]
                         tables_with_hints.append((table.extract(), current_ward or ward_hint))
@@ -458,9 +473,10 @@ class UlucksParser:
                         r = list(r) + [None] * (len(header) - len(r))
                         building = get_cell_text(r, idx, ["物件名"])
                         address = get_cell_text(r, idx, ["所在地"])
-                        address = complement_address_with_ward(address, table_ward)
+                        address = complement_print_address(address, table_ward)
                         room = get_cell_text(r, idx, ["号室"])
                         room = re.sub(r"\s*《.*?》\s*", "", room).strip()
+                        building = ulucks_building_name(building, room)
                         layout_detail = get_cell_text(r, idx, ["間取詳細"])
                         layout = nfkc(layout_detail.split(":")[0]) if layout_detail else ""
                         availability_raw = get_cell_text(r, idx, ["入居時期", "状態・入居時期", "入居可能日", "退予"])

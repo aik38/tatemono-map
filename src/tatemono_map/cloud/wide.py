@@ -10,9 +10,7 @@ from urllib.parse import urlsplit, urljoin
 
 from tatemono_map.cloud import collector as c
 
-AREA_LABELS = ('小倉北区','小倉南区','八幡東区','八幡西区','若松区','戸畑区','門司区',
-    '中間市','遠賀郡','京都郡','行橋市','築上郡','豊前市','直方市','鞍手郡','田川郡',
-    '田川市','宗像市','宮若市','飯塚市','嘉穂郡','嘉麻市')
+from tatemono_map.ulucks_geography import AREA_LABELS, municipality_of
 
 
 class CompanyCatalog(list):
@@ -20,6 +18,31 @@ class CompanyCatalog(list):
         super().__init__(entries)
         self.excluded=excluded
         self.counts=counts
+
+
+def complete_catalog(current: CompanyCatalog, previous: list[dict]) -> CompanyCatalog:
+    """Recheck only generation-pinned previously observed routes when absent.
+
+    A company can lose its index link after its final listing disappears. Its
+    prior verified route still needs two live zero searches; absence is not zero.
+    """
+    known={entry['company_id'] for entry in current}
+    requested={entry['company_id'] for entry in current.excluded}
+    extra=[]
+    for entry in previous:
+        company_id=entry.get('company_id','')
+        parsed=urlsplit(entry.get('search_url',''))
+        if (not re.fullmatch('[0-9]+',company_id) or parsed.scheme!='https'
+            or parsed.netloc!=urlsplit(c.ORIGIN).netloc or parsed.path.rstrip('/')!='/company/lists/'+company_id
+            or parsed.query or parsed.fragment):
+            raise c.CollectionError('previous_company_catalog_invalid')
+        if company_id in requested:
+            raise c.CollectionError('previous_company_now_requires_access_request')
+        if company_id not in known:
+            extra.append({'company_id':company_id,'search_url':entry['search_url']})
+            known.add(company_id)
+    return CompanyCatalog(sorted(list(current)+extra,key=lambda x:int(x['company_id'])),current.excluded,
+        {**current.counts,'prior_route_checks':len(extra)})
 
 
 def company_catalog(page) -> list[dict]:
@@ -99,17 +122,7 @@ def company_catalog(page) -> list[dict]:
 
 
 def area_of(address: str) -> str | None:
-    value = c.normal(address).replace(' ', '')
-    if value.startswith('福岡県'):
-        value = value[3:]
-    for label in AREA_LABELS:
-        prefix = '北九州市' + label if label.endswith('区') else label
-        if value.startswith(prefix):
-            if label.endswith('郡'):
-                town = re.match(re.escape(label) + r'[^0-9]+?[町村]', value)
-                return town[0] if town else None
-            return prefix
-    return None
+    return municipality_of(address)
 
 
 def set_checked(control, wanted: bool) -> None:
@@ -240,27 +253,34 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
         try:
             c.login_to_company_index(page,credentials)
             index = page.url
-            catalog = company_catalog(page)
+            catalog = complete_catalog(company_catalog(page),config.get('previous_verified_companies',[]))
             on_company(None, catalog)
             for target in catalog:
                 on_company(target,None)
-                response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
-                if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
-                    raise c.CollectionError('company_discovered_route_navigation_failed')
-                one = dict(config,**target,company_label=observed_company_label(page))
-                folder = root / target['company_id']
-                folder.mkdir(parents=True,exist_ok=True)
-                count = search(page,folder,one)
-                if count > int(config.get('max_rows',5000)):
-                    raise c.CollectionError('ulucks_result_count_exceeds_limit')
-                if count == 0:
-                    if search(page,folder,one) != 0:
-                        raise c.CollectionError('ulucks_zero_result_not_stable')
-                    result = c.Collected([],0,True,{'search_counts':[0,0],'scope_verified':True})
-                else:
-                    paths,evidence = c._capture_print(page,folder)
-                    result = c.Collected(paths,count,False,{**evidence,'search_counts':[count],'scope_verified':True})
-                result.evidence.update(acquired_at=datetime.now(timezone.utc).isoformat(),area_labels=list(AREA_LABELS),company_id=target['company_id'])
+                try:
+                    response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
+                    if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
+                        raise c.CollectionError('company_discovered_route_navigation_failed')
+                    one = dict(config,**target,company_label=observed_company_label(page))
+                    folder = root / target['company_id']
+                    folder.mkdir(parents=True,exist_ok=True)
+                    count = search(page,folder,one)
+                    if count > int(config.get('max_rows',5000)):
+                        raise c.CollectionError('ulucks_result_count_exceeds_limit')
+                    if count == 0:
+                        if search(page,folder,one) != 0:
+                            raise c.CollectionError('ulucks_zero_result_not_stable')
+                        result = c.Collected([],0,True,{'search_counts':[0,0],'scope_verified':True})
+                    else:
+                        paths,evidence = c._capture_print(page,folder)
+                        result = c.Collected(paths,count,False,{**evidence,'search_counts':[count],'scope_verified':True})
+                    result.evidence.update(acquired_at=datetime.now(timezone.utc).isoformat(),area_labels=list(AREA_LABELS),company_id=target['company_id'])
+                except c.CollectionError as exc:
+                    on_company(target,exc)
+                    continue
+                except Exception:
+                    on_company(target,c.CollectionError('company_acquisition_failed'))
+                    continue
                 on_company(one,result)
                 for popup in context.pages:
                     if popup != page:
@@ -269,7 +289,7 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
         except c.CollectionError:
             raise
         except Exception:
-            raise c.CollectionError('all_companies_browser_failed') from None
+            raise c.CollectionError('all_companies_operation_failed') from None
         finally:
             try:
                 if index and not page.is_closed():

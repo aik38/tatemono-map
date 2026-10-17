@@ -89,7 +89,14 @@ def main():
        "--update-labels", f"managed-by=tatemono-cloud,source-commit={env['GITHUB_SHA']}")
     generation = gc("run", "jobs", "describe", job, "--region", region, "--format=value(metadata.generation)")
     try:
-        gc("run", "jobs", "execute", job, "--region", region, "--wait")
+        execute_args=['run','jobs','execute',job,'--region',region,'--wait']
+        if env.get('ULUCKS_EXPANSION_STAGE')=='all':
+            # One reviewed proof execution; the persistent weekly Job retains
+            # normal args and waits for this exact revision's complete proof.
+            execute_args.append('--args=-m,tatemono_map.cloud.run,--prove-expansion')
+        elif env.get('ULUCKS_EXPANSION_STAGE')=='company8' and env.get('ULUCKS_REUSE_ACQUISITION'):
+            execute_args.append('--args=-m,tatemono_map.cloud.run,--reuse-acquisition,'+env['ULUCKS_REUSE_ACQUISITION'])
+        gc(*execute_args)
     except DeploymentError:
         after = executions()
         new = [r for r in after if r['metadata']['name'] not in {x['metadata']['name'] for x in prior_executions}]

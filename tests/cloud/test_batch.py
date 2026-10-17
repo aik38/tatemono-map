@@ -45,14 +45,16 @@ def test_batch_one_release_all_history_final_public_terms_and_dedup(store, confi
         assert conn.execute("SELECT COUNT(*) FROM listings WHERE source_kind='realpro'").fetchone()[0]==1
 
 
-def test_second_company_failure_preserves_prior_official_master_and_public(store,config,tmp_path):
+def test_failed_company_is_rolled_back_while_healthy_company_updates(store,config,tmp_path):
     cfg=all_config(config)
     a=make_pdf(tmp_path/'a.pdf')
     b=make_pdf(tmp_path/'b.pdf')
     before=copy.deepcopy(store.read_head())
     work=tmp_path/'work';work.mkdir()
-    with pytest.raises(CollectionError,match='pdf_rows_do_not_match_result_count'):
-        execute_all(store,cfg,{},work,'c'*40,collector=fake_catalog(cfg,a,b,bad_second=True))
-    assert store.read_head()==before
-    assert any(name.endswith('batch-failure.json') for name in store.objects)
+    head=execute_all(store,cfg,{},work,'c'*40,collector=fake_catalog(cfg,a,b,bad_second=True))
+    assert store.read_head()!=before
+    assert head['report']['successful_companies']==1
+    assert head['report']['failed_companies']==[{'company_id':'26','code':'pdf_rows_do_not_match_result_count'}]
+    assert 'all_company_proof' not in head['report']
+    assert any('failed-company-26' in name for name in store.objects)
     assert len([name for name in store.objects if '/companies/' in name and name.endswith('.pdf')])==2

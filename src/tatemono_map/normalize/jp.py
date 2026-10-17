@@ -48,13 +48,15 @@ def _nfkc(text: str) -> str:
     return unicodedata.normalize("NFKC", text or "")
 
 
-def normalize_building_name(value: str) -> str:
+def normalize_building_name(value: str, *, strip_room_suffix: bool = True) -> str:
     text = _nfkc(value).strip()
     text = RE_MULTI_SPACE.sub(" ", text)
     text = RE_INNER_CJK_SPACE.sub("", text)
     text = RE_HYPHENS.sub("-", text)
     text = text.replace("･", "・")
-    text = RE_ROOM_SUFFIX.sub("", text).strip(" -")
+    if strip_room_suffix:
+        text = RE_ROOM_SUFFIX.sub("", text)
+    text = text.strip(" -")
     return text
 
 

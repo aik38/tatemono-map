@@ -1,58 +1,59 @@
-# Ulucks 全業者・北九州全域 引継ぎ
-更新: 2026-10-17 16:40 UTC。中断時は本書と PR #372 の最新状態を確認する。
+# Ulucks 全域・全業者 再開チェックポイント
+更新: 2026-10-17 21:17 UTC（日本時間 10/18 06:17）。最新のPR/Actions/GCS HEADを先に照会する。
 
-## 保存時点
-- 保存直前 main HEAD: a5961483a37474d238c8382131d193f3b26eec58。本書コミット後の正確な main HEAD は PR #372 本文に記録。
-- 全業者版: draft PR https://github.com/aik38/tatemono-map/pull/372 、branch `codex/ulucks-all-companies-20261018`、HEAD `58750cc87adf8f4831e3e4a3a33286f6ff1570a5`。
-- 工程①: 会社8・北九州全域の新規実取得と解析完了、名寄せで停止。正式反映未完了。工程②の実装はPR内、全業者実収集未実施。工程③の全業者週次切替未実施。
-- 成功版保全済み: `backup/ulucks-initial-success-20261017` = `180bf519f52a295709f0286f3b303279981701cb`。再作成不要。
+## コードと現在工程
+- 保存前main: `ad2ec5c9ef981f6456e1a7e01e5ec0ad1f432171`。開発PR: https://github.com/aik38/tatemono-map/pull/372 。
+- PR保存前HEAD: da18391f6493450145bc7fd3acba38784733085b。新しいPR HEAD/mainはPR本文とファイル履歴から取得。
+- **工程A未完了**: 取得済み会社8全域PDFを使う部分反映の実装・検証まで。これからCI→会社8限定の本番実行→GCS/Pagesを確認する。
+- **工程B/C未完了**: 全業者の実収集・正式更新・全業者週次切替はまだ完了していない。
+- merge title `ULUCKS_FULLAREA_COMPANY8_20261018` は会社8限定。保存済みPDFをexecution overrideで再利用する。常設Job引数は通常収集のまま。
+- 工程AのGCS/Pages確認後のみ `ULUCKS_ALL_COMPANIES_20261018` で全業者を初回実行する。常設週次は同じrevisionの初回成功証跡がないと収集をスキップ。
 
-## 正式状態（変更せず保持）
-- project `tatemono-map` / region `asia-northeast1` / job `tatemono-collection-poc`
-- bucket `tatemono-map-poc-523194690131`
-- GCS正式リリース `20261017T102111Z-18f4f7234ead`
-- master SHA-256 `57f86ec174dadf58df95842862cd9a7e9be9bade9328af1a10d27e33c62fe4e6`
-- public SHA-256 `b614ca1caa54ff4d6f53dca6b81e8bce75e6b4bb620d5fe5fed12d8ec1ac2e75`
-- 正式建物6,982、listings 53,280、raw_sources 116,442、sale_listings 11,907。旧公開DBの行数は建物6,982・空室5,099（非表示5建物を含むため画面表示件数とは区別）。
-- Pagesは従来の正常公開を維持。広域取得を公開拡張しない。PRでは既存公開DBの表示対象IDに公開を固定し、非表示ID・広域新規建物を公開DB/JSON/HTMLへ混入させない。
-- Jobは失敗した会社8全域版設定・イメージを保持しており、自動ロールバックされない。Schedulerは旧設定で有効だったことまで確認済み、直近の状態は再照会が必要。全業者版は未有効化。失敗収集を0件にしない。
+## 正式正本・クラウド（20:51〜20:53 UTC 再照会済み）
+- project `tatemono-map` / region `asia-northeast1` / bucket `tatemono-map-poc-523194690131`
+- 正式release `20261017T102111Z-18f4f7234ead`（広域版は正式反映前）
+- master SHA256 `57f86ec174dadf58df95842862cd9a7e9be9bade9328af1a10d27e33c62fe4e6`
+- public SHA256 `b614ca1caa54ff4d6f53dca6b81e8bce75e6b4bb620d5fe5fed12d8ec1ac2e75`
+- 正式建物6,982、listings53,280、raw_sources116,442、sale_listings11,907。旧公開DBは建物6,982・空室5,099（非表示5建物を含み画面件数とは区別）。
+- Job `tatemono-collection-poc`: source `6da44fd50295e3e14cc9ee4e60acc532d0eeea63`、timeout3600s、照会時active0。
+- Scheduler: ENABLED、`0 4 * * 1`、Asia/Tokyo、既存Job宛て。全業者成功の週次証跡はまだない。
+- Pagesは旧成功版を保持。既存backup branch `backup/ulucks-initial-success-20261017` = `180bf519f52a295709f0286f3b303279981701cb`。再作成不要。
 
-## 再取得不要な実績と入力
-- 新規実取得run `20261017T160944Z-10bd49a595a4`。実PDF54ページ・1,045行、UI件数と解析照合済み。
-- GCS `private-runs/20261017T160944Z-10bd49a595a4/pdf/000.pdf`、同prefixの `collection-evidence.json` / `ui-observation.json` / `failure.json` / `review/` を再利用。
-- 実取得Actions https://github.com/aik38/tatemono-map/actions/runs/39047612139 （deploy job 117440294157）、source `6da44fd50295e3e14cc9ee4e60acc532d0eeea63`。
-- 失敗理由 `ingest_unmatched_or_suspect_rows`。GCS正式HEAD・公開は保持。
-- 取得済みPDFの隔離再解析 https://github.com/aik38/tatemono-map/actions/runs/39049813542 は成功。PDF再取得/ログイン/正式更新なし。
-- 再解析: 新規候補88（隔離DBのみ、正式追加ではない）、unmatched172、suspect16（重複を含むため単純合算しない）。
-- 内訳: close_conflicting_candidate131、address_not_granular25、address_multi_or_range14、name_suffix_conflict2、building_id_unresolved16。
-- 実DOM会社一覧131行、実在物件一覧URL69業者、一覧URLなし62行（うちrequest導線4）。URLなしを空室0とみなさない。会社ID連番推測・request送信なし。北九州グループは実DOM22子地域＋親、対象外地域未選択を確認。
+## 再取得しない入力・確認済み結果
+- 会社8実取得run `20261017T160944Z-10bd49a595a4`、54ページ/1,045行。UI件数との照合済み。
+- PDF `private-runs/20261017T160944Z-10bd49a595a4/pdf/000.pdf`
+- PDF SHA256 `9879e17da1fd3ca1afcdf90cd4e7afda10f844bd8521197ae4a5be381687ae4d`
+- 同prefixの `collection-evidence.json` / `ui-observation.json` / `failure.json` / `review/` を保持。
+- 修正前の隔離診断: 新規候補88（正式追加ではない）、unmatched172、suspect16（重複分類あり、合算禁止）。原因 close_conflicting_candidate131、address_not_granular25、multi/range14、name_suffix_conflict2、building_id_unresolved16。
+- 実会社一覧131行、一覧URL69業者、URLなし62行（うちrequest4）。0件扱い/ID連番推測/request送信は禁止。次の全業者実行で再照合。
+- 再解析39068465041・ログ回収39068807368で実PDFの地域を確認: 7区965行、周辺市町73行、未分類7行。未分類は市の字を含む町名の誤判定で、修正/回帰テスト済み。本番新コードで全1,045行を再確認する。
+- 解析フレーム（修正途中版、7行未分類のためそのまま正式採用しない）:
+  `private-runs/20261017T160944Z-10bd49a595a4/diagnostics/20261017T205339Z-bb4307c7c28f/parsed-frame.json`
+  generation1792270419755912 / SHA256 `ad6ca8ef3bcc2055eb2f0773cd86f80a36600eba8e95ea961ef11ad78ba0f754`
+- 私的診断JSON:
+  `private-runs/20261017T160944Z-10bd49a595a4/diagnostics/20261017T205339Z-da7c36fbfdcd/review.json`
+  generation1792270419939931 / SHA256 `4d830bdd32a14a3e06b208af343010b027376c84ae7ed423326f7b89ba597a70`
 
-## 未解決・次の作業
-1. `cloud/inspect_failed_acquisition.py` の暗号化私的診断を復号し、具体例に基づき保守的に名寄せを修正する。診断groupingに列名ミスあり: raw_name/raw_addressではなくname/address。unique_groups=5は物件数ではなく理由別に潰れた結果なので使わない。
-2. 既存の実PDFとgeneration/SHA検証済み正式正本で再解析。曖昧な部屋・名称/住所を推測で統合しない。旧unknown所有権はpreserve_unknown。
-3. 会社8全域の取得・解析・名寄せ・公開範囲検証が成功してから正式GCS更新とPagesを確認。既存ID/URL・他ソース・履歴保全を確認。
-4. その後のみPR #372を最新mainに同期しCI確認、全業者実行へ進む。merge marker `ULUCKS_ALL_COMPANIES_20261018`。PR内では初回 `--prove-expansion` の全件実行成功を必要とし、成功証跡がない全業者週次実行はスキップする。
-5. 全業者正式反映・Pages成功後に既存週次Schedulerを一系統へ切替・確認。月曜04:00 Asia/Tokyoが従来設定。有効化と実際の定期実行成功を分けて報告。
-6. 工程完了・重要修正・失敗時、本書とPRのmain/到達点を更新する。
+## 新しい正式仕様（旧「名寄せ100%でなければ停止」を置換）
+- 高確信行を採用し、曖昧行だけ内部保留。保留率による停止はしない。UI/PDF件数不一致、地域/会社混入などscopeの信頼性異常は安全停止。
+- `cloud_collection_rows` が全行の原文/号室/根拠/会社/run/採用・保留・異常・重複を追跡。`unmatched_queue` とprivate CSVを利用。
+- `cloud_retained_listings` で保留に関係する以前の確認済み募集を保持し、未掲載扱い/0件化を防ぐ。所有不明の旧Ulucksは引き続きpreserve_unknown。曖昧な旧号室を推測で統合しない。
+- 確認済み判定は `cloud_review_decisions` に保存。private CSVのdecision/building_id/room_label/reviewerを明示し、`python -m tatemono_map.cloud.review --db PRIVATE_MASTER --decisions PRIVATE_CSV` で反映。確認済み建物ペアを他の号室/次回へ再利用し、blockは自動aliasより優先。変更履歴はraw_sourcesに追記する。
+- 郡・市見出し、改行号室、第1/第3・A/B棟・ローマ数字を保護。住所だけで別名称/別棟を強制統合しない。
+- 新しい正式正本は全域を保持するが、公開DBは直前の表示対象IDだけをコピー。新規/非公開地域・保留raw・review tablesを公開DB/JSON/HTMLに出さない。
+- 全業者は一つのログインセッションで逐次処理。会社ごとの異常はその会社の作業コピーだけ戻し、他社の正常更新を止めない。初回の全業者成功と週次有効化/無人定期実行成功は分けて報告。
+- 既存ID/名称/住所/履歴/他ソース/賃貸順位/分譲系統を保持。QC後だけ正式HEADをCAS。GCS排他leaseで重複セッションを防止。
 
-## 再開時の実行経路と注意
-- GitHub接続＋既存Actions WIFでGCP Job/Loggingを操作。Chrome接続はHTTP401、Work cloud browserも利用不可だったため繰り返さない。IAM/WIF/環境初期構築・Secret再登録は不要。
-- Secret値は表示しない。既存 `ULUCKS_LOGIN_SECRET` を維持。GitHub deployerはprivate GCS入力を直接読めない。runtimeはprefix内objectアクセス可能だがbucket list不可、権限を拡張せず既知の入力を使用する。
-- 診断はruntimeが読んだ具体例を一時RSA公開鍵で暗号化しログへ出力。復号秘密鍵はscratchのみに保存。scratch消失時は新規一時鍵で同じ既取得PDFを再診断すればよく、再収集不要。
-- 私的PDF/ZIP/会員情報/復号結果/秘密鍵はPublic GitHub・公開artifactに置かない。添付参考PDFは収集実績に転用しない。
-- PRに全業者逐次収集・全件成功時のみCAS正式更新・公開対象ID制御・過去実URLの再確認・純粋文字列正規化キャッシュ・週次証跡ゲートを実装済み。PR未merge、正式完了ではない。
-- 必須のテスト/CIは過去に成功。新しい変更に応じた検証だけ行い、調査・実収集を最初から繰り返さない。
+## 次の実行・検証
+1. PR最新CIを確認。ローカルではブラウザ以外173件成功、部分反映/保留の募集保全/重複/確認判定/地域回帰も成功。PR CIで実Chromium・全suite比較・containerを確認。
+2. PRを会社8限定markerでmain反映。既存Actions→WIF→GCPにより保存済み原本を再取込。新runの採用/保留/異常/保持・既存285件/ID/URL・正式release/SHA/Pagesを確認。
+3. 成功後に全業者markerで初回実収集。会社別原本manifest/result/checkpointはprivate GCSへ保存されるため、失敗時は実績を再取得せず参照する。
+4. 全業者の失敗scopeがあれば修正し、正常scopeの更新を維持して再開。全業者成功後に週次proof・Schedulerの対象/状態を確認し、最後に本書を更新。
+5. 重要な修正/失敗/工程完了で本書とPR本文を更新。利用枠の自動検知は前提にしない。
 
-- 2026-10-17 16:44 UTC: 私的診断のgrouping列名を修正し、各未解決グループの原本行と候補を暗号化再確認する。会社8 PDFを再利用、正式状態不変。PR HEAD58750ccのCI39050005388は成功。
+## 維持する実行経路
+- GitHub接続/Actions WIFを使用。Chrome401/旧cloud browser失敗を繰り返さない。IAM/WIF/Secret初期構築・Windows再アップロード・成功版バックアップをやり直さない。
+- Secretの値は表示せず既存ULUCKS_LOGIN_SECRETを利用。runtimeはprivate objectアクセス可能、bucket list不可。既知のmanifest/refをgeneration/SHA固定で読む。
+- 私的PDF/ZIP/レビュー原文/秘密鍵をPublic GitHubや公開artifactに置かない。添付参考PDFは実収集実績に転用しない。
 
-- 2026-10-17 16:54 UTC: PR HEAD `da18391f6493450145bc7fd3acba38784733085b`。部屋番号の改行混入を独立号室欄との完全一致で修正。取得元履歴の名称・全住所ペアが一意の場合のみ既存IDへ結ぶ処理を追加（曖昧時は停止）。重要: 元パーサーが郡・市見出しを見落とし直前の門司区を付与していたことを実取得行で発見。22地域見出し＋正規の郡/町対応で入力解析を修正。canonical住所は変更しない。関連テスト9件、既存PDF/名寄せ/取込44件が成功。修正した取得済み実PDFの隔離再解析を次のread-only実行で確認する。前回診断run39050557122は成功、87未解決グループ。暗号ログの1行制限で末尾欠落したため、今回から圧縮転送し私的診断JSON/解析CSVをGCSに保存、再解析の繰り返しを防ぐ。正式HEADは不変。
-
-- 2026-10-17 16:58 UTC: 隔離再診断39051392311は補助診断のFileNotFoundErrorで失敗。取込前にCSVが作られなかった場合でも原因コード・実PDF地域集計を保存/暗号転送できるよう修正して継続。正式HEAD/公開は変更していない。Pages39050973411は16:51 UTCに旧正式releaseの本番検証成功、Scheduler有効を検証/維持。開発中に第1/第3等の建物番号を部屋扱いして落とす既存正規化も検出し、全域取込だけ番号を保持する修正を検証中。
-
-## 2026-10-17 20:52 UTC 再開仕様（旧100%必須条件を置換）
-- ユーザー承認により、高確信行は採用、曖昧行のみ非公開保留へ正式変更。保留率による一律停止は禁止。件数不一致・地域全体解析異常・別会社混入等はscope停止。
-- main再開時d9383923240dcb5824ee7fddb6e8b615ed02eefb、draft PR#372 HEAD da18391f6493450145bc7fd3acba38784733085b。旧補助診断39051734508は失敗。新規取得はせず同じ原本を使用する。
-- 最初にCloud Run/Scheduler/GCS HEADを再照会し、郡・市修正後のPDFを1回だけ解析、解析フレームをprivate GCSへ保存する。二重解析を避け、次の部分取込検証に再利用する。
-- 次: 行単位の非公開保留、候補に対応する既存募集の保全、確認済みalias/却下判定の再利用、会社8正本/Pages→全業者→週次。正式完了の報告は実結果確認後のみ。
-
-- 2026-10-17 20:56 UTC 実環境再照会: Scheduler ENABLED / 0 4 * * 1 / Asia/Tokyo / 既存Job宛て、Job source6da44fd・実行中0。正式release/SHAは旧成功版と一致。scope診断39068465041は成功、PDF再解析済み。Cloud Logging到着順のため出力取得がphaseで早期終了した補助ログ回収を修正し、再実行せず保存済み結果だけ回収する。
+- 21:21 UTC: 公開側にも残っていたparsed=attached条件を、採用+保留+異常+重複の厳密な全行照合へ更新。公開proof/件数/QCは維持。全件保留でも偽の0件にせず、公開SQLite/markerへの保留原文混入がないことを統合テストで確認。

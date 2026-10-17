@@ -11,13 +11,24 @@ from tatemono_map.cloud.public_db import validate_public
 from tatemono_map.cloud.storage import GCSStore, validate_head
 
 
+def accounted_collection(report):
+    if report.get('integration_contract')!='ulucks-partial-v1':
+        return report.get('parsed_rows')==report.get('attached_rows')
+    counts=report.get('row_counts',{})
+    allowed={'accepted_existing','accepted_new','held','anomaly','duplicate'}
+    return (isinstance(counts,dict) and set(counts)<=allowed
+        and all(type(value) is int and value>=0 for value in counts.values())
+        and sum(counts.values())==report.get('parsed_rows')
+        and counts.get('accepted_existing',0)+counts.get('accepted_new',0)==report.get('attached_rows'))
+
+
 def fetch(store, output: Path, marker: Path) -> dict:
     head, _ = store.read_head()
     validate_head(head)
     report = head["report"]
     valid_pdf = report.get("acquisition_status") == "pdf_verified" and report.get("pdf_count", 0) > 0 and report.get("parsed_rows", 0) > 0
     valid_zero = report.get("acquisition_status") == "confirmed_zero" and report.get("pdf_count") == report.get("parsed_rows") == 0
-    if report.get("bootstrap") or not report.get("proof") or not (valid_pdf or valid_zero) or report.get("parsed_rows") != report.get("attached_rows"):
+    if report.get("bootstrap") or not report.get("proof") or not (valid_pdf or valid_zero) or not accounted_collection(report):
         raise CollectionError("release_has_no_successful_collection_proof")
     output.parent.mkdir(parents=True, exist_ok=True)
     staged = output.with_suffix(".download")
