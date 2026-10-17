@@ -36,10 +36,10 @@ def master(tmp_path):
     return path
 
 
-def make_pdf(path: Path, rent="5.5万円", address="福岡県北九州市小倉北区魚町1-1-1", rooms=("101",)):
+def make_pdf(path: Path, rent="5.5万円", address="福岡県北九州市小倉北区魚町1-1-1", rooms=("101",), area="25.0㎡"):
     pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
     rows = [["物件名", "号室", "所在地", "賃料", "共益費", "間取詳細", "面積", "築年月", "構造", "入居時期"]]
-    rows += [["架空テストマンション", room, address, rent, "0.3万円", "1K:洋室", "25.0㎡", "2015年3月", "RC", "即入居"] for room in rooms]
+    rows += [["架空テストマンション", room, address, rent, "0.3万円", "1K:洋室", area, "2015年3月", "RC", "即入居"] for room in rooms]
     table = Table(rows, colWidths=[115, 35, 230, 60, 60, 65, 50, 75, 35, 55])
     table.setStyle(TableStyle([("FONTNAME", (0,0),(-1,-1), "HeiseiKakuGo-W5"), ("FONTSIZE", (0,0),(-1,-1), 9), ("GRID", (0,0),(-1,-1), 0.5, colors.black)]))
     SimpleDocTemplate(str(path), pagesize=(1000, 400)).build([table])

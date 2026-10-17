@@ -30,6 +30,7 @@ def test_member_navigation_exclusive_checkbox_search_and_original_inline_pdf(con
 <label><input type="checkbox" name="area" value="north" checked>小倉北区</label>
 <label><input type="checkbox" name="area" value="south" OTHER>小倉南区</label>
 <input type="text" name="building"><button type="submit">検　索</button></form>
+<div>検索結果 COUNT 件中　1～60件を表示</div>
 <div>検索結果 COUNT 件中　1～60件を表示</div>'''.replace("COUNT", str(count))
     if button_outside_form:
         search = search.replace('<button type="submit">検　索</button>', '')
@@ -272,3 +273,24 @@ def test_before_submission_rejects_unrelated_checked_filter():
                 _assert_scope(page)
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize('body,expected', [
+    ('検索結果 285 件中 1～30 件を表示\n検索結果 285 件中 1～30 件を表示', 285),
+    ('検索結果 1,045 件中 1～30 件を表示', 1045),
+    ('検索結果 ０ 件中 0～0 件を表示\n検索結果 0 件中 0～0 件を表示', 0),
+])
+def test_result_summaries_must_agree(body, expected):
+    from tatemono_map.cloud.collector import _confirmed_result_count
+    assert _confirmed_result_count(body) == expected
+
+
+@pytest.mark.parametrize('body', [
+    '検索結果 285 件中 1～30 件を表示\n検索結果 1045 件中 1～30 件を表示',
+    '検索結果を読み込み中',
+    'ログイン',
+])
+def test_incomplete_or_conflicting_result_summaries_stop_collection(body):
+    from tatemono_map.cloud.collector import _confirmed_result_count
+    with pytest.raises(CollectionError, match='^ulucks_result_count_not_confirmed$'):
+        _confirmed_result_count(body)

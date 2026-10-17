@@ -290,3 +290,22 @@ def test_ingest_preserves_configured_source_priorities_and_old_timestamps(master
     update_master(master, [pdf], 1, config, tmp_path, 'preserve-priorities')
     with readonly(master) as conn:
         assert conn.execute('SELECT * FROM source_priority ORDER BY domain,source').fetchall() == before
+
+
+def test_explicit_source_zero_area_preserves_unit_as_unknown(master, config, tmp_path):
+    from tatemono_map.cli.pdf_batch_run import UlucksParser
+    pdf = make_pdf(tmp_path / 'source-zero-area.pdf', area='0.00')
+    parsed = UlucksParser().parse(pdf).df
+    assert parsed.area_sqm.isna().all() and parsed.area_source_zero.all()
+    report = update_master(master, [pdf], 1, config, tmp_path, 'source-zero')
+    assert report['attached_rows'] == 1
+    with readonly(master) as conn:
+        row = conn.execute('SELECT rent_yen,area_sqm FROM listings WHERE ingest_run_id=?', (report['ingest_run_id'],)).fetchone()
+        assert tuple(row) == (55000, None)
+
+
+@pytest.mark.parametrize('area,rent', [('unreadable', '5.5万円'), ('25.0㎡', '0円')])
+def test_unreadable_area_or_zero_rent_still_stops_collection(master, config, tmp_path, area, rent):
+    pdf = make_pdf(tmp_path / 'invalid-terms.pdf', area=area, rent=rent)
+    with pytest.raises(CollectionError, match='^pdf_rent_or_area_invalid$'):
+        update_master(master, [pdf], 1, config, tmp_path, 'invalid')

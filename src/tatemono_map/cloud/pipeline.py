@@ -174,7 +174,8 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
         raise CollectionError("pdf_identity_field_missing")
     if frame.duplicated(["building_name", "address", "room"]).any():
         raise CollectionError("duplicate_pdf_units")
-    if frame["rent_man"].isna().any() or (frame["rent_man"] <= 0).any() or frame["area_sqm"].isna().any() or (frame["area_sqm"] <= 0).any():
+    source_zero = frame.get("area_source_zero", pd.Series(False, index=frame.index)).eq(True)
+    if frame["rent_man"].isna().any() or (frame["rent_man"] <= 0).any() or (frame["area_sqm"].isna() & ~source_zero).any() or (frame["area_sqm"] <= 0).any():
         raise CollectionError("pdf_rent_or_area_invalid")
     csv_path = work / "master_import.csv"
     key = scope_key(config)
