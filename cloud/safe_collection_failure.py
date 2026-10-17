@@ -16,7 +16,7 @@ from google.cloud import storage
 
 
 def diagnostic():
-    run = os.environ["GITHUB_RUN_ID"]
+    run = os.environ.get('TARGET_WORKFLOW_RUN_ID',os.environ["GITHUB_RUN_ID"])
     bucket = storage.Client(project=os.environ["GCP_PROJECT_ID"]).bucket(os.environ["GCP_BUCKET"])
     receipt = bucket.blob(f"deployment-backups/execution-intents/{run}.json")
     try:
@@ -73,13 +73,13 @@ def diagnostic():
         'company_catalog_empty company_catalog_unexpected_target company_catalog_conflicting_routes '
         'company_catalog_known_companies_missing company_catalog_reviewed_route_changed '
         'company_pagination_loop company_pagination_budget_exceeded company_pagination_navigation_failed '
-        'company_pagination_button_requires_review company_catalog_missing_previously_active_company '
+        'company_pagination_button_requires_review company_catalog_missing_previously_active_company company_positive_count_without_observed_route '
         'company_discovered_route_navigation_failed company_discovered_heading_missing '
         'all_companies_browser_failed all_companies_census_incomplete batch_target_contract_invalid '
         'batch_public_proof_building_missing publication_baseline_counts_mismatch').split())
     stage_names=(
         "area_checkbox search_form company_title search_action print_action login_username "
-        "login_password login_action company_search company_link company_row company_count_link"
+        "login_password login_action company_search company_link company_row company_count_link kitakyushu_parent wide_child"
     ).split()
     allowed.update(f"ulucks_ui_{stage}_{state}" for stage in stage_names for state in ("missing","ambiguous"))
     severity={}

@@ -38,8 +38,8 @@ def test_full_parent_group_excludes_every_other_selected_area(tmp_path):
 
 
 def test_company_census_follows_actual_pagination_and_td_routes():
-    one='<meta charset="utf-8"><table><tr><td>架空甲社</td><td data-href="/company/lists/8">1</td></tr></table><a href="/company?page=2">2</a>'
-    two='<meta charset="utf-8"><table><tr><td>架空乙社</td><td data-href="/company/lists/26">2</td></tr></table><a href="/company">前へ</a>'
+    one='<meta charset="utf-8"><table><tr><th>会社名</th><th>物件数</th></tr><tr><td>架空甲社</td><td data-href="/company/lists/8">1</td></tr></table><a href="/company?page=2">2</a>'
+    two='<meta charset="utf-8"><table><tr><th>会社名</th><th>物件数</th></tr><tr><td>架空乙社</td><td data-href="/company/lists/26">2</td></tr><tr><td>架空申請社</td><td data-href="/company/request/99">申請</td></tr><tr><td>架空ゼロ社</td><td>0</td></tr></table><a href="/company">前へ</a>'
     visited=[]
     with sync_playwright() as p:
         browser=p.chromium.launch(headless=True,executable_path=os.environ.get('TATEMONO_CHROMIUM_EXECUTABLE'))
@@ -51,7 +51,10 @@ def test_company_census_follows_actual_pagination_and_td_routes():
         page.route(ORIGIN+'/**',route)
         try:
             page.goto(ORIGIN+'/company')
-            assert [x['company_id'] for x in company_catalog(page)]==['8','26']
+            catalog=company_catalog(page)
+            assert [x['company_id'] for x in catalog]==['8','26']
+            assert catalog.excluded==[{'company_id':'99','status':'request_required'}]
+            assert catalog.counts['zero_without_route']==1
             assert visited==[ORIGIN+'/company',ORIGIN+'/company?page=2']
         finally:
             browser.close()

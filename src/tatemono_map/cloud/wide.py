@@ -15,11 +15,20 @@ AREA_LABELS = ('小倉北区','小倉南区','八幡東区','八幡西区','若�
     '田川市','宗像市','宮若市','飯塚市','嘉穂郡','嘉麻市')
 
 
+class CompanyCatalog(list):
+    def __init__(self, entries, excluded, counts):
+        super().__init__(entries)
+        self.excluded=excluded
+        self.counts=counts
+
+
 def company_catalog(page) -> list[dict]:
     """Enumerate actual TD routes and actual index pagination; never scan IDs."""
     pending = []
     visited = set()
     companies = {}
+    excluded={}
+    census={'listed_rows':0,'zero_without_route':0,'other_without_route':0,'request_required':0}
     while True:
         here = page.url
         if here in visited:
@@ -34,6 +43,10 @@ def company_catalog(page) -> list[dict]:
         for cell in targets.all():
             url = urljoin(page.url, cell.get_attribute('data-href') or '')
             parsed = urlsplit(url)
+            denied=re.fullmatch(r'/company/request/([0-9]+)/?',parsed.path)
+            if parsed.netloc == urlsplit(c.ORIGIN).netloc and parsed.scheme=='https' and denied and not parsed.query and not parsed.fragment:
+                excluded[denied[1]]={'company_id':denied[1],'status':'request_required'}
+                continue
             match = re.fullmatch(r'/company/lists/([0-9]+)/?',parsed.path)
             if parsed.netloc != urlsplit(c.ORIGIN).netloc or not match or parsed.query or parsed.fragment:
                 raise c.CollectionError('company_catalog_unexpected_target')
@@ -41,6 +54,24 @@ def company_catalog(page) -> list[dict]:
             if company_id in companies and companies[company_id]['search_url'] != url:
                 raise c.CollectionError('company_catalog_conflicting_routes')
             companies[company_id] = {'company_id':company_id,'search_url':url}
+        header=c.only(page.locator('th,td').filter(has_text=re.compile(r'^\s*物件数\s*$')),'company_count_header')
+        table=header.locator('xpath=ancestor::table[1]')
+        column=header.evaluate('el=>el.cellIndex')
+        for row in table.locator('tr').all():
+            cells=row.locator(':scope > td')
+            if cells.count()<=column:
+                continue
+            census['listed_rows']+=1
+            cell=cells.nth(column)
+            if cell.get_attribute('data-href'):
+                continue
+            value=c.normal(cell.inner_text()).replace(',','')
+            if value.isdigit() and int(value)==0:
+                census['zero_without_route']+=1
+            elif value.isdigit() and int(value)>0:
+                raise c.CollectionError('company_positive_count_without_observed_route')
+            else:
+                census['other_without_route']+=1
         # Follow only pagination URLs actually present on this index. Avoid
         # unrelated navigation and never synthesize a page number or company ID.
         for control in page.locator('a[href], [data-href]').all():
@@ -61,8 +92,10 @@ def company_catalog(page) -> list[dict]:
             raise c.CollectionError('company_pagination_navigation_failed')
     if '8' not in companies or '26' not in companies:
         raise c.CollectionError('company_catalog_known_companies_missing')
-    print('ULUCKS_WIDE_SAFE='+json.dumps({'stage':'catalog','company_count':len(companies),'pages':len(visited)}),flush=True)
-    return sorted(companies.values(), key=lambda value: int(value['company_id']))
+    census['request_required']=len(excluded)
+    census['collectable_companies']=len(companies)
+    print('ULUCKS_WIDE_SAFE='+json.dumps({'stage':'catalog','company_count':len(companies),'pages':len(visited),**census}),flush=True)
+    return CompanyCatalog(sorted(companies.values(), key=lambda value: int(value['company_id'])),list(excluded.values()),census)
 
 
 def area_of(address: str) -> str | None:
@@ -154,8 +187,13 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> c.Co
     original_search = c._search
     original_observe = c._observe_company_row
     catalog = []
+    census={}
+    excluded=[]
     def observe(page, row, root):
-        catalog.extend(company_catalog(page))
+        observed=company_catalog(page)
+        catalog.extend(observed)
+        census.update(observed.counts)
+        excluded.extend(observed.excluded)
         target = next(x for x in catalog if x['company_id'] == '8')
         if target['search_url'].rstrip('/') != config['search_url'].rstrip('/'):
             raise c.CollectionError('company_catalog_reviewed_route_changed')
@@ -170,6 +208,8 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> c.Co
         result.evidence['area_labels'] = list(AREA_LABELS)
         result.evidence['area_id'] = 'kitakyushu'
         result.evidence['companies'] = catalog
+        result.evidence['company_census'] = census
+        result.evidence['excluded_companies'] = excluded
         return result
     finally:
         c._search = original_search

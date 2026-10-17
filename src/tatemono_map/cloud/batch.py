@@ -63,6 +63,8 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
     def company(one,result):
         if one is None:
             trace['company_count']=len(result)
+            trace['company_census']=getattr(result,'counts',{})
+            trace['excluded_companies']=getattr(result,'excluded',[])
             save_json(result,'company-catalog')
             missing=set(head['report'].get('company_ids',[]))-{x['company_id'] for x in result}
             if missing:
@@ -106,6 +108,7 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         total=sum(r['parsed_rows'] for r in reports)
         pdfs=sum(r['pdf_count'] for r in reports)
         report={'collection_mode':'all_companies','area_id':'kitakyushu','company_count':len(catalog),
+            'company_census':getattr(catalog,'counts',{}),
             'company_ids':[x['company_id'] for x in catalog],
             'successful_companies':len(reports),'parsed_rows':total,'attached_rows':sum(r['attached_rows'] for r in reports),
             'pdf_count':pdfs,'pdfs':[p for r in reports for p in r['pdfs']],
