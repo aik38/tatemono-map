@@ -17,6 +17,20 @@ from tatemono_map.cloud.public_db import readonly
 RUN = "20261017T160944Z-10bd49a595a4"
 PUBLIC_KEY_PEM = "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA1zKrcMQeS1qA+dezWo9L\nh41n5NoIKIzScdCKXaqpWHCj3/kF1/IwbkfN8LgMFwqOD6aq40u1bP1IJOamkeAx\nMRYbZcyugLcD+c0fCD3gMXG2CNGZfmwNEsofTkhjH5Wdt+ryVJKfNRGr7FbBKZ0t\nFQebn4pFUHSgnwYd7JzuRxl7myS9YN8C1AGkss6dpCB6AxwBpmc0+PG4lsFZPYXZ\n9ExTNL6cM5v7cZ4uAIkiysUFqE/hauApgw/YVGc9nAplYv+HN0Q+amFwKf98sG2T\nLp2P7x/Y98xfjrBRULrgXVpoo2kIm6mlx89RhPUFYdHZBXFwFYojDc/q2GG7rZEA\nVKVH9DCX0ro8J+7m6VMJXzg8cdqZrTZuPd4BwxytBqsE5Qemzby/skFQU4maboFI\nv5enN5Slvu5Uqa0OtGJBVPNJxfJxL06UDoMw7ZGZQ7aoeX/Phpte7wd7Q8AP+KSD\nKGOnAWf/WC6/AiQggRmgR30VrbEC2uALqATgecrc25YrkaqcOBgz+vQ0CSP17S75\nk4DxVHLBhwnXtRWxLb2Hz5Y0Q7cBG5Btzdb4p1IBsr6S1HwTfRRbk8ZvQtDwhBUp\nsTexlVwvfAlPQwz3056w2K7/fpyu1pWIlQHzgd7LVQgkQbk3u/RUsNHKuQfmu4mQ\nYpTE/1dgAWC+iRwmVNL41CECAwEAAQ==\n-----END PUBLIC KEY-----\n"
 try:
+    import importlib,urllib.request
+    PATCH_COMMIT="da18391f6493450145bc7fd3acba38784733085b"
+    patches=json.loads("{\"tatemono_map.ulucks_geography\":{\"path\":\"src/tatemono_map/ulucks_geography.py\",\"sha256\":\"dbd1c763090dc7fa57b420d990cb76e7bc9b61309ea3f26fae63ad5fe2a0ded4\"},\"tatemono_map.cli.pdf_batch_run\":{\"path\":\"src/tatemono_map/cli/pdf_batch_run.py\",\"sha256\":\"21d97819fb4d6ba06712e941b867ebd60d5635c06f49af49bb86f15d9378cffb\"},\"tatemono_map.building_registry.matcher\":{\"path\":\"src/tatemono_map/building_registry/matcher.py\",\"sha256\":\"587c0ee95e9681b0ada7ad8d9a006ce01acfa14f72fd747d7ee374fc0e0bfeae\"},\"tatemono_map.building_registry.ingest_master_import\":{\"path\":\"src/tatemono_map/building_registry/ingest_master_import.py\",\"sha256\":\"36b14ecb0b0b4d818c20d3963d89d982f8b133ca1e326d0114bd118f940b63f8\"},\"tatemono_map.cloud.wide\":{\"path\":\"src/tatemono_map/cloud/wide.py\",\"sha256\":\"2cffcab01226129bf01608a4af900c9487a0d41be9bf8f5e4aa42a47609bc17b\"}}")
+    for module_name,ref in patches.items():
+        source=urllib.request.urlopen('https://raw.githubusercontent.com/aik38/tatemono-map/'+PATCH_COMMIT+'/'+ref['path'],timeout=60).read()
+        if hashlib.sha256(source).hexdigest()!=ref['sha256']:raise RuntimeError('reviewed_patch_checksum_mismatch')
+        try:module=importlib.import_module(module_name)
+        except ModuleNotFoundError:
+            import sys,types
+            module=types.ModuleType(module_name);module.__package__=module_name.rpartition('.')[0];sys.modules[module_name]=module
+        exec(compile(source,ref['path'],'exec'),module.__dict__)
+    from tatemono_map.cloud import pipeline
+    pipeline.ingest_master_import_csv=imp.ingest_master_import_csv
+    pipeline.UlucksParser=importlib.import_module('tatemono_map.cli.pdf_batch_run').UlucksParser
     try:
         from cryptography.hazmat.primitives.serialization import load_pem_public_key
         from cryptography.hazmat.primitives.asymmetric import padding
@@ -55,7 +69,7 @@ try:
             raise RuntimeError('acquisition_pdf_manifest_requires_review')
         count=evidence['search_counts'][0];pdf=work/'acquired.pdf'
         pdfref=read('private-runs/'+RUN+'/pdf/000.pdf',pdf)
-        report={'acquisition_run':RUN,'pdf_sha256':pdfref['sha256'],'pdf_pages':page_count_fast(pdf),
+        report={'acquisition_run':RUN,'reviewed_patch_commit':PATCH_COMMIT,'pdf_sha256':pdfref['sha256'],'pdf_pages':page_count_fast(pdf),
             'expected_rows':count,'acquired_at':evidence.get('acquired_at'),'company_census':evidence.get('company_census')}
         try:
             result=update_master(master,[pdf],count,config,work,RUN+'-analysis',public_baseline=baseline)
@@ -99,13 +113,25 @@ try:
                         score=ns*0.65+ads*0.35
                         if score>=0.80:ranked.append((score,r))
                     candidates=[{'id':r[0],'name':r[1],'address':r[2],'score':score} for score,r in sorted(ranked,key=lambda x:x[0],reverse=True)[:3]]
+                for candidate in candidates:
+                    pairs=conn.execute('SELECT DISTINCT source,raw_name,raw_address FROM building_sources WHERE building_id=? LIMIT 6',(candidate['id'],)).fetchall()
+                    candidate['historical_pairs']=[dict(zip(('source','name','address'),r)) for r in pairs]
                 value['candidate_details']=candidates
         report['groups']=values[:100];report['groups_truncated']=len(values)>100
         report['official_head_unchanged']=store.read_head()==before
+        from tatemono_map.cloud.run import new_run_id
+        diagnostic_prefix='private-runs/'+RUN+'/diagnostics/'+new_run_id()
+        report['parsed_csv_ref']=store.upload(work/'master_import.csv',diagnostic_prefix+'/parsed.csv')
+        full_report=work/'private-review.json'
+        full_report.write_text(json.dumps(report,ensure_ascii=False))
+        ref=store.upload(full_report,diagnostic_prefix+'/review.json')
+        print('REVIEW_PRIVATE_SAVED='+json.dumps({'object':ref['object'],'generation':ref['generation'],'sha256':ref['sha256'],'patch_commit':PATCH_COMMIT}),flush=True)
         payload=json.dumps(report,ensure_ascii=False).encode()
-        if len(payload)>100000:raise RuntimeError('private_review_transport_budget_exceeded')
+        import zlib
+        payload=zlib.compress(payload)
+        if len(payload)>48000:raise RuntimeError('private_review_transport_budget_exceeded')
         chunks=[base64.b64encode(encrypt(payload[i:i+400])).decode() for i in range(0,len(payload),400)]
-        print('ENCRYPTED_REVIEW='+json.dumps({'algorithm':'RSA-OAEP-SHA256','chunks':chunks}),flush=True)
+        print('ENCRYPTED_REVIEW='+json.dumps({'algorithm':'RSA-OAEP-SHA256+zlib','chunks':chunks}),flush=True)
         print('REVIEW_INSPECTION_SAFE='+json.dumps({'pdf_pages':report['pdf_pages'],'expected_rows':count,'review_counts':counts,
             'reason_counts':report['reason_counts'],'unique_groups':len(groups),'official_head_unchanged':report['official_head_unchanged']}),flush=True)
 except Exception as exc:
@@ -135,7 +161,7 @@ def main():
         if raw:
             for item in json.loads(raw):
                 line=item.get('textPayload') or (item.get('jsonPayload') or {}).get('message','')
-                if isinstance(line,str) and line.startswith(('ENCRYPTED_REVIEW=','REVIEW_INSPECTION_SAFE=','REVIEW_INSPECTION_ERROR=')):
+                if isinstance(line,str) and line.startswith(('ENCRYPTED_REVIEW=','REVIEW_INSPECTION_SAFE=','REVIEW_INSPECTION_ERROR=','REVIEW_PRIVATE_SAVED=')):
                     print(line,flush=True);found=True
         if found:break
         if attempt<3:time.sleep(10)
