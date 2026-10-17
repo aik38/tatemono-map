@@ -78,12 +78,17 @@ def _prepare_scope(conn, config: dict, key: str) -> None:
     conn.execute("INSERT INTO cloud_scope_bindings VALUES (?,?,?)", (key, identity, baseline))
 
 
-def unit_room(value):
+def unit_room(value, *, explicit_labels=False):
     # Do not infer room identities from rents/areas/names or strip leading zeroes.
     value = normal(value or "").replace(" ", "").upper()
     if value.endswith("号室"):
         value = value[:-2]
-    if not re.fullmatch(r"(?:[1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|[1-9][0-9]*[A-Za-z]+)", value):
+    valid = bool(re.fullmatch(r"(?:[1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|[1-9][0-9]*[A-Za-z]+)", value))
+    if explicit_labels:
+        # Source-declared letter/hyphen labels are compared literally. Never
+        # strip a hyphen, remove a block suffix, or coerce a leading zero.
+        valid = valid or bool(re.fullmatch(r'(?:[A-Z]+(?:棟)?|(?:[A-Z]+|[1-9][0-9]*)-(?:[A-Z]+|[1-9][0-9]*))',value))
+    if not valid:
         raise CollectionError("legacy_unit_identity_ambiguous")
     return value
 
@@ -100,7 +105,7 @@ def prepare_unit_overlaps(conn, key, run, diagnostic=None, *, allow_managed=Fals
             value = aliases[value]
         return value
     fresh = conn.execute("SELECT building_key,room_label FROM listings WHERE ingest_run_id=?", (run,)).fetchall()
-    units = {(canonical(b), unit_room(room)) for b, room in fresh}
+    units = {(canonical(b), unit_room(room, explicit_labels=allow_managed)) for b, room in fresh}
     if len(units) != len(fresh):
         raise CollectionError("duplicate_canonical_pdf_units")
     touched = {b for b, _ in units}
@@ -118,7 +123,7 @@ def prepare_unit_overlaps(conn, key, run, diagnostic=None, *, allow_managed=Fals
             continue
         # Missing legacy room cannot be assumed different from a new unit.
         try:
-            identity = (building, unit_room(room))
+            identity = (building, unit_room(room, explicit_labels=allow_managed))
         except CollectionError:
             ambiguous.append({'listing_key': listing, 'canonical_building': building, 'room_label': room})
             continue

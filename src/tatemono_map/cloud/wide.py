@@ -112,7 +112,9 @@ def search(page, root: Path, company: dict) -> int:
         if field.input_value().strip():
             raise c.CollectionError('ulucks_nonempty_search_text_requires_review')
     # Clear only actually checked controls outside the verified region group.
-    for check in form.locator('input[type="checkbox"]:checked').all():
+    for check in form.locator('input[type="checkbox"]').all():
+        if not check.is_checked():
+            continue
         in_group = group.evaluate('(el, other) => el.contains(other)', check.element_handle())
         if not in_group:
             set_checked(check, False)

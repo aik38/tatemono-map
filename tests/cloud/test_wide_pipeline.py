@@ -2,6 +2,8 @@ from pathlib import Path
 
 from conftest import make_pdf
 from tatemono_map.cloud.pipeline import update_master, scope_key
+from tatemono_map.cloud.pipeline import unit_room, CollectionError
+import pytest
 from tatemono_map.cloud.public_db import export_public, readonly
 from tatemono_map.cloud.wide import area_of
 
@@ -46,3 +48,12 @@ def test_geography_is_anchored_and_includes_counties():
     assert area_of('福岡県北九州市小倉南区長行東1-2-3')=='北九州市小倉南区'
     assert area_of('福岡県遠賀郡水巻町頃末北1-2-3')=='遠賀郡水巻町'
     assert area_of('福岡県福岡市中央区北九州町1-2-3') is None
+
+
+def test_explicit_source_unit_labels_are_literal_and_unknown_rooms_still_stop():
+    for room in ('A','A棟','2-E','C-1'):
+        assert unit_room(room,explicit_labels=True)==room
+    assert unit_room('A棟',explicit_labels=True)!=unit_room('A',explicit_labels=True)
+    for room in ('001','A-01','','未定','不明','-'):
+        with pytest.raises(CollectionError,match='identity_ambiguous'):
+            unit_room(room,explicit_labels=True)
