@@ -45,6 +45,7 @@ try:
                 '-pkeyopt','rsa_padding_mode:oaep','-pkeyopt','rsa_oaep_md:sha256','-pkeyopt','rsa_mgf1_md:sha256'],
                 input=chunk,capture_output=True,check=True).stdout
     store=GCSStore(os.environ['TATEMONO_BUCKET']);before=store.read_head();head,generation=before
+    print('CURRENT_STATE_SAFE='+json.dumps({'run_id':head.get('run_id'),'master_sha256':head.get('master',{}).get('sha256'),'public_sha256':head.get('public',{}).get('sha256'),'source_commit':head.get('source_commit'),'qc':head.get('qc')}),flush=True)
     if head['master']['sha256']!='57f86ec174dadf58df95842862cd9a7e9be9bade9328af1a10d27e33c62fe4e6':
         raise RuntimeError('official_master_changed_refusing_replay')
     config=json.loads(os.environ['ULUCKS_CONFIG_JSON'])
@@ -71,14 +72,22 @@ try:
         pdfref=read('private-runs/'+RUN+'/pdf/000.pdf',pdf)
         report={'acquisition_run':RUN,'reviewed_patch_commit':PATCH_COMMIT,'pdf_sha256':pdfref['sha256'],'pdf_pages':page_count_fast(pdf),
             'expected_rows':count,'acquired_at':evidence.get('acquired_at'),'company_census':evidence.get('company_census')}
+        print('REVIEW_INSPECTION_PHASE={"stage":"parse_start"}',flush=True)
         parsed=pipeline.UlucksParser().parse(pdf).df
+        print('REVIEW_INSPECTION_PHASE={"stage":"parse_done"}',flush=True)
+        parsed_file=work/'parsed-frame.json'
+        parsed.to_json(parsed_file,orient='table',force_ascii=False)
+        from tatemono_map.cloud.run import new_run_id
+        parsed_ref=store.upload(parsed_file,'private-runs/'+RUN+'/diagnostics/'+new_run_id()+'/parsed-frame.json')
+        report['parsed_frame_ref']=parsed_ref
+        print('REVIEW_PRIVATE_SAVED='+json.dumps({'kind':'parsed_frame','ref':parsed_ref,'patch_commit':PATCH_COMMIT}),flush=True)
         from tatemono_map.cloud.wide import area_of
         report['parsed_rows']=len(parsed)
         report['parsed_area_counts']=dict(Counter(str(area_of(a)) for a in parsed['address']))
         report['bad_scope_rows']=parsed.loc[parsed['address'].map(area_of).isna(),['building_name','room','address','evidence_id','raw_block']].head(30).to_dict(orient='records')
         try:
-            result=update_master(master,[pdf],count,config,work,RUN+'-analysis',public_baseline=baseline)
-            report['result']=result
+            raise CollectionError('parse_only_inspection_not_ingested')
+            report['result']=None
         except CollectionError as exc:
             report['failure_code']=str(exc)
         groups={};counts={}
@@ -156,6 +165,15 @@ def main():
     runs=gc(['run','jobs','executions','list','--job',job,'--region',region,'--format=json'])
     if runs is None or any(not x.get('status',{}).get('completionTime') for x in json.loads(runs)):
         raise SystemExit('active_or_unreadable_executions_refusing_private_inspection')
+    scheduler=gc(['scheduler','jobs','describe',os.environ['GCP_SCHEDULER_JOB'],'--location',region,'--format=json(state,schedule,timeZone,httpTarget.uri)'])
+    if scheduler:
+        j=json.loads(scheduler)
+        target='https://run.googleapis.com/v2/projects/'+os.environ['GCP_PROJECT_ID']+'/locations/'+region+'/jobs/'+job+':run'
+        print('SCHEDULER_STATE_SAFE='+json.dumps({'state':j.get('state'),'schedule':j.get('schedule'),'timeZone':j.get('timeZone'),'expected_target':j.get('httpTarget',{}).get('uri')==target}),flush=True)
+    meta=gc(['run','jobs','describe',job,'--region',region,'--format=json(metadata.labels,spec.template.spec.template.spec.timeoutSeconds)'])
+    if meta:
+        j=json.loads(meta);spec=j.get('spec',{}).get('template',{}).get('spec',{}).get('template',{}).get('spec',{})
+        print('JOB_STATE_SAFE='+json.dumps({'source_commit':j.get('metadata',{}).get('labels',{}).get('source-commit'),'timeout':spec.get('timeoutSeconds'),'active_executions':0}),flush=True)
     start=datetime.now(timezone.utc).isoformat()
     assert '~' not in REMOTE
     outcome=gc(['run','jobs','execute',job,'--region',region,'--args=^~^-c~'+REMOTE,'--wait','--format=json'])
@@ -166,7 +184,7 @@ def main():
         if raw:
             for item in json.loads(raw):
                 line=item.get('textPayload') or (item.get('jsonPayload') or {}).get('message','')
-                if isinstance(line,str) and line.startswith(('ENCRYPTED_REVIEW=','REVIEW_INSPECTION_SAFE=','REVIEW_INSPECTION_ERROR=','REVIEW_PRIVATE_SAVED=')):
+                if isinstance(line,str) and line.startswith(('ENCRYPTED_REVIEW=','REVIEW_INSPECTION_SAFE=','REVIEW_INSPECTION_ERROR=','REVIEW_PRIVATE_SAVED=','CURRENT_STATE_SAFE=','REVIEW_INSPECTION_PHASE=')):
                     print(line,flush=True);found=True
         if found:break
         if attempt<3:time.sleep(10)

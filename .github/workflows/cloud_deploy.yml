@@ -476,6 +476,7 @@ jobs:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       GCP_REGION: ${{ vars.GCP_REGION }}
       GCP_JOB: ${{ vars.GCP_JOB }}
+      GCP_SCHEDULER_JOB: ${{ vars.GCP_SCHEDULER_JOB }}
     steps:
       - uses: actions/checkout@v4
       - uses: google-github-actions/auth@v2
