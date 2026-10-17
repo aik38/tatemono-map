@@ -30,6 +30,12 @@ def main():
     report = {}
     original = c._observe_company_row
     def companies(page, row, root):
+        report['company_row_links'] = row.locator('a').evaluate_all("els => els.map(el=>({tag:el.tagName,href:el.getAttribute('href'),onclick:el.getAttribute('onclick')}))")
+        shapes=[]
+        for x in report['company_row_links']:
+            raw=(x.get('href') or '')+' '+(x.get('onclick') or '')
+            shapes.append({'tag':x['tag'],'paths':re.findall(r'/company/lists/[0-9]+',raw),'functions':re.findall(r'([a-zA-Z_][a-zA-Z0-9_.]*)\s*\(',raw),'href_scheme':urlsplit(x.get('href') or '').scheme,'has_onclick':bool(x.get('onclick'))})
+        print('FULLAREA_COMPANY_LINK_SHAPES='+json.dumps(shapes),flush=True)
         report['company_links'] = page.locator('a[href]').evaluate_all(''' + '"""' + r'''els => els.map(el => ({href:el.href, text:el.closest('tr')?.innerText || el.innerText})).filter(x => {const u=new URL(x.href);return u.origin==='https://kitakyushu.ulucks.jp' && /^\/company\/lists\/\d+\/?$/.test(u.pathname) && !u.search && !u.hash})''' + '"""' + r''')
         report['company_paging'] = page.locator('a[href]').evaluate_all(''' + '"""' + r'''els => els.filter(el=>/次|前|最後|最初|^[0-9]+$/.test((el.innerText||'').trim())).map(el=>({text:el.innerText,href:el.href})).filter(x=>{const u=new URL(x.href);return u.origin==='https://kitakyushu.ulucks.jp' && u.pathname.startsWith('/company')})''' + '"""' + r''')
         print('FULLAREA_COMPANY_COUNT='+str(len(set(x['href'] for x in report['company_links']))),flush=True)
@@ -39,6 +45,7 @@ def main():
         form, area = c._search_form(page)
         report['controls'] = form.locator('input[type="checkbox"]').evaluate_all(''' + '"""' + r'''els => els.map(el=>({id:el.id,name:el.name,value:el.value,checked:el.checked,labels:Array.from(el.labels||[]).map(x=>x.innerText)}))''' + '"""' + r''')
         report['area_ancestors'] = area.evaluate(''' + '"""' + r'''el => {const rows=[];for(let p=el.parentElement,i=0;p&&i<7;p=p.parentElement,i++){rows.push({tag:p.tagName,classes:p.className,checkboxes:p.querySelectorAll('input[type=checkbox]').length,labels:Array.from(p.querySelectorAll('input[type=checkbox]')).flatMap(x=>Array.from(x.labels||[]).map(l=>l.innerText.trim()))});}return rows;}''' + '"""' + r''')
+        print('FULLAREA_TARGET_LABELS='+json.dumps(next(x['labels'] for x in report['area_ancestors'] if x['checkboxes']==23),ensure_ascii=False),flush=True)
         safe=[]
         for row in report['area_ancestors']:
             safe.append({'tag':row['tag'],'checkboxes':row['checkboxes'],'geographic_labels':[x for x in row['labels'] if x in ('北九州','福岡市','福岡県その他') or re.fullmatch(r'[一-龥ぁ-んァ-ヶー]{1,15}(?:市|区|町|村)',x)]})
@@ -85,7 +92,7 @@ def main():
     if logs:
         for entry in json.loads(logs):
             value = entry.get('textPayload','')
-            if isinstance(value,str) and value.startswith(('FULLAREA_HEAD=','FULLAREA_COMPANY_COUNT=','FULLAREA_COMPANY_PAGING_COUNT=','FULLAREA_GEOGRAPHIC_STRUCTURE=','FULLAREA_OBSERVATION=','FULLAREA_ERROR=')):
+            if isinstance(value,str) and value.startswith(('FULLAREA_HEAD=','FULLAREA_COMPANY_COUNT=','FULLAREA_COMPANY_PAGING_COUNT=','FULLAREA_GEOGRAPHIC_STRUCTURE=','FULLAREA_OBSERVATION=','FULLAREA_ERROR=','FULLAREA_COMPANY_LINK_SHAPES=','FULLAREA_TARGET_LABELS=')):
                 print(value,flush=True)
     if outcome is None:
         raise SystemExit('observation_execution_failed_no_job_or_master_changes')
