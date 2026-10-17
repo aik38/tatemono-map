@@ -57,3 +57,9 @@
 - 私的PDF/ZIP/レビュー原文/秘密鍵をPublic GitHubや公開artifactに置かない。添付参考PDFは実収集実績に転用しない。
 
 - 21:21 UTC: 公開側にも残っていたparsed=attached条件を、採用+保留+異常+重複の厳密な全行照合へ更新。公開proof/件数/QCは維持。全件保留でも偽の0件にせず、公開SQLite/markerへの保留原文混入がないことを統合テストで確認。
+
+## 21:25 UTC 工程A本番パイプライン起動
+- PR#372 latest069b90ba、CI39070480785成功、main merge `6dacbcc75e1dd4292b72277203cb6f0be7f5ac31`。
+- 実行 https://github.com/aik38/tatemono-map/actions/runs/39070843455 。会社8限定、既取得原本再利用。実行中の場合は結果を先に確認し、再起動しない。
+- Pagesの既存許可済みWIF経路に `cloud/read_state.py` を追加。release_checkログのCLOUD_STATE_SAFE_JSONで正式HEAD/SHA/採用・保留等を原本再解析なしで取得できる。新workflow名によるWIF拒否はIAM変更せず既存Pages経路へ移動して解消した。
+- 工程A完了はGCS正式releaseとPagesの本番検証成功を確認してから。工程B/Cは引き続き未完了。
