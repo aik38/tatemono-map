@@ -69,17 +69,21 @@ try:
             counts[kind]=counts.get(kind,0)+len(rows)
             if kind=='new_buildings':continue
             for row in rows:
-                k=(row.get('raw_name'),row.get('raw_address'),row.get('reason'))
+                k=(row.get('name'),row.get('address'),row.get('reason'))
                 if k not in groups:groups[k]={'rows':0,**row}
                 groups[k]['rows']+=1
         report['review_counts']=counts
         report['reason_counts']=dict(Counter({str(k[2]):sum(g['rows'] for kk,g in groups.items() if kk[2]==k[2]) for k in groups}))
         report['unique_unresolved_groups']=len(groups)
         values=list(groups.values())
+        imported=list(csv.DictReader((work/'master_import.csv').open(encoding='utf-8-sig')))
+        for value in values:
+            value['parsed_units']=[{k:r.get(k) for k in ('building_name','room','address','raw_block')} for r in imported if r.get('building_name')==value.get('name') and r.get('address')==value.get('address')][:1]
+            value.pop('source_id',None)
         with readonly(master) as conn:
             buildings=conn.execute('SELECT building_id,canonical_name,canonical_address,norm_name,norm_address FROM buildings').fetchall()
             report['candidate_counts']={'buildings':len(buildings),'listings':conn.execute('SELECT COUNT(*) FROM listings').fetchone()[0]}
-            for value in values[:40]:
+            for value in values[:100]:
                 given=value.get('candidate_ids') or value.get('candidate_building_ids') or ''
                 ids=given.split('|') if given else []
                 candidates=[]
@@ -96,7 +100,7 @@ try:
                         if score>=0.80:ranked.append((score,r))
                     candidates=[{'id':r[0],'name':r[1],'address':r[2],'score':score} for score,r in sorted(ranked,key=lambda x:x[0],reverse=True)[:3]]
                 value['candidate_details']=candidates
-        report['groups']=values[:40];report['groups_truncated']=len(values)>40
+        report['groups']=values[:100];report['groups_truncated']=len(values)>100
         report['official_head_unchanged']=store.read_head()==before
         payload=json.dumps(report,ensure_ascii=False).encode()
         if len(payload)>100000:raise RuntimeError('private_review_transport_budget_exceeded')
@@ -138,3 +142,4 @@ def main():
     if outcome is None or not found:raise SystemExit('private_inspection_or_log_capture_failed')
 
 if __name__=='__main__':main()
+
