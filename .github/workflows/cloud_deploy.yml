@@ -20,7 +20,7 @@ on:
         type: string
 
 concurrency:
-  group: ulucks-cloud-deployment
+  group: ${{ contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_COMPANY_ROUTES_20261018') && format('ulucks-read-only-{0}', github.run_id) || 'ulucks-cloud-deployment' }}
   cancel-in-progress: false
 
 permissions:
@@ -28,6 +28,7 @@ permissions:
 
 jobs:
   test:
+    if: "!contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_COMPANY_ROUTES_20261018')"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -441,3 +442,24 @@ jobs:
       - run: python -m pip install --quiet 'google-cloud-storage>=2.19,<4'
       - name: Read the actual full-area failure without another collection
         run: python cloud/safe_collection_failure.py
+
+  inspect_company_routes_once:
+    if: github.repository == 'aik38/tatemono-map' && github.event_name == 'push' && contains(github.event.head_commit.message, 'ULUCKS_READ_ONLY_COMPANY_ROUTES_20261018')
+    runs-on: ubuntu-latest
+    timeout-minutes: 16
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_JOB: ${{ vars.GCP_JOB }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Inspect actual company routes without PDF or release changes
+        run: python cloud/observe_company_routes.py
