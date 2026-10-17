@@ -30,6 +30,12 @@ def main():
     report = {}
     original = c._observe_company_row
     def companies(page, row, root):
+        report['company_row_elements'] = row.evaluate("el => [el,...el.querySelectorAll('*')].map(x=>({tag:x.tagName,attrs:Array.from(x.attributes).map(a=>({name:a.name,value:a.value}))}))")
+        es=[]
+        for el in report['company_row_elements']:
+            es.append({'tag':el['tag'],'attributes':[a['name'] for a in el['attrs']],'company_paths':[v for a in el['attrs'] for v in re.findall(r'/company/lists/[0-9]+',a['value'])],'functions':[v for a in el['attrs'] for v in re.findall(r'([a-zA-Z_][a-zA-Z0-9_.]*)\s*\(',a['value'])]})
+        print('FULLAREA_COMPANY_ELEMENT_SHAPES='+json.dumps(es),flush=True)
+        print('FULLAREA_TABLE_ROWS='+str(page.get_by_role('row').count()),flush=True)
         report['company_row_links'] = row.locator('a').evaluate_all("els => els.map(el=>({tag:el.tagName,href:el.getAttribute('href'),onclick:el.getAttribute('onclick')}))")
         shapes=[]
         for x in report['company_row_links']:
@@ -92,7 +98,7 @@ def main():
     if logs:
         for entry in json.loads(logs):
             value = entry.get('textPayload','')
-            if isinstance(value,str) and value.startswith(('FULLAREA_HEAD=','FULLAREA_COMPANY_COUNT=','FULLAREA_COMPANY_PAGING_COUNT=','FULLAREA_GEOGRAPHIC_STRUCTURE=','FULLAREA_OBSERVATION=','FULLAREA_ERROR=','FULLAREA_COMPANY_LINK_SHAPES=','FULLAREA_TARGET_LABELS=')):
+            if isinstance(value,str) and value.startswith(('FULLAREA_HEAD=','FULLAREA_COMPANY_COUNT=','FULLAREA_COMPANY_PAGING_COUNT=','FULLAREA_GEOGRAPHIC_STRUCTURE=','FULLAREA_OBSERVATION=','FULLAREA_ERROR=','FULLAREA_COMPANY_ELEMENT_SHAPES=','FULLAREA_TABLE_ROWS=','FULLAREA_COMPANY_LINK_SHAPES=','FULLAREA_TARGET_LABELS=')):
                 print(value,flush=True)
     if outcome is None:
         raise SystemExit('observation_execution_failed_no_job_or_master_changes')
