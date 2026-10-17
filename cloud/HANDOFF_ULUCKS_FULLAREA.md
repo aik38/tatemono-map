@@ -80,3 +80,9 @@
 - 実行 https://github.com/aik38/tatemono-map/actions/runs/39070843455 。会社8限定、既取得原本再利用。実行中の場合は結果を先に確認し、再起動しない。
 - Pagesの既存許可済みWIF経路に `cloud/read_state.py` を追加。release_checkログのCLOUD_STATE_SAFE_JSONで正式HEAD/SHA/採用・保留等を原本再解析なしで取得できる。新workflow名によるWIF拒否はIAM変更せず既存Pages経路へ移動して解消した。
 - 工程A完了はGCS正式releaseとPagesの本番検証成功を確認してから。工程B/Cは引き続き未完了。
+
+## 工程Bの準備（まだ有効化しない）
+- 会社8の実行39070843455を監視中。Aの正式GCS/Pages確認までBは起動しない。
+- 新しい全業者展開では、公開確認済みHEADを明示した場合だけ24時間以内・現在も有効な正常scopeを再利用する機能を準備。会社8のPDF再取得を避け、初回全業者実行と途中再開の重複を節約する。通常の週次実行は毎回実収集する。
+- 全業者初回markerは ULUCKS_ALL_COMPANIES_20261018_INITIAL。Pagesの公開markerを読み、GCS HEADのrun IDと一致した場合のみ既存正常scopeを再利用。古いHEADなら安全停止。採用処理の契約を変えた場合、このreuseを指定せず既取得manifest/PDFで再評価する。
+- キャッシュ利用でも元の取得日時・原本参照を維持し、再利用業者数/新規PDF取得数を分離。新規建物数はbatch開始正本からの純増で算出する。

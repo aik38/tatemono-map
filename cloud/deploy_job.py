@@ -93,7 +93,17 @@ def main():
         if env.get('ULUCKS_EXPANSION_STAGE')=='all':
             # One reviewed proof execution; the persistent weekly Job retains
             # normal args and waits for this exact revision's complete proof.
-            execute_args.append('--args=-m,tatemono_map.cloud.run,--prove-expansion')
+            args='--args=-m,tatemono_map.cloud.run,--prove-expansion'
+            if env.get('ULUCKS_REUSE_SUCCESSFUL_RELEASE'):
+                reuse=env['ULUCKS_REUSE_SUCCESSFUL_RELEASE']
+                if reuse=='published':
+                    import urllib.request,re
+                    with urllib.request.urlopen('https://www.tatemono-map.com/cloud_release.json',timeout=45) as response:
+                        reuse=json.load(response)['run_id']
+                    if not re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}',reuse):
+                        raise DeploymentError('published_release_identity_invalid')
+                args+=',--reuse-successful-release,'+reuse
+            execute_args.append(args)
         elif env.get('ULUCKS_EXPANSION_STAGE')=='company8' and env.get('ULUCKS_REUSE_ACQUISITION'):
             execute_args.append('--args=-m,tatemono_map.cloud.run,--reuse-acquisition,'+env['ULUCKS_REUSE_ACQUISITION'])
         gc(*execute_args)
