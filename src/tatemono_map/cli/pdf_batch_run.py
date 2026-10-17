@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
 from importlib import import_module
+from tatemono_map.ulucks_geography import AREA_RE as ULUCKS_AREA_RE, complement_print_address
 
 FINAL_SCHEMA = [
     "category",
@@ -450,7 +451,7 @@ class UlucksParser:
                         top = table.bbox[1]
                         if top > previous_bottom:
                             heading = page.crop((0, previous_bottom, page.width, top)).extract_text() or ""
-                            areas = re.findall(rf"(?:^|\n)\s*({WARD_RE})\s+\S", heading)
+                            areas = re.findall(rf"(?:^|\n)\s*({ULUCKS_AREA_RE})\s+\S", heading)
                             if areas:
                                 current_ward = areas[-1]
                         tables_with_hints.append((table.extract(), current_ward or ward_hint))
@@ -470,7 +471,7 @@ class UlucksParser:
                         r = list(r) + [None] * (len(header) - len(r))
                         building = get_cell_text(r, idx, ["物件名"])
                         address = get_cell_text(r, idx, ["所在地"])
-                        address = complement_address_with_ward(address, table_ward)
+                        address = complement_print_address(address, table_ward)
                         room = get_cell_text(r, idx, ["号室"])
                         room = re.sub(r"\s*《.*?》\s*", "", room).strip()
                         building = ulucks_building_name(building, room)

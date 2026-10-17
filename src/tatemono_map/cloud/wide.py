@@ -10,9 +10,7 @@ from urllib.parse import urlsplit, urljoin
 
 from tatemono_map.cloud import collector as c
 
-AREA_LABELS = ('小倉北区','小倉南区','八幡東区','八幡西区','若松区','戸畑区','門司区',
-    '中間市','遠賀郡','京都郡','行橋市','築上郡','豊前市','直方市','鞍手郡','田川郡',
-    '田川市','宗像市','宮若市','飯塚市','嘉穂郡','嘉麻市')
+from tatemono_map.ulucks_geography import AREA_LABELS, municipality_of
 
 
 class CompanyCatalog(list):
@@ -124,17 +122,7 @@ def company_catalog(page) -> list[dict]:
 
 
 def area_of(address: str) -> str | None:
-    value = c.normal(address).replace(' ', '')
-    if value.startswith('福岡県'):
-        value = value[3:]
-    for label in AREA_LABELS:
-        prefix = '北九州市' + label if label.endswith('区') else label
-        if value.startswith(prefix):
-            if label.endswith('郡'):
-                town = re.match(re.escape(label) + r'[^0-9]+?[町村]', value)
-                return town[0] if town else None
-            return prefix
-    return None
+    return municipality_of(address)
 
 
 def set_checked(control, wanted: bool) -> None:

@@ -41,3 +41,32 @@ def test_pdf_terms_keep_their_meaning_through_master_import(master, config, tmp_
     result = update_master(master,[pdf],1,config,tmp_path,'terms')
     with readonly(master) as conn:
         assert conn.execute('SELECT deposit_text,key_money_text,rent_yen,maint_yen FROM listings WHERE ingest_run_id=?',(result['ingest_run_id'],)).fetchone() == ('なし','1ヶ月',55000,3000)
+
+
+def test_county_and_city_headings_replace_previous_ward_and_continue(tmp_path):
+    pdfmetrics.registerFont(UnicodeCIDFont('HeiseiKakuGo-W5'))
+    style=ParagraphStyle('region',fontName='HeiseiKakuGo-W5',fontSize=12)
+    def table(address):
+        t=Table([['物件名','号室','所在地','賃料','面積'],['架空広域建物','101',address,'55000','25.0㎡']],colWidths=[130,50,190,60,60])
+        t.setStyle(TableStyle([('FONTNAME',(0,0),(-1,-1),'HeiseiKakuGo-W5'),('GRID',(0,0),(-1,-1),0.5,colors.black)]))
+        return t
+    p=tmp_path/'synthetic-counties.pdf'
+    SimpleDocTemplate(str(p)).build([
+        Paragraph('門司区 架空区内建物',style),table('架空町1-1-1'),
+        Paragraph('中間市 架空中間建物',style),table('中央1-1-1'),
+        Paragraph('京都郡 架空苅田建物',style),table('苅田町大字架空1-1'),
+        PageBreak(),table('苅田町大字架空1-1'),
+        Paragraph('行橋市 架空行橋建物',style),table('中央1-1-1'),
+        Paragraph('築上郡 架空築上建物',style),table('築上町大字架空1-1'),
+    ])
+    addresses=UlucksParser().parse(p).df['address'].tolist()
+    assert addresses==['北九州市門司区架空町1-1-1','中間市中央1-1-1','京都郡苅田町大字架空1-1','京都郡苅田町大字架空1-1','行橋市中央1-1-1','築上郡築上町大字架空1-1']
+
+
+def test_geographic_prefixes_do_not_invent_a_town_or_retag_an_explicit_city():
+    from tatemono_map.ulucks_geography import complement_print_address,municipality_of
+    assert complement_print_address('富久町1-1','京都郡')=='富久町1-1'
+    assert complement_print_address('苅田町大字架空1-1','門司区')=='苅田町大字架空1-1'
+    assert complement_print_address('福岡市中央区架空町1-1','門司区')=='福岡市中央区架空町1-1'
+    assert municipality_of('京都郡富久町1-1') is None
+    assert municipality_of('京都郡苅田町大字架空1-1')=='京都郡苅田町'
