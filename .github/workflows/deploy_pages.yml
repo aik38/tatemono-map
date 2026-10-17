@@ -60,6 +60,12 @@ jobs:
           service_account: ${{ vars.GCP_PAGES_SERVICE_ACCOUNT }}
       - if: vars.CLOUD_ENABLED == 'true'
         run: pip install -e . -r requirements-cloud.txt
+      - name: Read official release aggregates without collection
+        if: vars.CLOUD_ENABLED == 'true'
+        continue-on-error: true
+        env:
+          GCP_BUCKET: ${{ vars.GCP_BUCKET }}
+        run: python cloud/read_state.py
       - id: check
         env:
           CLOUD_ENABLED: ${{ vars.CLOUD_ENABLED }}
