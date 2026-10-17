@@ -55,3 +55,5 @@
 - GitHub接続/Actions WIFを使用。Chrome401/旧cloud browser失敗を繰り返さない。IAM/WIF/Secret初期構築・Windows再アップロード・成功版バックアップをやり直さない。
 - Secretの値は表示せず既存ULUCKS_LOGIN_SECRETを利用。runtimeはprivate objectアクセス可能、bucket list不可。既知のmanifest/refをgeneration/SHA固定で読む。
 - 私的PDF/ZIP/レビュー原文/秘密鍵をPublic GitHubや公開artifactに置かない。添付参考PDFは実収集実績に転用しない。
+
+- 21:21 UTC: 公開側にも残っていたparsed=attached条件を、採用+保留+異常+重複の厳密な全行照合へ更新。公開proof/件数/QCは維持。全件保留でも偽の0件にせず、公開SQLite/markerへの保留原文混入がないことを統合テストで確認。

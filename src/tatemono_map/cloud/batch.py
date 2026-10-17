@@ -159,6 +159,8 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         total=sum(r['parsed_rows'] for r in reports)
         pdfs=sum(r['pdf_count'] for r in reports)
         report={'collection_mode':'all_companies','area_id':'kitakyushu','company_count':len(catalog),
+            'integration_contract':'ulucks-partial-v1',
+            'row_counts':{k:sum(r['row_counts'].get(k,0) for r in reports) for k in ('accepted_existing','accepted_new','held','anomaly','duplicate')},
             'company_census':getattr(catalog,'counts',{}),
             'company_ids':[x['company_id'] for x in catalog],
             'company_catalog_ref':trace['company_catalog_ref'],
