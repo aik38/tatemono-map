@@ -285,6 +285,17 @@ def _observed_search_action(page, root: Path, form=None):
     return page.locator(_SEARCH_ACTION_CSS).nth(result["chosen_index"])
 
 
+def _confirmed_result_count(body: str) -> int:
+    # Live Cloud Run observation 20261017T094004Z: the same result summary
+    # appears above AND below the listing cards. Require their agreement,
+    # not exactly one occurrence, and reject absent/conflicting summaries.
+    counts = {int(value.replace(",", "")) for value in
+              re.findall(r"検索結果\s*([\d,]+)\s*件中", normal(body))}
+    if len(counts) != 1:
+        raise CollectionError("ulucks_result_count_not_confirmed")
+    return counts.pop()
+
+
 def _search(page, root: Path) -> int:
     phase = "form_lookup"
     try:
@@ -344,9 +355,13 @@ def _search(page, root: Path) -> int:
         _assert_scope(page)
         phase = "search_action"
         button = _observed_search_action(page, root, form)
+        submission = form.evaluate("el => ({url: el.action, method: el.method.toUpperCase()})")
         # Use only the actual browser request and response.
         phase = "search_response"
-        with page.expect_response(lambda r: urlsplit(r.url).netloc == urlsplit(ORIGIN).netloc and r.request.resource_type in ("document", "xhr", "fetch"), timeout=45000) as pending:
+        with page.expect_response(lambda r: r.url == submission["url"]
+                                  and r.request.method == submission["method"]
+                                  and r.request.resource_type == "document"
+                                  and r.frame == page.main_frame, timeout=45000) as pending:
             button.click()
         response = pending.value
         if response.status != 200:
@@ -383,10 +398,10 @@ def _search(page, root: Path) -> int:
             "response_resource_type": response.request.resource_type,
             "response_ok": response.ok,
         })
-        if len(matches) != 1:
-            raise CollectionError("ulucks_result_count_not_confirmed")
-        _append_ui_observation(root, "search_completed", {"result_count": int(matches[0].replace(",", ""))})
-        return int(matches[0].replace(",", ""))
+        count = _confirmed_result_count(body)
+        _append_ui_observation(root, "search_completed", {"result_count": count,
+            "matching_summary_count": len(matches), "response_method": response.request.method})
+        return count
     except CollectionError:
         raise
     except Exception:
