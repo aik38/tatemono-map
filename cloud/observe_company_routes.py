@@ -3,7 +3,8 @@ import json
 import os
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import time
 
 REMOTE=r'''
 import os,json,re,tempfile
@@ -67,17 +68,18 @@ def main():
             return None
         return p.stdout
     region=os.environ['GCP_REGION'];job=os.environ['GCP_JOB']
-    rows=gc(['run','jobs','executions','list','--job',job,'--region',region,'--format=json'])
+    logs_only=os.environ.get('ROUTES_READ_LOGS_ONLY')=='true'
+    rows='[]' if logs_only else gc(['run','jobs','executions','list','--job',job,'--region',region,'--format=json'])
     if rows is None or any(not x.get('status',{}).get('completionTime') for x in json.loads(rows)):
         raise SystemExit('active_or_unreadable_executions_refusing_observation')
-    start=datetime.now(timezone.utc).isoformat()
+    start=(datetime.now(timezone.utc)-timedelta(minutes=15) if logs_only else datetime.now(timezone.utc)).isoformat()
     assert '~' not in REMOTE
-    outcome=gc(['run','jobs','execute',job,'--region',region,'--args=^~^-c~'+REMOTE,'--wait','--format=json'])
+    outcome='read_only' if logs_only else gc(['run','jobs','execute',job,'--region',region,'--args=^~^-c~'+REMOTE,'--wait','--format=json'])
     query='resource.type="cloud_run_job" AND resource.labels.job_name="'+job+'" AND timestamp>="'+start+'"'
-    raw=gc(['logging','read',query,'--limit=100','--order=asc','--format=json'])
+    raw=gc(['logging','read',query,'--limit=200','--order=asc','--format=json'])
     if raw:
         for entry in json.loads(raw):
-            value=entry.get('textPayload','')
+            value=entry.get('textPayload') or (entry.get('jsonPayload') or {}).get('message','')
             if isinstance(value,str) and value.startswith(('COMPANY_ROUTE_SHAPES=','COMPANY_ROUTE_ROWS=','COMPANY_ROUTE_SAVED=','COMPANY_ROUTE_ERROR=')):
                 print(value)
     if outcome is None:raise SystemExit('route_observation_failed')
