@@ -7,6 +7,7 @@ from pathlib import Path
 
 from tatemono_map.cloud.collector import CollectionError, validate_config
 from tatemono_map.cloud.pipeline import update_master, validate_master
+from tatemono_map.cloud.pipeline import unit_room
 from tatemono_map.cloud.public_db import export_public, readonly, validate_public
 from tatemono_map.cloud.storage import commit_release, validate_head
 from tatemono_map.cloud.wide import collect_all
@@ -44,6 +45,8 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
     baseline=work/'publication-baseline.sqlite3'
     store.download(head['master'],master)
     validate_master(master)
+    with readonly(master) as conn:
+        initial_buildings={row[0] for row in conn.execute('SELECT building_id FROM buildings')}
     store.download(head['public'],baseline)
     if validate_public(baseline)!=head['report']['public_counts']:
         raise CollectionError('publication_baseline_counts_mismatch')
@@ -51,6 +54,7 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
     store.upload(master,f'backups/{run}.sqlite3')
     reports=[]
     affected=set()
+    fresh_units=set()
     trace={'run_id':run,'company_count':None,'active_company':None,'completed':[]}
     def save_json(value,name):
         file=work/(name+'.json')
@@ -78,6 +82,13 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         # acquisition becomes zero; a failure prevents the final head commit.
         report=update_master(master,result.pdfs,result.expected_rows,one,directory,run+'-company-'+company_id,
             confirmed_zero=result.confirmed_zero,public_baseline=baseline)
+        with readonly(master) as conn:
+            from tatemono_map.normalize.effective_rentals import canonical_key
+            aliases=dict(conn.execute('SELECT alias_key,canonical_key FROM building_key_aliases'))
+            units=[(canonical_key(b,aliases),unit_room(room,explicit_labels=True)) for b,room in conn.execute(
+                'SELECT building_key,room_label FROM listings WHERE ingest_run_id=?',(report['ingest_run_id'],))]
+            report['matched_existing_rows_at_batch_start']=sum(b in initial_buildings for b,_ in units)
+            fresh_units.update(units)
         reports.append(report)
         affected.update(row['building_key'] for row in report['proof'])
         trace['completed'].append({'company_id':company_id,'parsed_rows':report['parsed_rows'],
@@ -102,7 +113,8 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             'counts_before':reports[0]['counts_before'],'counts_after':reports[-1]['counts_after'],
             'legacy_overlap_rows':sum(r['legacy_overlap_rows'] for r in reports),
             'managed_overlap_rows':sum(r.get('managed_overlap_rows',0) for r in reports),
-            'matched_existing_rows':sum(r.get('matched_existing_rows',0) for r in reports),
+            'matched_existing_rows':sum(r.get('matched_existing_rows_at_batch_start',0) for r in reports),
+            'cross_company_duplicate_rows':total-len(fresh_units),
             'new_buildings':reports[-1]['counts_after']['buildings']-reports[0]['counts_before']['buildings'],
             'historical_rows_preserved':True,'public_counts':counts,'proof':proof,
             'processed_at':datetime.now(timezone.utc).isoformat()}

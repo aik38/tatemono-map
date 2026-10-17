@@ -35,6 +35,7 @@ def test_batch_one_release_all_history_final_public_terms_and_dedup(store, confi
     assert head['report']['company_count']==head['report']['successful_companies']==2
     assert head['report']['parsed_rows']==head['report']['attached_rows']==2
     assert head['report']['pdf_count']==2
+    assert head['report']['cross_company_duplicate_rows']==1
     assert head['report']['public_counts']['vacancies']==2
     marker=fetch(store,tmp_path/'public.sqlite3',tmp_path/'marker.json')
     assert any(p['rent_yen_min']==60000 and p['vacancy_count']==1 for p in marker['proof'])
