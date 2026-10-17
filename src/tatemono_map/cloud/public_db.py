@@ -56,15 +56,34 @@ def validate_public(path: Path) -> dict:
         return {**counts, "vacancies": conn.execute("SELECT COALESCE(SUM(vacancy_count),0) FROM building_summaries").fetchone()[0]}
 
 
-def export_public(master: Path, output: Path) -> dict:
+def publication_ids(baseline: Path) -> tuple[set[str], set[str]]:
+    """The pinned, last published DB is the authority for the existing audience.
+
+    Broad collection must never implicitly extend publication. All existing
+    buildings remain, including buildings with no currently advertised rooms.
+    """
+    validate_public(baseline)
+    with readonly(baseline) as conn:
+        ids = {r[0] for r in conn.execute('SELECT building_id FROM buildings')}
+        has_aliases = conn.execute("SELECT 1 FROM sqlite_master WHERE name='building_key_aliases'").fetchone()
+        aliases = {r[0] for r in conn.execute('SELECT alias_key FROM building_key_aliases')} if has_aliases else set()
+    return ids, aliases
+
+
+def export_public(master: Path, output: Path, *, baseline: Path | None = None) -> dict:
     if master.resolve() == output.resolve():
         raise ValueError("master_and_public_paths_must_differ")
+    allowed, allowed_aliases = publication_ids(baseline) if baseline is not None else (None, None)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_suffix(".tmp")
     temporary.unlink(missing_ok=True)
     # Copy precisely the same required/optional tables as publish_public.ps1.
     # Never back up the whole master into a public file (deleted pages can leak).
     with readonly(master) as src, closing(sqlite3.connect(temporary)) as dst:
+        if allowed is not None:
+            current = {r[0] for r in src.execute('SELECT building_id FROM buildings')}
+            if not allowed <= current:
+                raise ValueError('existing_public_building_missing_from_master')
         for table in REQUIRED + OPTIONAL:
             row = src.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone()
             if row is None:
@@ -73,7 +92,16 @@ def export_public(master: Path, output: Path) -> dict:
                 continue
             dst.execute(row[0])
             columns = len(src.execute(f'SELECT * FROM "{table}" LIMIT 0').description)
-            dst.executemany(f'INSERT INTO "{table}" VALUES ({",".join("?" for _ in range(columns))})', src.execute(f'SELECT * FROM "{table}"'))
+            cursor = src.execute(f'SELECT * FROM "{table}"')
+            names = [column[0] for column in cursor.description]
+            rows = cursor
+            if allowed is not None:
+                field = 'building_id' if table == 'buildings' else 'canonical_key' if table == 'building_key_aliases' else 'building_key'
+                key_index = names.index(field)
+                alias_index = names.index('alias_key') if table == 'building_key_aliases' else None
+                targets = allowed | allowed_aliases if alias_index is not None else allowed
+                rows = (r for r in cursor if r[key_index] in targets and (alias_index is None or r[alias_index] in allowed_aliases))
+            dst.executemany(f'INSERT INTO "{table}" VALUES ({",".join("?" for _ in range(columns))})', rows)
         dst.commit()
     counts = validate_public(temporary)
     os.replace(temporary, output)

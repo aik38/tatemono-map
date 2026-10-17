@@ -218,6 +218,7 @@ def _can_auto_seed(
     normalized_address: str,
     match_reason: str,
     normalized_source: str,
+    *, ulucks_full_area: bool = False,
 ) -> tuple[bool, str]:
     if not normalized_name:
         return False, "missing_normalized_name"
@@ -226,10 +227,14 @@ def _can_auto_seed(
     if _is_probably_room_or_unit_name(normalized_name):
         return False, "name_looks_like_unit"
     allow_relaxed_for_mr = normalized_source == "mansion_review_chintai" and match_reason == "address_without_digits"
+    full_area_lot = False
+    if ulucks_full_area and normalized_source == 'ulucks':
+        from tatemono_map.cloud.wide import area_of
+        full_area_lot = bool(re.fullmatch(r'[^\d、〜]+\d+-\d+', normalized_address) and area_of(normalized_address))
     if allow_relaxed_for_mr:
         if not _has_minimum_address_for_mansion_review(normalized_address):
             return False, "address_not_granular"
-    elif not (_has_minimum_address_granularity(normalized_address) or (
+    elif not (_has_minimum_address_granularity(normalized_address) or full_area_lot or (
         normalized_source == "ulucks"
         # Observed company-8 PDF has streets without chome: 田町3-31.
         # Limit this exception to the reviewed ward and a full street/lot pair;
@@ -427,6 +432,7 @@ def ingest_master_import_csv(
     auto_seed_high_confidence: bool = True,
     snapshot_source: str | None = None,
     snapshot_key: str | None = None,
+    ulucks_full_area: bool = False,
 ) -> Report:
     conn = connect(db_path)
     renormalize_buildings(conn)
@@ -541,6 +547,7 @@ def ingest_master_import_csv(
                         normalized.normalized_address,
                         match.reason,
                         normalized_source,
+                        ulucks_full_area=ulucks_full_area,
                     )
                     if auto_seed_high_confidence and can_seed:
                         new_building_id = make_alias_key(normalized.normalized_name, normalized.normalized_address)

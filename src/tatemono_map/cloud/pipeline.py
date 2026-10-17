@@ -88,7 +88,7 @@ def unit_room(value):
     return value
 
 
-def prepare_unit_overlaps(conn, key, run, diagnostic=None):
+def prepare_unit_overlaps(conn, key, run, diagnostic=None, *, allow_managed=False):
     """Aggregation equivalence, never company ownership or historical deletion."""
     aliases = dict(conn.execute("SELECT alias_key,canonical_key FROM building_key_aliases"))
     def canonical(value):
@@ -123,7 +123,7 @@ def prepare_unit_overlaps(conn, key, run, diagnostic=None):
             ambiguous.append({'listing_key': listing, 'canonical_building': building, 'room_label': room})
             continue
         if identity in units:
-            if source and source.startswith("ulucks:"):
+            if source and source.startswith("ulucks:") and not allow_managed:
                 raise CollectionError("overlap_with_another_managed_scope")
             matches.append(listing)
     if ambiguous:
@@ -151,8 +151,10 @@ def preservation_state(conn, limits=None):
     return limits, state
 
 
-def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: dict, work: Path, run_id: str, *, confirmed_zero: bool = False) -> dict:
+def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: dict, work: Path, run_id: str, *, confirmed_zero: bool = False, public_baseline: Path | None = None) -> dict:
     validate_master(master)
+    if config.get('area_id') == 'kitakyushu' and public_baseline is None:
+        raise CollectionError('wide_collection_publication_baseline_required')
     empty = expected_rows == 0 and confirmed_zero and not pdfs
     if not empty and (not pdfs or expected_rows <= 0):
         raise CollectionError("no_confirmed_pdf_rows")
@@ -168,7 +170,9 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
         raise CollectionError("pdf_rows_do_not_match_result_count")
     if not frame["category"].eq("ulucks").all():
         raise CollectionError("unexpected_source_in_pdf")
-    if not frame["address"].map(lambda value: normal(config["address_contains"]) in normal(str(value))).all():
+    from tatemono_map.cloud.wide import area_of
+    in_scope = (lambda value: area_of(str(value)) is not None) if config.get('area_id') == 'kitakyushu' else (lambda value: normal(config['address_contains']) in normal(str(value)))
+    if not frame['address'].map(in_scope).all():
         raise CollectionError("pdf_contains_out_of_scope_address")
     if frame[["building_name", "address", "room"]].apply(lambda col: col.map(lambda value: not normal(str(value)))).any().any():
         raise CollectionError("pdf_identity_field_missing")
@@ -179,6 +183,9 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
         raise CollectionError("pdf_rent_or_area_invalid")
     csv_path = work / "master_import.csv"
     key = scope_key(config)
+    retired = []
+    if config.get('area_id') == 'kitakyushu' and config.get('company_id') == '8':
+        retired = [scope_key(dict(config, area_id='kokurakita'))]
     # Export filenames repeat every week/company. Preserve evidence history as
     # well as listing history: source+pdf:ulucks-000.pdf is not a global ID.
     frame["evidence_id"] = frame["evidence_id"].map(lambda value: f"cloud:{key}:{run_id}:{value}")
@@ -198,8 +205,8 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
         if not previous and not empty and config["baseline_listing_keys"] and expected_rows < len(config["baseline_listing_keys"]) * (1 - float(config.get("max_drop_ratio", 0.25))):
             raise CollectionError("baseline_row_count_drop_exceeds_limit")
         preserved = preservation_state(conn)
-        others = dict(conn.execute("SELECT source,ingest_run_id FROM current_ingest_snapshots WHERE source<>?", (key,)))
-    report = ingest_master_import_csv(str(master), str(csv_path), source="ulucks", snapshot_source=key, snapshot_key=run_id, auto_seed_high_confidence=bool(config.get("auto_seed_high_confidence", False)))
+        others = {r[0]: r[1] for r in conn.execute('SELECT source,ingest_run_id FROM current_ingest_snapshots WHERE source<>?', (key,)) if r[0] not in retired}
+    report = ingest_master_import_csv(str(master), str(csv_path), source="ulucks", snapshot_source=key, snapshot_key=run_id, auto_seed_high_confidence=bool(config.get("auto_seed_high_confidence", False)), ulucks_full_area=config.get('area_id') == 'kitakyushu')
     if report.attached_listings != expected_rows or report.unmatched_count or report.suspect_count:
         raise CollectionError("ingest_unmatched_or_suspect_rows")
     with connect(master) as conn:
@@ -210,6 +217,8 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
         # Bootstrap can assign NULL run IDs once; snapshot after that explicit
         # migration so subsequent ingestion may only append historical records.
         set_current_snapshot(conn, key, report.ingest_run_id)
+        for previous_scope in retired:
+            conn.execute('DELETE FROM current_ingest_snapshots WHERE source=?', (previous_scope,))
         if dict(conn.execute("SELECT source,ingest_run_id FROM current_ingest_snapshots WHERE source<>?", (key,))) != others:
             raise CollectionError("other_source_current_snapshot_changed")
         actual = conn.execute("SELECT COUNT(*) FROM listings WHERE ingest_run_id=?", (report.ingest_run_id,)).fetchone()[0]
@@ -217,15 +226,22 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
             raise CollectionError("ingested_row_count_mismatch")
         if preservation_state(conn, preserved[0])[1] != preserved[1]:
             raise CollectionError("existing_private_records_changed")
-        overlaps = prepare_unit_overlaps(conn, key, report.ingest_run_id, work / 'overlap-review.private.json')
+        overlaps = prepare_unit_overlaps(conn, key, report.ingest_run_id, work / 'overlap-review.private.json', allow_managed=config.get('area_id') == 'kitakyushu')
         if conn.execute("PRAGMA foreign_key_check").fetchone():
             raise CollectionError("master_foreign_key_error")
     rebuild(str(master))
     validate_master(master)
-    counts = export_public(master, work / "public.sqlite3")
+    counts = export_public(master, work / "public.sqlite3", baseline=public_baseline)
+    if public_baseline is not None:
+        from tatemono_map.cloud.public_db import publication_ids
+        public_ids, _ = publication_ids(public_baseline)
+    else:
+        public_ids = None
     with readonly(master) as conn:
         counts_after = {t: conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in counts_before}
         affected = previous_buildings | {row[0] for row in conn.execute("SELECT DISTINCT building_key FROM listings WHERE ingest_run_id=?", (report.ingest_run_id,))}
+        if public_ids is not None:
+            affected &= public_ids
         proof = []
         for building in sorted(affected):
             fields = ('building_key','vacancy_count','rent_yen_min','rent_yen_max','area_sqm_min','area_sqm_max','layout_types_json')

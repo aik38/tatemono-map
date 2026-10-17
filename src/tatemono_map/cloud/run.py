@@ -37,6 +37,13 @@ def execute(store, config: dict, credentials: dict, work: Path, source_commit: s
     master = work / "master.sqlite3"
     store.download(head["master"], master)
     validate_master(master)
+    public_baseline = None
+    if config.get('area_id') == 'kitakyushu':
+        public_baseline = work / 'publication-baseline.sqlite3'
+        store.download(head['public'], public_baseline)
+        from tatemono_map.cloud.public_db import validate_public
+        if validate_public(public_baseline) != head['report']['public_counts']:
+            raise CollectionError('publication_baseline_counts_mismatch')
     run = new_run_id()
     # Pre-update byte-for-byte backup; refusal/failure here prevents collection.
     store.upload(master, f"backups/{run}.sqlite3")
@@ -64,7 +71,7 @@ def execute(store, config: dict, credentials: dict, work: Path, source_commit: s
     for index, pdf in enumerate(pdfs):
         store.upload(pdf, f"private-runs/{run}/pdf/{index:03d}.pdf")
     try:
-        report = update_master(master, pdfs, count, config, work, run, confirmed_zero=collected.confirmed_zero)
+        report = update_master(master, pdfs, count, config, work, run, confirmed_zero=collected.confirmed_zero, public_baseline=public_baseline)
     except CollectionError as exc:
         diagnostic = work / 'failure.private.json'
         overlap = work / 'overlap-review.private.json'

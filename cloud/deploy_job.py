@@ -24,6 +24,14 @@ def main():
             raise SystemExit("missing deployment setting: " + key)
     if not env.get('ULUCKS_CONFIG_JSON') and not env.get('ULUCKS_CONFIG_SECRET'):
         raise SystemExit('missing collection contract')
+    if env.get('ULUCKS_EXPANSION_STAGE') == 'company8':
+        if not env.get('ULUCKS_CONFIG_JSON'):
+            raise SystemExit('expansion_requires_existing_nonsecret_config')
+        expanded = json.loads(env['ULUCKS_CONFIG_JSON'])
+        if expanded.get('company_id') != '8' or expanded.get('baseline_listing_keys') or expanded.get('legacy_policy') != 'preserve_unknown':
+            raise SystemExit('expansion_previous_scope_contract_changed')
+        expanded.update(area_id='kitakyushu', area_label='北九州', address_contains='kitakyushu')
+        env['ULUCKS_CONFIG_JSON'] = json.dumps(expanded, ensure_ascii=False)
     if env.get('ULUCKS_CONFIG_JSON'):
         from tatemono_map.cloud.collector import validate_config
         validate_config(json.loads(env['ULUCKS_CONFIG_JSON']))

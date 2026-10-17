@@ -43,12 +43,15 @@ def normal(value: str) -> str:
 
 def validate_config(config: dict) -> None:
     # First proof is deliberately limited to the user-specified company/area.
-    if any(config.get(k) != v for k, v in {
+    target = {
         "login_url": ORIGIN + "/", "search_url": ORIGIN + "/company/lists/8",
         "company_id": COMPANY_ID, "company_label": COMPANY_LABEL,
         "area_id": "kokurakita", "area_label": AREA_LABEL,
         "address_contains": "小倉北区",
-    }.items()):
+    }
+    if config.get('area_id') == 'kitakyushu':
+        target.update(area_id='kitakyushu', area_label='北九州', address_contains='kitakyushu')
+    if any(config.get(k) != v for k, v in target.items()):
         raise CollectionError("unsupported_collection_target")
     keys = config.get("baseline_listing_keys")
     if not isinstance(keys, list) or any(not isinstance(k, str) or not k for k in keys):
@@ -481,11 +484,12 @@ def _observe_company_row(page, row, root: Path) -> tuple[list, dict]:
     Link destinations are evaluated in memory, not guessed from table columns.
     """
     root.parent.mkdir(parents=True, exist_ok=True)
-    links = row.locator("a[href]").all()
+    # Live 2026-10-18 UI uses a clickable TD[data-href], not an anchor.
+    links = row.locator("a[href], td[data-href]").all()
     cells = row.locator("td").all()
     candidates = []
     for link in links:
-        href = link.get_attribute("href") or ""
+        href = link.get_attribute("href") or link.get_attribute('data-href') or ""
         url = urlsplit(urljoin(page.url, href))
         if (url.scheme == "https" and url.netloc == urlsplit(ORIGIN).netloc
                 and url.path.rstrip("/") == "/company/lists/" + COMPANY_ID
@@ -619,6 +623,9 @@ def collect(config: dict, credentials: dict, root: Path) -> Collected:
             context = browser.new_context(accept_downloads=True, locale="ja-JP")
             context.set_default_timeout(30000)
             page = context.new_page()
+            if config.get('area_id') == 'kitakyushu':
+                from tatemono_map.cloud.wide import collect_with_page as wide_collect
+                return wide_collect(page, config, credentials, root)
             return collect_with_page(page, config, credentials, root)
         except CollectionError:
             raise
