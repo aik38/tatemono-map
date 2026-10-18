@@ -2,6 +2,8 @@
 
 > 過去検証・手動補助（2026-10-19 JST整理）: 以下はsmartlink一覧解析モジュールの仕様であり、現行の全社・北九州全域PDF収集とは別経路です。group keyはこの解析内の集計キーで、恒久canonical IDや公開除外条件ではありません。[現行Cloud](../cloud/README.md)を通常運用の参照先にしてください。
 
+> コマンドの現存確認: 以下に記録された`tatemono_map.ingest.ulucks_smartlink_phase_a`と`tests/test_ulucks_smartlink_phase_a.py`は、今回確認したmainには存在しません。CLI・テスト例は当時の記録として残していますが、そのまま実行できません。現存の`ulucks_smartlink.py`等を同一仕様の代替と推定せず、通常運用はCloud経路を使用してください。
+
 ## 目的
 Phase A は **smartlink 一覧ページのみ** を巡回・解析して、建物サマリ（建物単位の空室集計）を作成します。`/view/detail page/<id>/` のリンクIDは抽出しますが、detail page 個別ページには遷移しません。
 
