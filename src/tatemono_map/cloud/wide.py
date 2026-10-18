@@ -184,9 +184,19 @@ def group_form(page):
     raise c.CollectionError('wide_parent_children_contract_changed')
 
 
+def company_heading(page):
+    pattern=re.compile(r'物件検索\s*[（(](?!\s*ALL\s*[）)])[^）)]+[）)]',re.I)
+    actual=page.locator('#search_list_header .f_left')
+    return c.only(actual if actual.count() else page.get_by_text(pattern),'company_title')
+
+
 def search(page, root: Path, company: dict) -> int:
-    title = re.compile(r'物件検索\s*[（(]\s*' + re.escape(company['company_label']) + r'\s*[）)]')
-    heading=c.only(page.get_by_text(title), 'company_title')
+    # Normalize the actual DOM and expected label identically. Regex locators
+    # see raw full-width spaces, unlike the label extracted after NFKC.
+    heading=company_heading(page)
+    title=re.compile(r'物件検索\s*\(\s*'+re.escape(c.normal(company['company_label']))+r'\s*\)')
+    if not title.search(c.normal(heading.inner_text())):
+        raise c.CollectionError('company_search_heading_identity_changed')
     parent=page.get_by_label('北九州',exact=True)
     if parent.count()==1 and not parent.is_visible():
         label=parent.evaluate_handle('el=>el.labels?.length===1?el.labels[0]:null').as_element()
@@ -267,13 +277,7 @@ def collect_with_page(page, config: dict, credentials: dict, root: Path) -> c.Co
 
 
 def observed_company_label(page) -> str:
-    # The sidebar also says 物件検索(ALL). Read the actual company title,
-    # excluding that observed navigation label without assuming an HTML tag.
-    pattern=re.compile(r'物件検索\s*[（(](?!\s*ALL\s*[）)])[^）)]+[）)]',re.I)
-    # Observed live company11 header has line breaks and an ideographic space.
-    # Use its actual stable DOM container before the text-locator fallback.
-    actual=page.locator('#search_list_header .f_left')
-    heading=c.only(actual if actual.count() else page.get_by_text(pattern),'company_title')
+    heading=company_heading(page)
     match=re.search(r'物件検索\s*[（(]\s*([^）)]+?)\s*[）)]',c.normal(heading.inner_text()))
     if not match:
         raise c.CollectionError('company_discovered_heading_missing')
