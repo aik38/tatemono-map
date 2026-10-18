@@ -28,6 +28,14 @@
 - 最新収集run **`20261018T082512Z-b5584cf526cb`**、private prefix `private-runs/20261018T082512Z-b5584cf526cb/`。17:25:35JSTに65対象/131一覧を再取得、保存原本会社4/6の解析・統合まで再開成功。取得済み4社原本だけgeneration/SHA/会社/route/22エリア/24h内を照合して再利用し、残りはfresh。正式CASはまだ未実施。
 - 識別可能な再開intentは元run private prefix配下 `recovery-scheduler-intent-afdd.json` と `recovery-after-session-release-dt85t.json`。新しいrun ID/正式CAS/Pagesは未確定。
 
+## 現在runを継続しながら準備した最後のUI修正（17:40JST）
+- czfhn/run082512 は継続中。17:36まで10社1413行を統合し、会社26の新PDF38ページ715行は17:38に解析完了。会社8は17:31に統合完了しOOM解消を実証。
+- 会社11だけcompany_title_missing、会社16はaccess_request_required。全体は停止せず継続している。
+- 会社11の原因は観測名のNFKC後の半角空白とraw DOMの全角空白の不一致（観測名抽出とは別のsearch見出し照合）。**PR377** `fix/ulucks-normalized-company-heading-20261018` HEAD `aaf56f771efec0a2850da06d89c18742e163c845` で、実見出しDOMと期待名を両方正規化して比較する修正をCI中。private診断には実search_list_headerも保存。
+- **現在の収集を止めず、完了/正式HEAD確認後にPR377をmerge/配置する。** 収集sourceはまだafdd。配置はSCHEDULER_VERIFY markerでJob配置だけ行い、二重起動しない。
+- PR377では既存の正式成功scope検証再利用を、最大3hの明示windowに限り `ULUCKS_RECOVERY_SUCCESSFUL_RELEASE` でも指定可能。現在runの正式HEADを確認した後、そのreleaseを指定し失敗会社だけfreshで再試行する。正常会社のPDF再取得/再解析は不要。期限後の通常週次は必ずfresh。
+- 次回の復旧では旧 `ULUCKS_RECOVERY_ACQUISITION_RUN` を外し、同じ通常args/Scheduler経路を使う。最後に復旧専用3env（ACQUISITION_RUN/SUCCESSFUL_RELEASE/UNTIL）を除去して週次設定・Pages実公開を確認する。
+
 ## 着手時の実環境照合（2026-10-18 07:23 UTC）
 - 最新main a77379186a02db3edd82ba63450f790368224bec。PR372/373/374 merged。
 - 実行中Cloud Runなし。前回nrppkは23:33:33 UTC正常終了。
