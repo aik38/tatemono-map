@@ -284,6 +284,20 @@ def observed_company_label(page) -> str:
     return match[1]
 
 
+def navigate_company(page, url: str, credentials: dict, session: dict) -> None:
+    response = page.goto(url, wait_until='domcontentloaded', timeout=45000)
+    # A long parse can outlive the authenticated session. Renew once per batch,
+    # only at the observed same-origin login form; retain exact route checks.
+    if (not session.get('renewal_attempted')
+        and page.url.rstrip('/') == c.ORIGIN
+        and page.locator('input[type="password"]:visible').count() == 1):
+        session['renewal_attempted'] = True
+        c.login_to_company_index(page, credentials)
+        response = page.goto(url, wait_until='domcontentloaded', timeout=45000)
+    if response is None or response.status != 200 or page.url.rstrip('/') != url.rstrip('/'):
+        raise c.CollectionError('company_discovered_route_navigation_failed')
+
+
 def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list[dict]:
     """One login, a complete live catalog, sequential per-company acquisition."""
     from playwright.sync_api import sync_playwright
@@ -294,6 +308,7 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
         context.set_default_timeout(30000)
         page = context.new_page()
         index = None
+        session = {}
         try:
             c.login_to_company_index(page,credentials)
             index = page.url
@@ -308,9 +323,7 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
                 result=None
                 for attempt in range(2):
                     try:
-                        response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
-                        if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
-                            raise c.CollectionError('company_discovered_route_navigation_failed')
+                        navigate_company(page, target['search_url'], credentials, session)
                         unavailable=access_unavailable(page)
                         if unavailable is not None:
                             result=unavailable
