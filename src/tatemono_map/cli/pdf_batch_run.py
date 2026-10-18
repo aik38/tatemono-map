@@ -503,7 +503,7 @@ class UlucksParser:
                             candidate_idx = {h: header.index(h) for h in header if h}
                             if not all(get_cell_text(tb[0], candidate_idx, [key]) for key in ("物件名", "所在地")):
                                 continue
-                            if not re.search(r"\\d", get_cell_text(tb[0], candidate_idx, ["賃料"])):
+                            if not re.search(r"\d", get_cell_text(tb[0], candidate_idx, ["賃料"])):
                                 continue
                             body = [(0, tb[0])]
                         if not any(r and any(normalize_pdf_text(c) for c in r) for _, r in body):
