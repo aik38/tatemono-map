@@ -149,12 +149,8 @@ def main() -> int:
                     if previous.get('source_commit')!=source_commit or previous.get('report',{}).get('area_id')!='kitakyushu':
                         print('{"status":"skipped","code":"company_full_area_initial_proof_required"}')
                         return 0
-                if config.get('collection_mode')=='all_companies' and not args.prove_expansion:
-                    previous,_=store.read_head()
-                    validate_head(previous)
-                    if not all_company_proof_ready(previous,source_commit):
-                        print('{"status":"skipped","code":"all_company_initial_proof_required"}')
-                        return 0
+                # Every scheduled all-company execution performs a fresh census.
+                # A prior partial release or a code revision cannot disable it.
                 with store.collection_lease(new_run_id()):
                     credentials = {} if args.reuse_acquisition else secret_json(os.environ["ULUCKS_LOGIN_SECRET"])
                     if config.get('collection_mode') == 'all_companies':
@@ -167,7 +163,7 @@ def main() -> int:
                             head=execute(store,config,credentials,work,source_commit,collector=collector)
                         else:
                             head = execute(store, config, credentials, work, source_commit)
-            print(json.dumps({"status": "committed", "run_id": head["run_id"], "public_sha256": head["public"]["sha256"]}))
+            print(json.dumps({"status": "committed", "collection_status": head.get("report",{}).get("collection_status","success"), "run_id": head["run_id"], "public_sha256": head["public"]["sha256"]}))
         return 0
     except CollectionError as exc:
         if str(exc)=='collection_lock_held':

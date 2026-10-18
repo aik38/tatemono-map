@@ -90,3 +90,12 @@ def test_public_error_contains_only_status_and_allowlisted_permissions():
     result = mod.safe_error(Forbidden(secret))
     assert result == {'status':403,'permissions':['storage.objects.get']}
     assert 'DO_NOT_PRINT' not in json.dumps(result)
+
+
+def test_deploy_only_never_claims_or_starts_a_collection(tmp_path,monkeypatch,config):
+    mod,store,calls,response=deployment(tmp_path,monkeypatch,config)
+    monkeypatch.setenv('ULUCKS_DEPLOY_ONLY','true')
+    mod.main()
+    assert any(c[1:4]==['run','jobs','update'] for c in calls)
+    assert not any(c[1:4]==['run','jobs','execute'] for c in calls)
+    assert store.claims

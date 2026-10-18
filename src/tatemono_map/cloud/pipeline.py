@@ -183,14 +183,19 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
         gc.collect()
     from tatemono_map.cli.pdf_batch_run import FINAL_SCHEMA
     frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=FINAL_SCHEMA)
+    frame.to_json(work/'parsed-rows.private.json',orient='records',force_ascii=False)
     if len(frame) != expected_rows:
         raise CollectionError("pdf_rows_do_not_match_result_count")
     if not frame["category"].eq("ulucks").all():
         raise CollectionError("unexpected_source_in_pdf")
     from tatemono_map.cloud.wide import area_of
     in_scope = (lambda value: area_of(str(value)) is not None) if config.get('area_id') == 'kitakyushu' else (lambda value: normal(config['address_contains']) in normal(str(value)))
-    if not frame['address'].map(in_scope).all():
+    invalid_scope=~frame['address'].map(in_scope).astype(bool)
+    if invalid_scope.any() and (not wide or invalid_scope.all() or (invalid_scope.sum()>=3 and invalid_scope.mean()>0.20)):
         raise CollectionError("pdf_contains_out_of_scope_address")
+    # Small, isolated source-address errors are private row anomalies. Retain
+    # their prior offers; only trustworthy in-scope rows may enter the master.
+
     if not wide and frame[["building_name", "address", "room"]].apply(lambda col: col.map(lambda value: not normal(str(value)))).any().any():
         raise CollectionError("pdf_identity_field_missing")
     if not wide and frame.duplicated(["building_name", "address", "room"]).any():
@@ -209,6 +214,7 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
     # well as listing history: source+pdf:ulucks-000.pdf is not a global ID.
     frame["evidence_id"] = frame["evidence_id"].map(lambda value: f"cloud:{key}:{run_id}:{value}")
     anomalies={str(e):'invalid_rent_or_area' for e in frame.loc[invalid_terms,'evidence_id']}
+    anomalies.update({str(e):'invalid_scope_address' for e in frame.loc[invalid_scope,'evidence_id']})
     write_master_import_csv(frame, csv_path)
     with connect(master) as conn:
         counts_before = {t: conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('buildings', 'listings', 'sale_listings', 'raw_sources')}

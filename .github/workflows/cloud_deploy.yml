@@ -79,6 +79,8 @@ jobs:
       ULUCKS_CONFIG_SECRET: ${{ vars.ULUCKS_CONFIG_SECRET }}
       ULUCKS_CONFIG_JSON: ${{ vars.ULUCKS_CONFIG_JSON }}
       ULUCKS_LOGIN_SECRET: ${{ vars.ULUCKS_LOGIN_SECRET }}
+      ULUCKS_DEPLOY_ONLY: ${{ contains(github.event.head_commit.message, 'ULUCKS_ALL_COMPANIES_20261018_SCHEDULER_VERIFY') && 'true' || '' }}
+      ULUCKS_VERIFY_NORMAL_EXECUTION: 'true'
       ULUCKS_EXPANSION_STAGE: ${{ contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_COMPANY8_20261018') && 'company8' || 'all' }}
       ULUCKS_REUSE_ACQUISITION: ${{ contains(github.event.head_commit.message, 'ULUCKS_FULLAREA_COMPANY8_20261018') && '20261017T160944Z-10bd49a595a4' || '' }}
       ULUCKS_REUSE_SUCCESSFUL_RELEASE: ${{ (contains(github.event.head_commit.message, 'ULUCKS_ALL_COMPANIES_20261018_INITIAL') || contains(github.event.head_commit.message, 'ULUCKS_ALL_COMPANIES_20261018_RECOVER_FORMS')) && 'published' || '' }}

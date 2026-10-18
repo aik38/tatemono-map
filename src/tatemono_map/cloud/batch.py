@@ -96,11 +96,12 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             missing=set(head['report'].get('company_ids',[]))-{x['company_id'] for x in result}-set(getattr(result,'counts',{}).get('unavailable_previous_ids',[]))
             if missing:
                 trace['missing_previously_active_companies']=sorted(missing)
-                raise CollectionError('company_catalog_missing_previously_active_company')
+                # Absence is exclusion, never a confirmed zero or a global stop.
             return
         company_id=one['company_id']
         if result is None:
             trace['active_company']=company_id
+            save_json(trace,'active-company-'+company_id)
             return
         directory=work/'companies'/company_id
         directory.mkdir(parents=True,exist_ok=True)
@@ -118,6 +119,9 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         # acquisition becomes zero; a failure prevents the final head commit.
         report=update_master(master,result.pdfs,result.expected_rows,one,directory,run+'-company-'+company_id,
             confirmed_zero=result.confirmed_zero,public_baseline=baseline)
+        report['status']='partial_success' if report.get('held_rows',0) or report.get('anomaly_rows',0) else 'confirmed_zero' if result.confirmed_zero else 'success'
+        parsed=directory/'parsed-rows.private.json'
+        if parsed.exists():report['parsed_ref']=store.upload(parsed,f'private-runs/{run}/companies/{company_id}/parsed-rows.json')
         report['acquisition_manifest_ref']=manifest_ref
         report.update(company_id=company_id,area_id='kitakyushu',acquired_at=result.evidence.get('acquired_at'))
         if result.evidence.get('replayed_acquisition_run'):
@@ -135,14 +139,18 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         affected.update(row['building_key'] for row in report['proof'])
         result_ref=save_json(report,'company-'+company_id+'-result')
         trace['completed'].append({'company_id':company_id,'parsed_rows':report['parsed_rows'],'result_ref':result_ref,'manifest_ref':manifest_ref,
-            'pdf_count':report['pdf_count'],'new_buildings':report['counts_after']['buildings']-report['counts_before']['buildings'],
+            'status':report['status'],'pdf_count':report['pdf_count'],'new_buildings':report['counts_after']['buildings']-report['counts_before']['buildings'],
             'overlap_rows':report['legacy_overlap_rows']})
         trace['active_company']=None
         print('ULUCKS_BATCH_SAFE='+json.dumps({'stage':'company_complete','completed':len(reports),
             'company_count':trace['company_count'],'parsed_rows':sum(r['parsed_rows'] for r in reports)}),flush=True)
         save_json(trace,'checkpoint-'+company_id)
     def failure(one,error):
-        trace['failed'].append({'company_id':one['company_id'],'code':str(error)})
+        refs=[]
+        for path in getattr(error,'diagnostic_files',[]):
+            if path.is_file():refs.append(store.upload(path,f'private-runs/{run}/companies/{one["company_id"]}/diagnostics/{path.name}'))
+        error.diagnostics=refs
+        trace['failed'].append({'company_id':one['company_id'],'code':str(error),'diagnostics':getattr(error,'diagnostics',[])})
         trace['active_company']=None
         save_json(trace,'failed-company-'+one['company_id'])
         print('ULUCKS_BATCH_SAFE='+json.dumps({'stage':'company_failed','completed':len(reports),'company_count':trace['company_count'],
@@ -197,17 +205,19 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         snapshot_sqlite(master,backup_file)
         try:
             process_company(one,result)
-        except CollectionError as exc:
+        except Exception as exc:
             # Only this disposable company's changes are rolled back. Other
             # companies keep their accepted updates; the failed scope stays old.
             import gc,traceback
-            code=str(exc)
+            code=str(exc) if isinstance(exc,CollectionError) else 'company_processing_failed'
             traceback.clear_frames(exc.__traceback__)
             exc.__traceback__=None
             gc.collect()
             for file in (master,Path(str(master)+'-wal'),Path(str(master)+'-shm')):file.unlink(missing_ok=True)
             shutil.copyfile(backup_file,master)
-            failure(one,CollectionError(code))
+            error=CollectionError(code)
+            error.diagnostic_files=list((work/'companies'/one['company_id']).glob('*.private.*'))
+            failure(one,error)
         finally:
             backup_file.unlink(missing_ok=True)
     try:
@@ -227,6 +237,8 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
             'company_census':{**getattr(catalog,'counts',{}),'available_after_navigation':len(reports)+len(trace['failed']),'unavailable_after_navigation':len(trace['unavailable'])},
             'company_ids':[x['company_id'] for x in catalog],
             'company_catalog_ref':trace['company_catalog_ref'],
+            'excluded_companies':trace.get('excluded_companies',[]),
+            'collection_status':'partial_success' if trace['failed'] or trace['unavailable'] or any(r.get('held_rows',0) or r.get('anomaly_rows',0) for r in reports) or any(x.get('status')=='positive_route_unavailable' for x in trace.get('excluded_companies',[])) else 'success',
             'successful_companies':len(reports),'parsed_rows':total,'attached_rows':sum(r['attached_rows'] for r in reports),
             'failed_companies':trace['failed'],'unavailable_companies':trace['unavailable'],'company_results':trace['completed'],
             'pdf_count':pdfs,'pdfs':[p for r in reports for p in r['pdfs']],
