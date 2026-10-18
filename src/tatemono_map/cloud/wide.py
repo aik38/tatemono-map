@@ -110,7 +110,7 @@ def company_catalog(page, previous_verified_ids=()) -> list[dict]:
                 status='zero_count' if value.isdigit() and int(value)==0 else 'blank_count' if not value else 'request_required' if match and match[1]=='request' else 'invalid_count'
                 if status=='invalid_count':raise c.CollectionError('company_index_count_unrecognized')
                 census['zero_without_route' if status=='zero_count' else 'other_without_route']+=1
-                excluded[key]={'company_id':company_id,'status':status}
+                excluded[key]={'company_id':company_id,'status':status,'company_name':c.normal(cells.nth(0).inner_text())}
         # Follow only pagination URLs actually present on this index. Avoid
         # unrelated navigation and never synthesize a page number or company ID.
         for control in page.locator('a[href], [data-href]').all():
@@ -270,7 +270,10 @@ def observed_company_label(page) -> str:
     # The sidebar also says 物件検索(ALL). Read the actual company title,
     # excluding that observed navigation label without assuming an HTML tag.
     pattern=re.compile(r'物件検索\s*[（(](?!\s*ALL\s*[）)])[^）)]+[）)]',re.I)
-    heading=c.only(page.get_by_text(pattern),'company_title')
+    # Observed live company11 header has line breaks and an ideographic space.
+    # Use its actual stable DOM container before the text-locator fallback.
+    actual=page.locator('#search_list_header .f_left')
+    heading=c.only(actual if actual.count() else page.get_by_text(pattern),'company_title')
     match=re.search(r'物件検索\s*[（(]\s*([^）)]+?)\s*[）)]',c.normal(heading.inner_text()))
     if not match:
         raise c.CollectionError('company_discovered_heading_missing')

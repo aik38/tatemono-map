@@ -23,7 +23,7 @@
 ## 保全・接続
 - project tatemono-map / asia-northeast1 / Job tatemono-collection-poc / bucket tatemono-map-poc-523194690131。
 - 既存Actions→WIF→GCPを使用。IAM/WIF/Secret初期構築を繰り返さない。ULUCKS_LOGIN_SECRET参照、値を表示しない。
-- Scheduler即時実行権限は既存deployerにない（get/enableのみ）。通常Job argsの手動実証と、未来のScheduler無人実行成功を分ける。
+- Scheduler即時実行権限は既存deployerにない（get/enableのみ）。Chromeの既存GCP本人セッションは接続済み。今回SCHEDULER_VERIFY mergeではJob配置のみ→既存Scheduler画面から1回強制実行→全工程を観測する。未来の月曜無人実行とは区別。
 - 正式正本・バックアップ・canonical ID/URL/名称/住所/履歴・RealPro/MR/分譲を保持。公開対象IDは直前baseline固定。
 - 非公開PDF/画面/解析/保留情報はprivate GCSのみ。公開GitHub/Actions artifactへ追加しない。QC後HEAD CASとleaseで同時更新を防ぐ。
 - 従来の証拠・経緯はこのファイルのgit履歴を参照。古い成功環境を再構築しない。

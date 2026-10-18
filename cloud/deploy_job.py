@@ -88,6 +88,10 @@ def main():
        "--update-env-vars", "^|^" + "|".join(f"{k}={v}" for k, v in variables.items()),
        "--update-labels", f"managed-by=tatemono-cloud,source-commit={env['GITHUB_SHA']}")
     generation = gc("run", "jobs", "describe", job, "--region", region, "--format=value(metadata.generation)")
+    if env.get('ULUCKS_DEPLOY_ONLY')=='true':
+        snapshot.unlink(missing_ok=True)
+        print('Collector deployed. Awaiting explicit Scheduler execution; no new collection or release claimed.',flush=True)
+        return
     try:
         execute_args=['run','jobs','execute',job,'--region',region,'--wait']
         if env.get('ULUCKS_EXPANSION_STAGE')=='all' and env.get('ULUCKS_VERIFY_NORMAL_EXECUTION')!='true':

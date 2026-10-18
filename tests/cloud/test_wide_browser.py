@@ -59,7 +59,7 @@ def test_company_census_follows_actual_pagination_and_td_routes():
             page.goto(ORIGIN+'/company')
             catalog=company_catalog(page)
             assert [x['company_id'] for x in catalog]==['8','26']
-            assert catalog.excluded==[{'company_id':'99','status':'request_required'},{'company_id':None,'status':'zero_count'}]
+            assert [(x['company_id'],x['status']) for x in catalog.excluded]==[('99','request_required'),(None,'zero_count')]
             assert catalog.counts['zero_without_route']==1
             assert visited==[ORIGIN+'/company',ORIGIN+'/company?page=2']
         finally:
@@ -113,4 +113,14 @@ def test_zero_and_blank_routes_are_excluded_and_counts_not_fixed():
             assert [x['company_id'] for x in catalog]==['8','13','26']
             assert catalog.counts['positive_count']==3
             assert {x['status'] for x in catalog.excluded}=={'zero_count','blank_count'}
+        finally:browser.close()
+
+
+def test_observed_company_header_with_line_breaks_and_full_width_space():
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True,executable_path=os.environ.get('TATEMONO_CHROMIUM_EXECUTABLE'))
+        page=browser.new_page()
+        try:
+            page.set_content('<a>物件検索(ALL)</a><div id="search_list_header"><div class="f_left">　物件検索\n　（架空会社　管理部）</div></div>')
+            assert observed_company_label(page)=='架空会社 管理部'
         finally:browser.close()
