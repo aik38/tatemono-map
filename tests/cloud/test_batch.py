@@ -54,7 +54,8 @@ def test_failed_company_is_rolled_back_while_healthy_company_updates(store,confi
     head=execute_all(store,cfg,{},work,'c'*40,collector=fake_catalog(cfg,a,b,bad_second=True))
     assert store.read_head()!=before
     assert head['report']['successful_companies']==1
-    assert head['report']['failed_companies']==[{'company_id':'26','code':'pdf_rows_do_not_match_result_count'}]
+    assert [{k:x[k] for k in ('company_id','code')} for x in head['report']['failed_companies']]==[{'company_id':'26','code':'pdf_rows_do_not_match_result_count'}]
+    assert head['report']['failed_companies'][0]['diagnostics']
     assert 'all_company_proof' not in head['report']
     assert any('failed-company-26' in name for name in store.objects)
     assert len([name for name in store.objects if '/companies/' in name and name.endswith('.pdf')])==2

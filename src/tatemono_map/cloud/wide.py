@@ -46,15 +46,11 @@ def access_unavailable(page):
 
 
 def complete_catalog(current: CompanyCatalog, previous: list[dict]) -> CompanyCatalog:
-    """Recheck only generation-pinned previously observed routes when absent.
+    """Only the current positive-count census authorizes a collection.
 
-    A company can lose its index link after its final listing disappears. Its
-    prior verified route still needs two live zero searches; absence is not zero.
+    Previously verified routes validate history but never reintroduce a zero,
+    blank or removed company. Its existing SQLite snapshot remains untouched.
     """
-    known={entry['company_id'] for entry in current}
-    requested={entry['company_id'] for entry in current.excluded}
-    extra=[]
-    unavailable=[]
     for entry in previous:
         company_id=entry.get('company_id','')
         parsed=urlsplit(entry.get('search_url',''))
@@ -62,14 +58,9 @@ def complete_catalog(current: CompanyCatalog, previous: list[dict]) -> CompanyCa
             or parsed.netloc!=urlsplit(c.ORIGIN).netloc or parsed.path.rstrip('/')!='/company/lists/'+company_id
             or parsed.query or parsed.fragment):
             raise c.CollectionError('previous_company_catalog_invalid')
-        if company_id in requested and company_id not in known:
-            unavailable.append(company_id)
-            continue  # Preserve its old scope; never request access or infer zero.
-        if company_id not in known:
-            extra.append({'company_id':company_id,'search_url':entry['search_url']})
-            known.add(company_id)
-    return CompanyCatalog(sorted(list(current)+extra,key=lambda x:int(x['company_id'])),current.excluded,
-        {**current.counts,'prior_route_checks':len(extra),'unavailable_previous_ids':unavailable})
+    absent=sorted({x['company_id'] for x in previous}-{x['company_id'] for x in current},key=int)
+    return CompanyCatalog(list(current),current.excluded,
+        {**current.counts,'prior_route_checks':0,'unavailable_previous_ids':absent})
 
 
 def company_catalog(page, previous_verified_ids=()) -> list[dict]:
@@ -78,7 +69,7 @@ def company_catalog(page, previous_verified_ids=()) -> list[dict]:
     visited = set()
     companies = {}
     excluded={}
-    census={'listed_rows':0,'zero_without_route':0,'other_without_route':0,'request_required':0}
+    census={'listed_rows':0,'zero_without_route':0,'other_without_route':0,'request_required':0,'positive_count':0}
     while True:
         here = page.url
         if here in visited:
@@ -90,38 +81,36 @@ def company_catalog(page, previous_verified_ids=()) -> list[dict]:
         targets.first.wait_for(state='visible',timeout=30000)
         if targets.count() == 0:
             raise c.CollectionError('company_catalog_empty')
-        for cell in targets.all():
-            url = urljoin(page.url, cell.get_attribute('data-href') or '')
-            parsed = urlsplit(url)
-            denied=re.fullmatch(r'/company/request/([0-9]+)/?',parsed.path)
-            if parsed.netloc == urlsplit(c.ORIGIN).netloc and parsed.scheme=='https' and denied and not parsed.query and not parsed.fragment:
-                excluded[denied[1]]={'company_id':denied[1],'status':'request_required'}
-                continue
-            match = re.fullmatch(r'/company/lists/([0-9]+)/?',parsed.path)
-            if parsed.netloc != urlsplit(c.ORIGIN).netloc or not match or parsed.query or parsed.fragment:
-                raise c.CollectionError('company_catalog_unexpected_target')
-            company_id = match[1]
-            if company_id in companies and companies[company_id]['search_url'] != url:
-                raise c.CollectionError('company_catalog_conflicting_routes')
-            companies[company_id] = {'company_id':company_id,'search_url':url}
         header=c.only(page.locator('th,td').filter(has_text=re.compile(r'^\s*物件数\s*$')),'company_count_header')
         table=header.locator('xpath=ancestor::table[1]')
         column=header.evaluate('el=>el.cellIndex')
         for row in table.locator('tr').all():
             cells=row.locator(':scope > td')
-            if cells.count()<=column:
-                continue
+            if cells.count()<=column:continue
             census['listed_rows']+=1
             cell=cells.nth(column)
-            if cell.get_attribute('data-href'):
-                continue
             value=c.normal(cell.inner_text()).replace(',','')
-            if value.isdigit() and int(value)==0:
-                census['zero_without_route']+=1
-            elif value.isdigit() and int(value)>0:
-                raise c.CollectionError('company_positive_count_without_observed_route')
+            raw=cell.get_attribute('data-href')
+            url=urljoin(page.url,raw or '')
+            parsed=urlsplit(url)
+            match=re.fullmatch(r'/company/(lists|request)/([0-9]+)/?',parsed.path) if raw else None
+            if raw and (parsed.scheme!='https' or parsed.netloc!=urlsplit(c.ORIGIN).netloc or not match or parsed.query or parsed.fragment):
+                raise c.CollectionError('company_catalog_unexpected_target')
+            company_id=match[2] if match else None
+            key=company_id or 'row-'+str(census['listed_rows'])
+            if value.isdigit() and int(value)>0:
+                census['positive_count']+=1
+                if not match or match[1]!='lists':
+                    excluded[key]={'company_id':company_id,'status':'positive_route_unavailable','listed_count':int(value)}
+                    continue
+                if company_id in companies and companies[company_id]['search_url']!=url:
+                    raise c.CollectionError('company_catalog_conflicting_routes')
+                companies[company_id]={'company_id':company_id,'search_url':url,'listed_count':int(value)}
             else:
-                census['other_without_route']+=1
+                status='zero_count' if value.isdigit() and int(value)==0 else 'blank_count' if not value else 'request_required' if match and match[1]=='request' else 'invalid_count'
+                if status=='invalid_count':raise c.CollectionError('company_index_count_unrecognized')
+                census['zero_without_route' if status=='zero_count' else 'other_without_route']+=1
+                excluded[key]={'company_id':company_id,'status':status}
         # Follow only pagination URLs actually present on this index. Avoid
         # unrelated navigation and never synthesize a page number or company ID.
         for control in page.locator('a[href], [data-href]').all():
@@ -140,9 +129,7 @@ def company_catalog(page, previous_verified_ids=()) -> list[dict]:
         response = page.goto(pending.pop(0),wait_until='domcontentloaded',timeout=45000)
         if response is None or response.status != 200:
             raise c.CollectionError('company_pagination_navigation_failed')
-    if not {'8','26'} <= (set(companies)|set(previous_verified_ids)):
-        raise c.CollectionError('company_catalog_known_companies_missing')
-    census['request_required']=len(excluded)
+    census['request_required']=sum(x['status']=='request_required' for x in excluded.values())
     census['collectable_companies']=len(companies)
     print('ULUCKS_WIDE_SAFE='+json.dumps({'stage':'catalog','company_count':len(companies),'pages':len(visited),**census}),flush=True)
     return CompanyCatalog(sorted(companies.values(), key=lambda value: int(value['company_id'])),list(excluded.values()),census)
@@ -309,33 +296,52 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
             for target in catalog:
                 if on_company(target,None) is True:
                     continue  # Explicitly approved, still-active verified snapshot.
-                try:
-                    response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
-                    if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
-                        raise c.CollectionError('company_discovered_route_navigation_failed')
-                    unavailable=access_unavailable(page)
-                    if unavailable is not None:
-                        on_company(target,unavailable)
-                        continue
-                    one = dict(config,**target,company_label=observed_company_label(page))
-                    folder = root / target['company_id']
-                    folder.mkdir(parents=True,exist_ok=True)
-                    count = search(page,folder,one)
-                    if count > int(config.get('max_rows',5000)):
-                        raise c.CollectionError('ulucks_result_count_exceeds_limit')
-                    if count == 0:
-                        if search(page,folder,one) != 0:
-                            raise c.CollectionError('ulucks_zero_result_not_stable')
-                        result = c.Collected([],0,True,{'search_counts':[0,0],'scope_verified':True})
-                    else:
-                        paths,evidence = c._capture_print(page,folder)
-                        result = c.Collected(paths,count,False,{**evidence,'search_counts':[count],'scope_verified':True})
-                    result.evidence.update(acquired_at=datetime.now(timezone.utc).isoformat(),area_labels=list(AREA_LABELS),company_id=target['company_id'])
-                except c.CollectionError as exc:
-                    on_company(target,exc)
-                    continue
-                except Exception:
-                    on_company(target,c.CollectionError('company_acquisition_failed'))
+                folder=root/target['company_id']
+                folder.mkdir(parents=True,exist_ok=True)
+                result=None
+                for attempt in range(2):
+                    try:
+                        response = page.goto(target['search_url'],wait_until='domcontentloaded',timeout=45000)
+                        if response is None or response.status != 200 or page.url.rstrip('/') != target['search_url'].rstrip('/'):
+                            raise c.CollectionError('company_discovered_route_navigation_failed')
+                        unavailable=access_unavailable(page)
+                        if unavailable is not None:
+                            result=unavailable
+                            break
+                        one=dict(config,**target,company_label=observed_company_label(page))
+                        count=search(page,folder,one)
+                        if count>int(config.get('max_rows',5000)):
+                            raise c.CollectionError('ulucks_result_count_exceeds_limit')
+                        if count==0:
+                            if search(page,folder,one)!=0:raise c.CollectionError('ulucks_zero_result_not_stable')
+                            result=c.Collected([],0,True,{'search_counts':[0,0],'scope_verified':True})
+                        else:
+                            paths,evidence=c._capture_print(page,folder)
+                            result=c.Collected(paths,count,False,{**evidence,'search_counts':[count],'scope_verified':True})
+                        result.evidence.update(acquired_at=datetime.now(timezone.utc).isoformat(),area_labels=list(AREA_LABELS),company_id=target['company_id'])
+                        break
+                    except Exception as exc:
+                        error=exc if isinstance(exc,c.CollectionError) else c.CollectionError('company_acquisition_failed')
+                        # Private diagnostics contain no cookies or input values.
+                        diagnostic=folder/('failure-'+str(attempt)+'.json')
+                        state={'company_id':target['company_id'],'requested_url':target['search_url'],
+                            'observed_url':page.url,'code':str(error),'attempt':attempt+1}
+                        try:
+                            if page.locator('input[type=password]').count()==0:
+                                state['dom']=page.locator('form,h1,h2,h3,table').evaluate_all("els=>els.map(el=>({tag:el.tagName,text:el.innerText,controls:Array.from(el.querySelectorAll('input,button,select')).map(c=>({tag:c.tagName,type:c.type,name:c.name,checked:c.checked}))}))")
+                                picture=folder/('failure-'+str(attempt)+'.png')
+                                page.screenshot(path=str(picture),full_page=True)
+                        except Exception:pass
+                        diagnostic.write_text(json.dumps(state,ensure_ascii=False))
+                        # Retry only transient browser/navigation/transport failures.
+                        transient=str(error) in ('company_acquisition_failed','company_discovered_route_navigation_failed','ulucks_original_pdf_not_received')
+                        if not transient or attempt==1:
+                            error.diagnostic_files=list(folder.glob('failure-*'))
+                            on_company(target,error)
+                            break
+                if result is None:continue
+                if isinstance(result,CompanyUnavailable):
+                    on_company(target,result)
                     continue
                 for popup in context.pages:
                     if popup != page:

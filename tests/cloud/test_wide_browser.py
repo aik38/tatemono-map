@@ -59,7 +59,7 @@ def test_company_census_follows_actual_pagination_and_td_routes():
             page.goto(ORIGIN+'/company')
             catalog=company_catalog(page)
             assert [x['company_id'] for x in catalog]==['8','26']
-            assert catalog.excluded==[{'company_id':'99','status':'request_required'}]
+            assert catalog.excluded==[{'company_id':'99','status':'request_required'},{'company_id':None,'status':'zero_count'}]
             assert catalog.counts['zero_without_route']==1
             assert visited==[ORIGIN+'/company',ORIGIN+'/company?page=2']
         finally:
@@ -95,4 +95,22 @@ def test_explicit_access_notice_is_retained_as_unavailable_not_an_empty_snapshot
             assert wide.access_unavailable(page) is None
             page.set_content('<p>公開と許可申請の文字を含む未知の障害</p>')
             assert wide.access_unavailable(page) is None
+        finally:browser.close()
+
+
+def test_zero_and_blank_routes_are_excluded_and_counts_not_fixed():
+    body='<meta charset="utf-8"><table><tr><th>会社名</th><th>物件数</th></tr>'
+    for number,value in [(8,'1'),(26,'2'),(11,'0'),(12,''),(13,'1,234')]:
+        body+=f'<tr><td>架空会社</td><td data-href="/company/lists/{number}">{value}</td></tr>'
+    body+='</table>'
+    with sync_playwright() as p:
+        browser=p.chromium.launch(headless=True,executable_path=os.environ.get('TATEMONO_CHROMIUM_EXECUTABLE'))
+        page=browser.new_page()
+        page.route(ORIGIN+'/**',lambda r:r.fulfill(status=200,content_type='text/html; charset=utf-8',body=body))
+        try:
+            page.goto(ORIGIN+'/company')
+            catalog=company_catalog(page)
+            assert [x['company_id'] for x in catalog]==['8','13','26']
+            assert catalog.counts['positive_count']==3
+            assert {x['status'] for x in catalog.excluded}=={'zero_count','blank_count'}
         finally:browser.close()

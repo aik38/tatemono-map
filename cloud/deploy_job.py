@@ -90,7 +90,7 @@ def main():
     generation = gc("run", "jobs", "describe", job, "--region", region, "--format=value(metadata.generation)")
     try:
         execute_args=['run','jobs','execute',job,'--region',region,'--wait']
-        if env.get('ULUCKS_EXPANSION_STAGE')=='all':
+        if env.get('ULUCKS_EXPANSION_STAGE')=='all' and env.get('ULUCKS_VERIFY_NORMAL_EXECUTION')!='true':
             # One reviewed proof execution; the persistent weekly Job retains
             # normal args and waits for this exact revision's complete proof.
             args='--args=-m,tatemono_map.cloud.run,--prove-expansion'

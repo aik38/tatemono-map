@@ -102,3 +102,26 @@ def test_individual_invalid_terms_are_tracked_without_stopping_good_rows(master,
     r=update_master(master,[a,b],2,broad(config),tmp_path,'bad-terms',public_baseline=baseline)
     assert r['attached_rows']==1 and r['anomaly_rows']==1 and r['retained_rows']==1
     assert sum(r['row_counts'].values())==2
+
+
+def test_isolated_scope_error_is_private_and_previous_room_is_retained(master,config,tmp_path):
+    baseline=setup_scope(master,config,tmp_path)
+    good=make_pdf(tmp_path/'good.pdf',rooms=('101',),rent='6万円')
+    bad=make_pdf(tmp_path/'bad.pdf',address='福岡県福岡市中央区天神1-1-1',rooms=('102',))
+    result=update_master(master,[good,bad],2,broad(config),tmp_path,'address-partial',public_baseline=baseline)
+    assert result['attached_rows']==1 and result['anomaly_rows']==1
+    assert result['retained_rows']==1
+    with readonly(master) as conn:
+        row=conn.execute("SELECT classification,reason FROM cloud_collection_rows WHERE ingest_run_id=? AND room_raw='102'",(result['ingest_run_id'],)).fetchone()
+        assert tuple(row)==('anomaly','invalid_scope_address')
+    assert result['public_counts']['vacancies']==3
+
+
+def test_widespread_scope_errors_stop_the_company(master,config,tmp_path):
+    import pytest
+    from tatemono_map.cloud.collector import CollectionError
+    baseline=setup_scope(master,config,tmp_path)
+    bad=make_pdf(tmp_path/'bad.pdf',address='福岡県福岡市中央区天神1-1-1',rooms=('101','102','103'))
+    good=make_pdf(tmp_path/'good.pdf',rooms=('104',))
+    with pytest.raises(CollectionError,match='out_of_scope_address'):
+        update_master(master,[good,bad],4,broad(config),tmp_path,'widespread',public_baseline=baseline)
