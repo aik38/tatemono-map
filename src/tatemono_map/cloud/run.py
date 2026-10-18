@@ -156,6 +156,7 @@ def main() -> int:
                     if config.get('collection_mode') == 'all_companies':
                         from tatemono_map.cloud.batch import execute_all
                         replay=args.replay_acquisition_run
+                        reuse=args.reuse_successful_release
                         # Explicit operator recovery is time bounded. A future
                         # weekly execution always returns to fresh acquisition.
                         deadline=os.environ.get('ULUCKS_RECOVERY_UNTIL')
@@ -164,8 +165,10 @@ def main() -> int:
                             if until.tzinfo is None:raise CollectionError('recovery_deadline_timezone_required')
                             remaining=(until-datetime.now(timezone.utc)).total_seconds()
                             if remaining>3*3600:raise CollectionError('recovery_window_exceeds_limit')
-                            if remaining>0:replay=os.environ.get('ULUCKS_RECOVERY_ACQUISITION_RUN')
-                        head = execute_all(store, config, credentials, work, source_commit,reuse_release=args.reuse_successful_release,replay_acquisition_run=replay)
+                            if remaining>0:
+                                replay=replay or os.environ.get('ULUCKS_RECOVERY_ACQUISITION_RUN')
+                                reuse=reuse or os.environ.get('ULUCKS_RECOVERY_SUCCESSFUL_RELEASE')
+                        head = execute_all(store, config, credentials, work, source_commit,reuse_release=reuse,replay_acquisition_run=replay)
                     else:
                         if args.reuse_acquisition:
                             from tatemono_map.cloud.acquisition import reuse_verified

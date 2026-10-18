@@ -13,7 +13,7 @@ from tatemono_map.cloud.collector import ORIGIN, COMPANY_LABEL
 @pytest.mark.parametrize('hidden,collapsed',[(False,False),(True,False),(False,True)])
 def test_full_parent_group_excludes_every_other_selected_area(tmp_path,hidden,collapsed):
     inputs=''.join(f'<label><input type="checkbox" name="area" value="{i}">{label}</label>' for i,label in enumerate(AREA_LABELS))
-    body=f'''<meta charset="utf-8"><h2>物件検索（{COMPANY_LABEL}）</h2>
+    body=f'''<meta charset="utf-8"><h2>物件検索（{COMPANY_LABEL}　管理部）</h2>
     <form method="post" action="{ORIGIN}/company/lists/8">
     <div><label><input type="checkbox" name="parent" value="north">北九州</label><div>{inputs}</div></div>
     <div><label><input type="checkbox" name="outside" value="fukuoka" checked>福岡市</label></div>
@@ -35,7 +35,7 @@ def test_full_parent_group_excludes_every_other_selected_area(tmp_path,hidden,co
         page.route(ORIGIN+'/**',route)
         page.goto(ORIGIN+'/company/lists/8')
         try:
-            assert search(page,tmp_path,{'company_label':COMPANY_LABEL})==1045
+            assert search(page,tmp_path,{'company_label':COMPANY_LABEL+' 管理部'})==1045
             assert sent[0]['area']==[str(i) for i in range(22)]
             assert 'outside' not in sent[0]
             assert sent[0]['parent']==['north']

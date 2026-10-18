@@ -23,6 +23,7 @@ def test_normal_weekly_execution_does_not_read_prior_proof(monkeypatch,config,re
     if recovery_hours is not None:
         monkeypatch.setenv('ULUCKS_RECOVERY_UNTIL',(datetime.now(timezone.utc)+timedelta(hours=recovery_hours)).isoformat())
         monkeypatch.setenv('ULUCKS_RECOVERY_ACQUISITION_RUN','20261018T074956Z-3f92737cfbba')
+        monkeypatch.setenv('ULUCKS_RECOVERY_SUCCESSFUL_RELEASE','20261018T082512Z-b5584cf526cb')
     monkeypatch.setattr(run,'GCSStore',lambda bucket:SimpleNamespace(collection_lease=lambda owner:nullcontext()))
     monkeypatch.setattr(run,'secret_json',lambda ref:{})
     def execute(*args,**kwargs):
@@ -36,5 +37,5 @@ def test_normal_weekly_execution_does_not_read_prior_proof(monkeypatch,config,re
     monkeypatch.setenv('ULUCKS_CONFIG_JSON',json.dumps(dict(config,collection_mode='all_companies',area_id='kitakyushu')))
     assert run.main()==0
     assert len(calls)==1
-    assert calls[0][1]['reuse_release'] is None
+    assert calls[0][1]['reuse_release']==('20261018T082512Z-b5584cf526cb' if recovery_hours==1 else None)
     assert calls[0][1]['replay_acquisition_run']==('20261018T074956Z-3f92737cfbba' if recovery_hours==1 else None)
