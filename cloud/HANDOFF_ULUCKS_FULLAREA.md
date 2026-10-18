@@ -19,6 +19,14 @@
 - 新しいGCS正式リリースと今回の最終件数は未確定。直前正式リリースは下記の旧releaseを保持。
 - 次回定期予定: 2026-10-19 04:00 Asia/Tokyo。未来の無人定期成功は未確認。
 
+## メモリ修正後の再開（2026-10-18 08:25 UTC）
+- PR376/main source `afdd6ceb10b7ec0497d08b5d4ff4292ccd7ddff2`。CI39110020396成功、配置39110491519成功。ページclose/GC、memory4GiB。参考54ページの旧実装RSS1668MiB→修正版102MiB、抽出1045行は一致（参考PDFは新規実績に未算入）。
+- 旧OOM executionは終了/active0/lease owner `20261018T074953Z-4912cbb69333`、generation1792309793525731を照合。private backup後CAS解除済み。正式HEAD旧release維持。
+- 通常Jobに本日の取得原本run `20261018T074956Z-3f92737cfbba` の検証再利用を期限2026-10-18T10:20:20.368314Zまで明示設定（最大3h制限）。期限後は必ずfresh。完了後 `ULUCKS_RECOVERY_ACQUISITION_RUN` と `ULUCKS_RECOVERY_UNTIL` の2envを削除する。
+- 最初の再開execution `tatemono-collection-poc-dt85t` は認証後company_search_missingで終了（17:21:41JST）。Chrome実画面でログイン3/3を確認し、操作用Chromeのみログアウト済み。新しい認証登録や値の表示はしていない。
+- 再開Schedulerは17:24:54JSTに1回起動。現在のexecution **`tatemono-collection-poc-czfhn`**、17:25:05JSTタスク開始、実行ユーザーtm-weekly-trigger。**二重起動せずこれを追跡。**
+- 識別可能な再開intentは元run private prefix配下 `recovery-scheduler-intent-afdd.json` と `recovery-after-session-release-dt85t.json`。新しいrun ID/正式CAS/Pagesは未確定。
+
 ## 着手時の実環境照合（2026-10-18 07:23 UTC）
 - 最新main a77379186a02db3edd82ba63450f790368224bec。PR372/373/374 merged。
 - 実行中Cloud Runなし。前回nrppkは23:33:33 UTC正常終了。
