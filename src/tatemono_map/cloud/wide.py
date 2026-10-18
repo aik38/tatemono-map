@@ -316,6 +316,13 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
                             if search(page,folder,one)!=0:raise c.CollectionError('ulucks_zero_result_not_stable')
                             result=c.Collected([],0,True,{'search_counts':[0,0],'scope_verified':True})
                         else:
+                            # Compare the actual print link to the company route
+                            # observed in this census; never synthesize a PDF URL.
+                            action=c.only(page.get_by_role('link',name=c.PRINT_LABEL),'print_action')
+                            print_url=urlsplit(urljoin(page.url,action.get_attribute('href') or ''))
+                            match=re.fullmatch(r'/pdf/companys/([0-9]+)/?',print_url.path)
+                            if print_url.netloc!=urlsplit(c.ORIGIN).netloc or not match or match[1]!=target['company_id']:
+                                raise c.CollectionError('company_print_target_mismatch')
                             paths,evidence=c._capture_print(page,folder)
                             result=c.Collected(paths,count,False,{**evidence,'search_counts':[count],'scope_verified':True})
                         result.evidence.update(acquired_at=datetime.now(timezone.utc).isoformat(),area_labels=list(AREA_LABELS),company_id=target['company_id'])

@@ -114,3 +114,26 @@ def test_unavailable_company_preserves_previous_scope_and_all_available_companie
         assert conn.execute('SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?',(previous['scope_key'],)).fetchone()[0]==previous['ingest_run_id']
     marker=fetch(store,tmp_path/'pub-next.sqlite3',tmp_path/'marker-next.json')
     assert 'synthetic private access notice' not in json.dumps(marker)
+
+
+def test_company_removed_from_positive_census_keeps_its_snapshot(store,config,tmp_path):
+    from tatemono_map.cloud.wide import CompanyCatalog
+    cfg=all_config(config)
+    a=make_pdf(tmp_path/'a.pdf')
+    b=make_pdf(tmp_path/'b.pdf',rooms=('202',))
+    initial=tmp_path/'first';initial.mkdir()
+    old=execute_all(store,cfg,{},initial,'a'*40,collector=fake_catalog(cfg,a,b))
+    catalog=CompanyCatalog([{'company_id':'8','search_url':ORIGIN+'/company/lists/8'}],
+        [{'company_id':'26','status':'zero_count'}],{'unavailable_previous_ids':['26']})
+    def collect(config,credentials,root,emit):
+        emit(None,catalog);emit(catalog[0],None)
+        emit(dict(config,**catalog[0],company_label='架空業者8'),Collected([a],1,False,{}))
+        return catalog
+    work=tmp_path/'next';work.mkdir()
+    new=execute_all(store,cfg,{},work,'b'*40,collector=collect)
+    assert new['report']['successful_companies']==1
+    assert new['report']['public_counts']==old['report']['public_counts']
+    db=tmp_path/'check.sqlite3';store.download(new['master'],db)
+    with readonly(db) as conn:
+        from tatemono_map.cloud.pipeline import scope_key
+        assert conn.execute('SELECT COUNT(*) FROM current_ingest_snapshots WHERE source=?',(scope_key(dict(cfg,company_id='26')),)).fetchone()[0]==1
