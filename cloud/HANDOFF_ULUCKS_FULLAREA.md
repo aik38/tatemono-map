@@ -25,6 +25,7 @@
 - 通常Jobに本日の取得原本run `20261018T074956Z-3f92737cfbba` の検証再利用を期限2026-10-18T10:20:20.368314Zまで明示設定（最大3h制限）。期限後は必ずfresh。完了後 `ULUCKS_RECOVERY_ACQUISITION_RUN` と `ULUCKS_RECOVERY_UNTIL` の2envを削除する。
 - 最初の再開execution `tatemono-collection-poc-dt85t` は認証後company_search_missingで終了（17:21:41JST）。Chrome実画面でログイン3/3を確認し、操作用Chromeのみログアウト済み。新しい認証登録や値の表示はしていない。
 - 再開Schedulerは17:24:54JSTに1回起動。現在のexecution **`tatemono-collection-poc-czfhn`**、17:25:05JSTタスク開始、実行ユーザーtm-weekly-trigger。**二重起動せずこれを追跡。**
+- 最新収集run **`20261018T082512Z-b5584cf526cb`**、private prefix `private-runs/20261018T082512Z-b5584cf526cb/`。17:25:35JSTに65対象/131一覧を再取得、保存原本会社4/6の解析・統合まで再開成功。取得済み4社原本だけgeneration/SHA/会社/route/22エリア/24h内を照合して再利用し、残りはfresh。正式CASはまだ未実施。
 - 識別可能な再開intentは元run private prefix配下 `recovery-scheduler-intent-afdd.json` と `recovery-after-session-release-dt85t.json`。新しいrun ID/正式CAS/Pagesは未確定。
 
 ## 着手時の実環境照合（2026-10-18 07:23 UTC）
