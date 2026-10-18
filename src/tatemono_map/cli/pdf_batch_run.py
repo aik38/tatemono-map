@@ -458,24 +458,29 @@ class UlucksParser:
                                 areas = re.findall(rf"(?:^|\n)\s*({ULUCKS_AREA_RE})\s+\S", heading)
                                 if areas:
                                     current_ward = areas[-1]
-                            edges = tuple(sorted({round(float(x), 2) for cell in getattr(table, "cells", []) for x in (cell[0], cell[2])}))
-                            tables_with_hints.append((table.extract(), current_ward or ward_hint, edges))
+                            row_edges = [
+                                tuple(sorted({round(float(x), 2) for cell in row.cells if cell for x in (cell[0], cell[2])}))
+                                for row in getattr(table, "rows", [])
+                            ]
+                            tables_with_hints.append((table.extract(), current_ward or ward_hint, row_edges))
                             previous_bottom = table.bbox[3]
                     else:
-                        tables_with_hints = [(table, ward_hint, ()) for table in (page.extract_tables() or [])]
-                    for table_i, (tb, table_ward, edges) in enumerate(tables_with_hints, start=1):
+                        tables_with_hints = [(table, ward_hint, []) for table in (page.extract_tables() or [])]
+                    for table_i, (tb, table_ward, row_edges) in enumerate(tables_with_hints, start=1):
                         preceding = pending_header
                         pending_header = None
                         if not tb:
                             continue
                         header = None
+                        edges = row_edges[0] if row_edges else ()
                         body = []
                         for hi, candidate in enumerate(tb[:3]):
                             normalized = [normalize_pdf_text(c) for c in (candidate or [])]
                             if all(not normalize_pdf_text(c) for row in tb[:hi] for c in (row or [])) and all(
-                                key in normalized for key in ("物件名", "号室", "賃料", "所在地")
+                                key in normalized for key in ("物件名", "号室", "賃料")
                             ):
                                 header = normalized
+                                edges = row_edges[hi] if hi < len(row_edges) else ()
                                 body = list(enumerate(tb[hi + 1:], start=hi + 1))
                                 break
                         if header is None:
