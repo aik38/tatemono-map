@@ -1,51 +1,19 @@
-# 週次運用カード（A4 / 1枚）
+# クラウド週次運用の確認カード
 
-目的: **MVP運用を「毎週一発コマンド」で固定**し、毎週の確認漏れを防ぐ。
+2026-10-19 JST更新。監視・障害確認の補助であり、人間の毎週の作業や公開承認を自動運用の必須条件にはしません。[Runbook](runbook.md)参照。
 
----
+| 確認点 | 判断する内容 |
+| --- | --- |
+| Scheduler | 月曜04:00 JSTの実際の起動結果。ENABLED設定だけで成功扱いしない |
+| Cloud Run | 該当executionの完了/失敗/稼働中。二重起動しない |
+| 収集品質 | 会社別成功/失敗/利用不可、採用/保留/異常/重複の内訳。失敗≠正常0件 |
+| 正式HEAD | run ID、generation、QC、master/public参照とSHA。後発releaseを優先 |
+| 原本・履歴 | 必要時だけmanifest/evidenceからprivate PDF・解析・reviewを辿る |
+| 公開同期 | 毎時23分の確認結果。変更なしならbuild/deploy skippedで正常 |
+| 実Web | marker、公開JSON、ID集合・集約値と正式releaseが一致 |
+| 建物保護 | 募集0件建物・ID・URL・他ソースsnapshot・履歴を維持 |
+| 例外 | 保留は別途精査。正式採用の非hidden建物の自動公開を承認待ちにしない |
 
-## 0. 事前準備（1分）
-- ローカル repo を最新化
-- PowerShell で実行（`pwsh`）
+文書整理時点では次回2026-10-19 04:00 JSTの定刻実行は未来です。未実証の結果を先にチェック済みにしません。
 
-## 1. 同期（必須）
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\sync.ps1
-```
-
-## 2. 本番反映（唯一の正解フロー）
-```powershell
-$REPO = "C:\path\to\tatemono-map"
-pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO\scripts\run_to_pages.ps1" -RepoPath $REPO
-```
-- ingest → public DB 更新 → commit/push までを一括実行
-
-## 3. KPI控え（週次ログへ転記）
-- ingest 側: `attached_listings`, `unresolved`
-- public 側: `sum(vacancy_count)`（`building_summaries`）
-
-## 4. Actions 成功確認
-- GitHub Actions: **Deploy static site to GitHub Pages = Success**
-
-## 5. 実機確認（最低限）
-- スマホでトップ表示・主要導線を確認
-- シークレットウィンドウでキャッシュ影響を除外して確認
-
-## 6. unmatched 簡易確認（深追いしない）
-```powershell
-pwsh -NoProfile -ExecutionPolicy Bypass -File .\scripts\unmatched_report.ps1 -RepoPath $REPO
-```
-- 週次では **reason の偏り確認だけ**を実施
-- 住所/名称の個別深掘りは原則しない（必要時のみ別タスク化）
-
-## 7. 週次ログ 1行フォーマット例
-```text
-2026-02-27 | run_to_pages:ok | attached=1234 unresolved=56 public_sum=789 | pages=success | mobile+incognito=ok | unmatched_top_reason=NAME_MISMATCH(21)
-```
-
----
-
-### NG（やらないこと）
-- `run_to_pages.ps1` の代替フローを作らない
-- `dist/` や `data/tatemono_map.sqlite3` を配信物として commit しない
-- unmatched を毎週フル調査しない（最小PDCAで回す）
+Windows起動、ZIP配置、ローカルDB更新、手動publish、確認目的の全社再収集は通常週次の必須作業ではありません。異常時はまず既存証跡を読み取り、最新HEADと稼働中Jobを確認します。設定変更や復旧更新は監視と分けます。

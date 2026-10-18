@@ -1,5 +1,7 @@
 # PR3ロードマップ：unmatched からの建物自動追加（将来）
 
+> 履歴資料（2026-10-19 JST追記）: 以下はauto-seed実装前の計画です。高信頼auto-seedは現在実装済みで、正式採用の非hidden建物は原則自動公開されます。「unmatchedを捨てる」「自動追加は将来」は現在の未着手タスクではありません。曖昧・異常行はprivate保留です。[現行spec](spec.md)を参照。
+
 ## 現状（MVP運用）
 - ingest は `buildings` にマッチした空室のみ `listings` へ取り込む。
 - unmatched は `tmp/review/unmatched_listings_*.csv` に出力して、現時点では取り込まない（捨てる）。

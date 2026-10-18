@@ -1,71 +1,49 @@
-# spec（運用仕様の正本）
+# spec（現行実装契約）
 
-## 1. システム定義
-このシステムは、Google Maps / Street View（ストリートビュー）と連携可能な不動産データベース母艦です。  
-北九州はパイロット地域であり、対象地域は将来拡張されます。
+2026-10-19 JST更新。対象は現在のUlucksクラウド経路と共有の建物・公開モデルです。[PLAN](../PLAN.md)、[データフロー](data_flow_and_sources_of_truth.md)、[Cloud](../cloud/README.md)を併読してください。
 
-## 2. 目的
-- 建物単位で情報を統合し、媒体差分に強いデータ基盤を維持する。
-- 週次更新を定型化して、運用の属人化を減らす。
-- MVP は賃貸空室に集中し、将来は売買査定/解体比較導線へ拡張する。
+## 正式正本と派生物
 
-## 3. Canonical source of truth（正本）
-運用上の実体マッピング（DB/CSV/review/publicの関係）は [`docs/data_flow_and_sources_of_truth.md`](./data_flow_and_sources_of_truth.md) を参照。
+- 本番正本はGCS `state/current.json` がgeneration・SHA-256付きで参照するSQLite正式正本。
+- `buildings`はcanonical建物、`listings`/`sale_listings`は募集と履歴、`building_key_aliases`/`building_sources`は同定・由来、`ingest_runs`/`current_ingest_snapshots`は実行と有効スナップショットを管理します。
+- `building_summaries`等の集約、公開専用SQLite、検索JSON・HTML・サイトマップは派生物です。公開DBから正本を復元・上書きしません。
+- PDF原本・解析結果・private保留記録はGCSのprivate領域に保管する実装です。SQLiteに構造化することは原本廃棄を意味しません。保存期間は未確認です。
 
-- 正本は SQLite DB の `buildings` テーブル（唯一の正本）。
-- `listings` / `building_summaries` / `data/public/public.sqlite3` はすべて派生物。
-- canonical 項目（`canonical_name`, `canonical_address`）は seed/weekly のどちらでも自動上書きしない。
+## Canonical建物の保護
 
-## 4. ロール分割（責務）
-- 自動処理の責務
-  - listing の取り込み・正規化・突合（match）。
-  - 新規建物候補の追加（既存 canonical の破壊は禁止）。
-  - 公開用データ（public DB / 静的出力）の更新。
-- 人手判断の責務
-  - canonical 項目の確定・修正。
-  - review CSV（`new_buildings` / `suspects` / `unmatched_listings`）のトリアージ（優先度判断）。
-  - 運用ルールの変更承認。
+- 既存ID・canonical名・住所・URL・canonicalタグ・履歴を維持。通常取り込みで既存canonical値を自動上書きしません。
+- 建物を再構築・削除せず、募集0件でも公開対象建物ページを残します。
+- 正規化名・住所は照合材料であり、文字列一致だけで別canonical IDを確定・統合・検索除外しません。
+- aliasは同一建物への対応です。`publication_merge_targets`は明示的aliasと両者の整合する同一性を確認し、矛盾する古いaliasでページを統合しません。
 
-## 5. 公開サマリー項目（最低限）
-- 建物ID（`building_id`）と建物名（canonical）。
-- 住所/座標（確定済み canonical 値）。
-- 空室関連の派生情報（最新更新日を含む）。
-- データ更新時刻と生成元のトレーサビリティ（追跡可能性）。
+## 採用・保留・公開
 
-## 6. 禁止事項
-- 旧マスター再構築フローを現行運用の正規フローに戻すこと。
-- canonical 項目をバッチで自動上書きすること。
-- review 未解決データを確定値として公開反映すること。
+- 収集・解析・名寄せ・QC時点で精査し、既存マッチまたは高信頼auto-seedを正式採用します。
+- auto-seedは`ingest_master_import`の既存ガードに従います。曖昧・異常行はprivateに保留し、未解決値を確定公開しません。
+- 全明細保留となった未採用の仮登録を、正式採用建物と混同しません。raw・review等の証跡を保持します。
+- 正式採用建物は原則自動公開。明示的非公開条件は`COALESCE(hidden_from_public,0)<>0`です。
+- `publication_ids(master)`で正式正本の非hidden ID集合を決めます。過去の公開DBは既存ID欠落の防止用で、新規公開の許可リストではありません。
+- 正当で整合するcanonical aliasによるページ統合は`rendered_ids`に反映します。DB件数とページ件数が異なる場合は、その根拠を確認します。
+- 通常週次に人間の追加公開承認を挟みません。保留解決やcanonical修正は別の例外作業です。
 
-## 7. 週次運用ポリシー
-- 週次は 1 コマンドで再現可能であること。
-- 週次は `buildings` を再構築しない（既存を維持しつつ、必要な新規のみ追加）。
-- 不明データがあっても処理は継続し、review CSV に必ず出力する（review CSV は例外処理用途）。
-- 空室は ingest run/snapshot 単位で管理し、`current_ingest_snapshots` の **sourceごとの current snapshot を合成**して公開集計に使う。
-- 失敗 run は current に切り替えない（既存 current を保持する）。
-- `building_summaries` は canonical `buildings` 全件を保持し、空室0件建物も残す。
+## 募集とソース
 
-## 8. 更新ポリシー
-- 仕様変更時は、PLAN → spec → runbook/README/wbs の順で整合更新する。
-- 週次運用で発見した例外は runbook に追記し、恒久ルール化する場合は spec に昇格する。
-- 矛盾が出た場合は PLAN と本 spec を優先し、README は入口情報として追随する。
+- 賃貸・分譲は同じcanonical建物に結び、`listings`と`sale_listings`等で別系統に保持します。
+- 賃貸基本優先順位はUlucks ＞ RealPro ＞ Mansion Review賃貸。Mansion Review分譲は独立ソースです。
+- `effective_rentals`は建物単位で最優先ソースを選択し、複数ソースの項目を任意に混ぜません。優先順位未定義のlegacy行が混在する場合は既存の合成snapshot方針を保つため、全行に一律の順位フィルターが掛かるとは限りません。
+- 集約は各ソースの有効なcurrent snapshotを合成します。全履歴を現在募集として合算しません。
+- Ulucksクラウドのscopeは`ulucks:<scope-hash>`。`listings.source_kind=ulucks`を維持し、会社・対象範囲を`cloud_scope_bindings`で管理します。
+- `cloud_baseline_ownership`や重複管理で確認された対象のみ旧明細と調整します。不明な旧明細・他社履歴・他ソースcurrentを一括削除しません。
+- 正常0件は取得画面・件数・証跡で確認した場合のみ。認証失敗、PDF欠落、未対応会社、一部取得失敗を正常0件へ置換しません。
+- 全社バッチは安全条件を満たす会社だけのpartial_successを正式保存し得ます。失敗会社の旧snapshotを保持し、失敗会社・利用不可会社・保留行を成功件数と区別します。
 
+## リリース安全性と公開境界
 
-## 9. PR1/PR2 時点の運用安全ルール
-- PR1: run/snapshot 基盤、failed run の current 化禁止、QC 後に current 切替。
-- PR2: source 単位 current 管理を前提に、1 source の異常 run が他 source の current を壊さない。
-- 週次ログは source / 入力CSV / outdir / ingest_run_id / QC結果 / current切替可否 / publish_public成否を明示する。
-- QC は保守的に運用し、急激な listing 減少・suspects/unmatched 急増・source空振りを警告または停止する。
-- canonical `buildings` は削除しない。canonical 確定値の安易な上書きを禁止する。
+- 正本変更前にバックアップし、generation指定で取得してSHA-256・DB整合性・件数・ID・履歴保持を検証します。
+- immutableなmaster/publicを保存してから、期待generationを条件とするCASで正式HEADを更新します。
+- collection leaseで収集・公開専用処理の同時実行を防ぎます。正式commitできない失敗runでHEADを切り替えません。
+- 公開DBは許可テーブルだけを新規コピーし、`listings`・`raw_sources`・PDF・privateレビュー・認証情報を含めません。
+- Pagesは公開専用DBの世代・SHA・件数を検証し、ID集合・集約値を照合します。公開後は実Webのmarker・JSON等を照合します。
+- 復旧は現在HEAD/世代と稼働中Jobを再確認し、後発の正常な成果を古いバックアップで巻き戻しません。
 
-
-## 10. PR3 高信頼 auto-seed ルール
-- 対象は `match_building` が `unmatched` の行のみ。
-- 以下をすべて満たすときのみ自動追加する。
-  - `normalized_name` / `normalized_address` が非空。
-  - 住所が十分に具体的（ハイフン区切り数字2要素以上、レンジ/複数地番記号なし）。
-  - 部屋番号らしき名称（短すぎる/`room`/`号室`系）ではない。
-  - 既存 canonical への近接衝突がない（高類似または近接同点を拒否）。
-- 上記を満たさない行は auto-seed せず、review CSV (`unmatched_listings`/`suspects`) に残す。
-- 既存 canonical 建物は削除しない。既存 `canonical_name` / `canonical_address` は自動上書きしない。
-- 運用スイッチとして `ingest_master_import --disable-auto-seed` を提供する。
+実装参照: [public_db.py](../src/tatemono_map/cloud/public_db.py)、[pipeline.py](../src/tatemono_map/cloud/pipeline.py)、[batch.py](../src/tatemono_map/cloud/batch.py)、[storage.py](../src/tatemono_map/cloud/storage.py)、[fetch_public.py](../src/tatemono_map/cloud/fetch_public.py)。本番確認手順は[runbook](runbook.md)に集約します。

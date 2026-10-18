@@ -1,275 +1,103 @@
-> 現行の全域・全業者の収集運用は [HANDOFF_ULUCKS_FULLAREA.md](HANDOFF_ULUCKS_FULLAREA.md) を参照。
-> 正式採用済み建物は `COALESCE(hidden_from_public,0)=0` で自動公開します。
-> 過去公開DBは欠落防止にのみ使用し、新規建物の公開許可リストにはしません。
-> 以下の会社8・小倉北区と初回接続に関する記述は移行当時の記録です。
->
-> 2026-10-16監査後の初回入口は `cloud/complete_initial_release.sh` です。
-> [監査と現行契約](AUDIT_20261016.md) を参照してください。下記の旧Secret作成方式に対し、
-> prepared activationは非秘密の収集条件をJob環境へ渡し、既存Secretを変更しません。
-> SchedulerはPagesによる本番照合の成功後に有効化します。
+# Ulucksクラウド本番運用
 
-# Ulucks: one-company cloud collector
+2026-10-19 JST更新。会社8・小倉北区限定の初期PoCは過去の段階です。現在はUlucks対象会社を自動判定し、北九州全域（22子エリア）を収集する構成です。
 
-## 現行の公開同期契約
+## 現在の構成
 
-収集時の解析・名寄せ・行ごとの保留判定後に正式正本へ採用し、同じID集合から
-公開建物・賃貸集約・分譲集約・aliasを生成します。募集0件でも建物を残します。
-未採用の仮登録はprivate raw履歴へ保存し、正式建物には残しません。
-検索JSONは名前・住所の一致だけでは別IDを削除せず、明示的なcanonical aliasのみを統合し旧URLを残します。
-PagesではID集合の指紋も照合します。
-
-再収集を行わない公開専用の操作は `python -m tatemono_map.cloud.republish` です。
-最新HEAD generationを必須指定し、通常のcollection lease・SHA・SQLite検査・CASを使います。
-実収集のrun ID、世代/SHA付きの元HEAD・会社一覧・会社別結果・current snapshotを継承し、
-今回の新規取得PDF数は0と記録します。次の通常週次収集は元の会社一覧を検証してfresh取得します。
-この操作を週次の追加審査・承認工程として使う必要はありません。
-
-Cloudデプロイのdispatchは既定で配置のみ（`deployment_only=true`）です。
-明示的な収集起動は `deployment_only=false` の場合に限ります。
-既存Schedulerの月曜04:00 JSTとPagesの毎時23分・変更なし省略は維持します。
-
-実装対象は、ユーザー提供画面の `kitakyushu.ulucks.jp` → 会社検索 → 会社8（株式会社不動産中央情報センター）→ 小倉北区のみ →「（新）エリア・物件別で印刷」です。印刷APIのURL・パラメーターは生成しません。実際のリンクをクリックし、そのブラウザ通信を `route.fetch()` で転送して元PDFを捕捉します。inline / popup / XHRのPDFを扱い、ログインHTMLや印刷画面のスクリーンショットをPDFの代用にしません。
-
-**IAM/WIF初期準備と検証済み正本のCloud Shell配置は完了。Ulucks実取得・DB更新・本番公開は未実証です。** スクリーンショットからはDOMのlabel/form構造までは確定できません。実画面が契約と異なれば安全に停止し、前回の正本・公開版を維持します。通常Chromeのセッション共有を前提にしません。
-
-## 変更対象・権限・影響
-
-初回セットアップは既定で読み取り専用です。**`--apply` だけではIAM準備に限定**し、runtime/deployer/publisher SA・WIF・公開領域の読み取り権限・既存Ulucks login Secretのruntime権限だけを用意します。正本/公開DBへの書き込み、デプロイ権限、旧SAのactAs、bucket保護変更、Scheduler変更、GitHub変数変更・dispatchは実施しません。
-
-以下のデータ更新・本番連携は、正本照合とコードレビュー後に **`--apply --activate --reviewed-commit <レビュー済みmain SHA>`** を明示した場合だけ実施します。checkoutと実際のmainがレビュー済みSHAと一致し、追跡ファイルに変更がなく、選定正本のSHA・DB検査が成功しない限り有効化できません。既存GCS headがある場合も選定正本とのSHA一致を必須にします。
-
-| 対象 | 変更・影響 |
+| 項目 | 本番設定・役割 |
 | --- | --- |
-| 既存 project / region | `tatemono-map` / `asia-northeast1` を再利用。必要APIのみ有効化 |
-| 既存 private bucket | オブジェクト世代管理・public access preventionを有効化。既存オブジェクトを削除しない。公開IAM/ACLや非uniform構成は停止して確認 |
-| 既存 Artifact Registry | 指定したDocker repositoryを再利用。作り直さない |
-| `tatemono-collection-poc` | setupではイメージを変更・実行しない。初回に確認したimageと一致する場合のみGitHubが引き継ぐ。変更前の全Job設定をprivate GCSへ退避し、テスト済みimageへ更新 |
-| GitHub → GCP | WIF。repository ID・owner ID・main ref・2つのworkflowを限定。SA鍵を発行・保存しない |
-| 実行SA | `tm-ulucks-runtime@tatemono-map.iam.gserviceaccount.com`。Ulucksの2つのSecretと専用GCS prefixだけに権限 |
-| デプロイSA | 既存Job上のRun Developer、実行SAおよび初回復元用の旧Job SA上のService Account User、既存registry上のWriter、private Job設定backupのCreator、Schedulerのget/enableのみ（project単位。下記参照） |
-| Pages SA | `state/current.json` と `public/` のObject Viewerのみ。正本・PDF・Job設定のbackupを読めない |
-| Scheduler | 月曜04:00 Asia/Tokyo。新規作成時は将来の時刻で作成→pause→週次時刻へ変更。初回収集成功後にGitHubがresume |
-| 既存Secret | `tm-poc-gmail-token` / `tm-poc-realpro-login` は値取得・更新・削除・権限変更をしない |
-| Web | 既存のテンプレート・デザイン・URL・SEO・テーマ・住所表示条件を変更しない |
+| Project / Region | `tatemono-map` / `asia-northeast1` |
+| Cloud Run Job | `tatemono-collection-poc`（名前は継続、通常argsは`-m tatemono_map.cloud.run`） |
+| Scheduler | `tatemono-ulucks-weekly`、月曜04:00 JST、`0 4 * * 1` / `Asia/Tokyo` |
+| GCS bucket | `tatemono-map-poc-523194690131` |
+| 正式正本 | `state/current.json`の`master`が指す世代固定SQLite |
+| 公開DB | 同じHEADの`public`が指す公開専用SQLite |
+| Pages | `.github/workflows/deploy_pages.yml`、毎時23分のリリース確認等 |
 
-セットアップ実行者には Service Usage Admin / Workload Identity Pool Admin / Service Account Admin、必要なSAへのactAs、IAMポリシー設定権限、既存bucketのStorage Admin、指定Secretの管理権限、Cloud Scheduler Admin、既存JobのRun Admin、registryのIAM設定権限、GitHubのActions変数設定・workflow実行権限が必要です。これらは**初回作業者**の権限であり、GitHub実行SAへ一括付与しません。
+通常週次の構成は **Scheduler → Cloud Run → fresh会社判定・PDF取得 → private原本保存 → 解析・名寄せ・QC → 正本更新 → GCSリリース/HEAD更新 → Pages同期・実Web照合**。Windows PC・Work・ローカルファイルは不要です。Secret Manager・WIF・既存サービスアカウントを使い、認証情報を文書やGitHubへコピーしません。
 
-初回引継ぎが失敗した際に旧Job設定を復元するには、デプロイSAが**旧JobのサービスアカウントでもactAsできる権限**を必要とします。setupはその実アカウントを `rollback_service_account_act_as` として適用前に表示し、そのアカウント上のService Account Userだけを追加します。これは旧アカウントの権限でワークロードを実行可能になる影響があります。新collector SAへ旧アカウントのSecret権限をコピーせず、既存SecretのIAMや値は変更しません。
+## 通常週次と実証の範囲
 
-Cloud Schedulerはresource.nameによる条件をサポートするサービス一覧に含まれないため、単一Jobだけに効くIAM条件を仮定しません。デプロイSAにはプロジェクト内Schedulerの `cloudscheduler.jobs.get` / `cloudscheduler.jobs.enable` の2権限だけをcustom roleで付与し、コードでは設定した1つのJobのみを参照・再開します。他のSchedulerもIAM上は参照・再開可能になることが初回接続の権限上の影響です。作成・編集・削除・即時実行権限はありません。[IAM resource属性の対応一覧](https://docs.cloud.google.com/iam/docs/conditions-resource-attributes)、[Scheduler IAM](https://docs.cloud.google.com/scheduler/docs/access-control) を参照してください。
+`collection_mode=all_companies`、`area_id=kitakyushu`。対象会社は実際の利用可能経路で判定し、申請が必要な会社などは利用不可の証跡を残します。対象一覧の変化や取得失敗は正常0件ではありません。
 
-## 正本未確定のまま実行できる初回接続
+通常週次はfresh census・新規PDF取得です。復旧用の成功成果再利用・replayは通常設定と区別し、以前のpartial releaseやコードrevisionを通常収集開始の必須gateにしません。旧明細所有範囲が不明な部分は`preserve_unknown`として維持します。根拠のないbaseline所有権を設定して旧募集を消しません。
 
-今回の環境では、この節の候補配置・認証・IAM準備は完了済みです。再実行せず、下の「正本・コードレビュー完了後の本番有効化」へ進みます。以下は未準備環境向けの説明です。
+初回実収集・正本更新・公開は成功済みです。SchedulerのENABLED記録、テスト成功、定刻無人実行成功は別の証拠です。文書整理時点では2026-10-19（月）04:00 JSTの定刻実行前で、当該実証は未確認です。確認目的だけの全社再収集をしません。
 
-`cloud/first_connect.sh` はPRブランチでも実行可能です。本番更新・Job実行・Secret値取得を行わず、既存GCP資産、Ulucks Secretのバージョン/状態/IAM、project内の全bucketと**過去世代を含むSQLite候補**、Cloud Shellの既存PoC配下・private入力配下を一括調査します。Jobの環境変数・引数は保存せず、SchedulerのHTTPヘッダー・Secret payloadは取得しません。CLIエラーの生出力は公開ログへ出しません。
+## PDF原本とprivate履歴
 
-必要権限は対象projectの資産メタデータ参照、IAMポリシー参照、Secret名・バージョン状態参照、bucket一覧・object一覧/取得です。Secret Accessor、Job実行、データ書き込みは不要です。Google APIが無効、権限不足、取得予算超過なら調査不完全として報告し、成功扱いにしません。
+全社収集の主な保存先:
 
-Cloud Run Jobは `--format=json` の完全なv1応答をメモリ内で読み、`spec.template.spec.template.spec.containers` と実行SAを検査します。配列を通るフィールド投影JSONを完全なリソースとして扱いません。保存するJob情報は名前・ラベル・image・実行SAに限定し、環境変数・引数・annotationsは破棄します。Secret Managerの値取得は行いません。API無効や権限不足を「資産なし」として作成処理へ進めません。無効な既存WIF pool・専用SAもIAM変更前に拒否します。
-
-`src/tatemono_map.egg-info/` はpipが生成する情報のため追跡対象から除外します（既存のignore設定を使用）。依存導入後も、この生成物によって本番有効化のclean checkout条件を壊しません。
-
-1. Cloud Shellでレビュー対象PRのcommitを独立したcheckoutへ取得します。既存PoCディレクトリを上書きしません。
-2. `work/initial-input/` へ提供CSVと、Windowsから持ち込む**独立した正本候補/backup**をまとめてアップロードします。CSV名は `buildings_master.csv` / `building_key_aliases.csv`。PR checkout側の `scripts/inspect_master_candidates.ps1 -RepoPath <既存Windows repo> -ExportSnapshots` は既存Pythonを使い、元DBを変更せずWALの確定分も含む独立コピーと照合結果をPR checkoutのprivate `work/` へ保存します。既存 `data/` / `backups/` / `tmp/backups/` が既定の探索範囲です。別の保存先には `-CandidateRoots` を指定できます。Windowsへ接続できない環境では、Cloud Shellの調査だけで最新正常版を断定しません。
-3. 認証済みCloud Shellで以下を1回実行します。
-
-   ```bash
-   bash cloud/first_connect.sh
-   ```
-
-   IAM準備も同じ作業で行う場合だけ、`gh auth login --web` で本人のGitHub CLIを認証し、`bash cloud/first_connect.sh --prepare-iam` を実行します。初回作業者には追加でService Usage Admin / Workload Identity Pool Admin / Service Account Admin、既存bucketと `tm-ulucks-login` のIAM設定権限が必要です。引継ぎの既存bucket/Job/registryを照合してから準備し、違う資産は作り直しません。GitHubの `CLOUD_ENABLED=true` が既に設定されていれば、権限追加による自動更新を避けるため準備を停止します。
-4. `work/first-connect/report.private.json` と（IAM準備を実施した場合）`work/gcp-setup/inventory.json` をCloud Shellのダウンロード操作で取得します。Secret/PDF/DB本体をチャットへ貼り付ける必要はありません。報告書と候補本体をpublic GitHubへ保存しません。
-
-GCS候補はgeneration指定・checksum検査でprivate `work/first-connect/candidates/` に保存します。1候補200MiB・合計1GiBの取得予算を超える場合は黙って省略せず、要確認として記録します。候補のSHA、ID fingerprint、件数、完了run、alias解決を比較し、公開DB・整合性不良・未完了current・WAL分離ファイルを除外します。名前や日時だけの自動選定はしません。**調査完了と正本確定は別の状態です。**
-
-## 正本・コードレビュー完了後の本番有効化
-
-このPRのコードがレビューされmainに入った後に実施します。引継ぎPR #351のPoCをそのままデプロイしません。
-
-1. **登録済みの `tm-ulucks-login` は再登録不要です。** setupは有効なバージョンの存在とIAMだけを確認し、値を取得・表示しません。実行時のJSON契約は次の2項目です。未登録環境だけ通常Chromeの [Secret Manager](https://console.cloud.google.com/security/secret-manager?project=tatemono-map) で登録します。チャット、GitHub、Actions変数へ値を貼り付けません。既存2件は変更しません。
-
-   ```json
-   {"username":"実際のUlucksログインID","password":"実際のUlucksパスワード"}
-   ```
-
-   Cloud Runが実行時に `projects/tatemono-map/secrets/tm-ulucks-login/versions/latest` を読みます。setupが実行SAを作成し、このSecretに `roles/secretmanager.secretAccessor` を付与します。コンソールで先に作ったSecretは値を読み出さず再利用し、バージョンを追加・上書きしません。既存Secretが無効状態なら停止します。
-
-2. 今回は配置済みの `work/initial-input/verified-master.sqlite3` と
-   `work/final-master-review.private.json` を再利用します。正本SHA、既存の履歴・件数・
-   canonical ID指紋・DB内alias・優先順位をrunnerが検査します。CSVの再配置、
-   Windowsからの再アップロード、公開DBからの正本生成は行いません。
-
-3. 旧Ulucks明細の会社別所有範囲は未確定のため、会社8・小倉北区は
-   `baseline_listing_keys=[]`, `baseline_reviewed=true`, `legacy_policy=preserve_unknown`
-   の独立scopeにします。空配列は「旧明細がない」という意味ではなく、所有権を
-   証明して引き継ぐ旧キーがないことを示します。旧明細は削除・移管しません。
-   条件はrunnerが `work/initial-release/collection.private.json` に生成するため、
-   旧手順の `work/collection.private.json` の手編集は不要です。
-   新規取得と重なるcanonical建物に曖昧な部屋番号がある場合は停止します。
-   無関係な旧明細の部屋番号を事前に確定する条件は設けません。
-
-4. main反映後、既存の `work/setup.private.json` とvenvをそのまま使って実行します。
-   IAM/WIF準備とGitHub CLI認証は繰り返しません。事前検査後にのみ承認済みの
-   追加権限・GCS bootstrap・Actions起動へ進みます。
-
-   ```bash
-   PYTHONPATH=src work/gcp-setup-venv/bin/python cloud/initial_release.py \
-     --activate --reviewed-commit '<実際に反映したmainの完全SHA>'
-   ```
-
-   runnerは収集条件を非秘密のJob設定へ渡します。準備済みIAMと既存ログインSecretを
-   再利用し、Secretの作成・バージョン追加・Secret IAM変更を行いません。
-   `work/initial-release/progress.private.json` から再開し、二重dispatchを防ぎます。
-   低水準の `bootstrap.sh --apply --activate` は今回の実行入口にしません。
-
-以後はCloud Shellコマンド不要です。mainのコードpush → テスト → private image → 既存Job更新 → 1回収集 → Scheduler有効化 → Pages生成・本番確認までActionsが処理します。初回の実画面契約や正本の所有範囲に不一致があれば停止し、その不一致の解消が必要です。
-
-`collection.example.json` の `area_id=kokurakita` は内部scope識別子です。サイトの市区町村コードやAPIパラメーターを推測したものではなく、画面では「小倉北区」のlabelから実際のcheckboxを操作します。取得後は画面上の「ログアウト」を実行し、このJob自身のセッションを解放します。
-
-## データの保護とQC
-
-- 正本は `masters/<run>.sqlite3`、公開派生物は `public/releases/<run>/public.sqlite3`、原本PDFは `private-runs/<run>/pdf/`。役割を混在させません。
-- 取得前に正本を `backups/<run>.sqlite3` へ保存。失敗時に原本正本を一切変更しません。
-- 認証済みの会社ページで、エリアcheckboxのチェックが小倉北区1個だけであることを検索前後に確認。サーバーの検索応答と件数表示を確認します。
-- PDF magic / ページ数 / 全ページテキスト抽出 / Parser QC / エリア / 部屋の重複 / 賃料・面積 / UI件数との完全一致を検証。
-- 既存名寄せを使い、unmatched・suspectがあれば公開を停止。high confidence auto-seedは初回既定OFFで、既存名寄せのフラグで選択可能。
-- 前回の対象件数から25%を超える減少は停止（private設定で上限50%まで）。**正常0件**は、正しい会社・唯一のエリアを保った2回の新しい成功検索が両方0件だった場合のみ区別して処理。PDF未取得・ログイン失敗を0件に変換しません。
-- `current_ingest_snapshots.source` に `ulucks:<scope-hash>` を追加し、providerは従来どおり `ulucks`。履歴のlistingキーはrun単位で分離し、他社・他source・前回runの行を上書きしません。
-- 今回の `preserve_unknown` では旧明細の所有範囲を設定しません。集約上は、既存canonical建物と明確な部屋番号が一致する重複だけを除外し、旧明細そのものは保持します。scopeの会社・エリア・設定の不一致、曖昧な部屋番号、他の管理済scopeとの重複は停止。
-- 建物IDと既存canonical名・住所を保護。賃貸順位 Ulucks > RealPro > Mansion Review賃貸、分譲は独立したMansion Review情報源を維持。
-- `publish_public.ps1` と同じ必須/任意テーブルコピー契約をPythonで実装。空室明細・raw・認証・PDFはpublicへコピーしません。簡易 `export_public_db.py` への置換ではありません。
-- 全QC後にだけ `state/current.json` を **generation一致のCAS** で更新。masterとpublicの参照を1つのcommitで切替。同時実行で負けたrunは再試行して勝者を上書きしません。
-- 既存Job変更前の設定をprivate prefixへ退避。収集失敗時は、Job世代が変わっていないことを確認して以前のJob設定へ戻します。外部変更と競合すれば自動復元も停止。
-
-## Pagesと実証
-
-既存 `deploy_pages.yml` はcloud有効時のみ、generation指定とSHA-256・テーブルallowlist・件数検査を通ったpublic DBをGCSから取得します。失敗時にリポジトリの古いDBへ暗黙フォールバックして公開しません。cloud無効時は従来の公開DB入力を維持します。
-
-Schedulerの更新後は毎時23分の確認で未公開releaseだけを検出し、既存Pagesビルドを実行します。新releaseがなければビルドを省略。コードデプロイ直後は `workflow_run` でも接続します。Pages出力には公開集約値だけの `cloud_release.json` を添え、更新対象の建物ID・空室件数・賃料が既存JSONと一致することをビルド前後に確認します。公開後は実URLのreleaseマーカーと `/data/buildings.json` を再取得して照合します。UI自体は変更しません。
-
-成功の記録を分離します。
-
-1. ローカル/CI: 合成画面の実ブラウザ操作、合成PDF→既存Parser→既存名寄せ→正本→公開→既存render、失敗保護・競合・正常0件、Docker buildとコンテナbrowser。
-2. 提供PDF: ユーザー提供の複数エリアPDFを既存Parserで検証。具体的な件数・エリア別集計はprivateな検証結果とチャットにのみ記録します。このファイルを投入・公開した実績とは扱いません。私有ファイルをGitへ入れず `cloud/validate_sample.py` で再検証できます。
-3. クラウド: 新たに自動取得したPDF数・解析数・添付数・公開DB checksumとrelease ID。
-4. 本番: Pages deploy成功後の実URLで同一releaseと対象建物データを確認。
-
-mainには今回と無関係な既存テスト失敗があります。CIはcloud/coreの全件成功を必須とし、全体スイートは実際の変更前commitを別worktreeで実行して、新しい失敗が増えたら停止します。既存失敗のIDを固定除外せず、件数・残存失敗・修正された失敗をActions summaryへ明示します。全体テストがすべて成功したとは報告しません。
-
-## 初回移行 runner（IAM準備完了後）
-
-`cloud/initial_release.py` は既存Cloud Shellの正本と照合JSONを使用します。
-既定ではローカルの読取検査のみです。`--activate --reviewed-commit <mainの完全SHA>`
-を明示した場合にだけ本番設定・GCS bootstrap・Actions起動を行います。
-IAM準備、GitHubログイン、正本再アップロードは実行しません。
-
-- SHAと照合JSONの件数・履歴・ID指紋・優先順位を再照合し、別候補、
-  未解決alias、未審査のGCS DB、既存設定の不一致は変更前に拒否します。
-- 会社8は `baseline_listing_keys=[]`, `legacy_policy=preserve_unknown` の新規scope。
-  旧明細の会社所有権は主張しません。既存明細・売買・raw履歴・優先順位・aliasの
-  既存行をハッシュで照合し、ingestによる上書きを拒否します。
-- 公開集計だけ、canonical建物と明確な部屋番号が一致する旧Ulucks行を重複として
-  除外します。会社別の所有移管ではありません。旧行はDBに残り、新scopeが次回その
-  部屋を掲載しなければ旧行が再び集計に入ります。旧全社分の鮮度更新を意味しません。
-  部屋が不明・未定・先頭ゼロなどの曖昧表記なら停止します。賃料や面積からは推測しません。
-  他の管理済scopeと同じ部屋が重なる場合も停止します。
-- `work/initial-release/progress.private.json` に進捗をatomic保存し、排他ロックを使用。
-  同じコマンドで再開します。setup完了後は再設定せず、Actionsは相関IDから再取得します。
-  dispatchの結果が不明な場合は二重起動せず停止し、API反映後の再開を待ちます。
-  既に失敗したActionsを自動で無限再実行しません。失敗した実収集は別途原因修正が必要です。
-- 外部サービスをまたぐ処理は単一トランザクションではありません。途中失敗時は完了済み
-  権限やimmutable backupが残ることがあります。正本headはgeneration一致時のみ更新し、
-  不明な孤立DBや同時変更は推測で採用しません。
-- 実収集成功後、既存workflow_run連携によるPages公開を待ち、本番のrelease markerと建物JSONをGCSのproofに照合。
-  Schedulerが月曜04:00 Asia/TokyoでENABLEDであることも確認します。
-  API反映・Pages公開の待機で停止した場合も同じコマンドから再開できます。
-- 一括実行ログ・DB・照合JSON・設定はignored `work/` のみ。Public GitHubには含めません。
-  登録済みログインSecretの値を取得・再登録しません。prepared activationは
-  非秘密の収集条件をJob設定へ渡し、Secretを書き換えません。
-
-実行前にレビュー済みmainへcheckoutし、既存venvで以下を実行します。
-
-```bash
-PYTHONPATH=src work/gcp-setup-venv/bin/python cloud/initial_release.py
-# 承認後のみ:
-PYTHONPATH=src work/gcp-setup-venv/bin/python cloud/initial_release.py --activate --reviewed-commit FULL_MAIN_SHA
+```text
+private-runs/<run>/
+  companies/<company-id>/
+    pdf/000.pdf
+    pdf/001.pdf
+    parsed-rows.json
+    review-rows.csv
+  company-<company-id>-manifest.json
+  company-<company-id>-evidence.json
+  company-<company-id>-result.json
 ```
 
-成功の判定は末尾の `Verified: real collection/QC...` と進捗ファイルの
-`production_verified=true` です。CI成功・dispatch成功だけを完成として扱いません。
+PDF原本を証拠として保存し、解析結果は建物名・住所・募集条件等へ構造化します。名寄せ・QCで正式採用/保留/異常/重複を分類し、正式採用だけを正本の有効募集へ反映します。manifest/evidenceと参照情報から会社・run・元PDF・generation・SHA-256・取得結果を追えます。
 
-## Interrupted initial master transfer
+原本保存とSQLiteへの数値・文字列保存は両立します。`replay.py`は保存済みPDFの対象・時刻・件数・参照先等を検証して読み戻す復旧機能です。旧単社runには`private-runs/<run>/pdf/`形式もあります。保存期間・ライフサイクル・現存PDF総数は今回未確認で、永久保存は保証しません。
 
-The first master registration now uses 8 MiB Storage SDK chunks, separate
-20-second connect / 180-second I/O timeouts, CRC32C checks and a 600-second
-conditional retry window. Every upload remains create-only (`if_generation_match=0`).
+実装: [batch](../src/tatemono_map/cloud/batch.py)、[pipeline](../src/tatemono_map/cloud/pipeline.py)、[replay](../src/tatemono_map/cloud/replay.py)、[storage](../src/tatemono_map/cloud/storage.py)。
 
-`work/initial-release/setup/bootstrap/` retains staged files and
-`bootstrap-progress.private.json` before remote writes. A retry reuses the same
-run and immutable object names. Completed objects are reused only after a
-generation-pinned download and SHA-256 comparison with the reviewed local
-snapshot. A response lost after the head commit is reconciled only if the entire
-head equals this registration's receipt; a different head is preserved.
+## 正式正本・GCS・安全性
 
-After `stage: registered`, setup resumes by checking the retained receipt,
-input/staged SHA-256 values, explicit previous reviewed commit and both recorded
-GCS generations. It hashes generation-pinned downloads and checks that the head
-and its generation have not changed during verification. It does not regenerate
-either DB, upload objects or write `state/current.json`.
+- 更新前に`backups/<run>.sqlite3`へ正本をバックアップします。
+- HEADが指すmaster/publicをgeneration固定で取得し、SHA-256・DB integrity・件数・canonical/履歴保持を検証します。
+- `masters/<run>.sqlite3`と`public/releases/<run>/public.sqlite3`を保存した後、期待generationによるCASで`state/current.json`を切り替えます。
+- `state/collection-lock.json`のcollection leaseで同時更新を抑止します。失敗時に別実行のleaseを削除しません。
+- 全社バッチは安全に採用できる会社のpartial_successを保存し得ます。失敗会社のsnapshotは保持し、致命的QC失敗やCAS不一致で正式commitできないrunはHEADを切り替えません。
+- 賃貸優先順位Ulucks ＞ RealPro ＞ Mansion Review賃貸、分譲系統・他社snapshot・過去履歴を維持します。
 
-JSON configuration sets `ULUCKS_CONFIG_JSON` and deletes the obsolete Actions
-variable `ULUCKS_CONFIG_SECRET` only if it exists. Empty variable values are
-never submitted. This does not change the login Secret. `CLOUD_ENABLED=true`
-is set only after all variable writes and any required deletion succeed.
+正本と公開用DBの役割は[データフロー](../docs/data_flow_and_sources_of_truth.md)を参照。PDF・raw・review・認証情報はprivateに置き、Pagesは正本やPDFを取得せず公開専用データだけを使います。
 
-A pre-journal interrupted activation may recover one matching `masters/<run>`
-object and its optional public pair. Their actual bytes must match the reviewed
-input's derived files. Unknown paths, multiple candidate masters, differing
-bytes or a conflicting active head stop without deletion or overwrite.
+## Pages公開同期
 
-A reviewed descendant of the previously attempted main may resume an activation
-only before setup completion or any dispatch intent. The runner checks ancestry,
-cloud-disabled state and absence of the previous correlated dispatch, retains
-the old commit and expected Job image, and waits for the new main-push tests.
-It never clears progress to make a failed collection run again. Short dispatch
-visibility lag is observed automatically without sending another dispatch.
+`deploy_pages.yml`はmain push、毎時23分、Cloud配置Workflow成功後、手動dispatchの入口を持ちます。`cloud/check_release.py`は定時チェックで本番markerとHEADのrun/SHAを比較し、同じ場合はbuild/deployを省略します。通常pushは変更なしでもビルド対象です。
 
-The consolidated handoff includes the bootstrap stage, byte counts and transfer
-settings. Current runtime stdout/stderr is distinguished from Cloud Run IAM audit
-activity, and stale command stderr is not presented as the new failure.
+`fetch_public`がHEADの公開専用SQLiteをgeneration・SHA・件数付きで検証し、既存renderがHTML/検索JSON/サイトマップを生成します。`verify_public`で公開ID集合・集約値を検証し、デプロイ後に実Webの`cloud_release.json`・公開JSON等を照合します。
 
-### Recovery after the first Actions backup failure
+Work Bでは正式採用の非hidden建物を原則自動同期します。旧公開DBは欠落防止用で、新規公開の許可リストではありません。名称・住所一致だけで別IDを消さず、整合する明示的canonical aliasだけをページ統合に使います。毎週の追加公開承認はありません。
 
-When setup is complete and a deployment run is recorded, the same completion
-entrypoint selects `recover_initial_deployment.py`; it does not audit/import the
-master again or call setup/bootstrap. Recovery of the legacy pre-update failure
-is restricted to the reviewed `2379cfc` script and its correlated failed run.
-It checks retained bootstrap receipts and pinned bytes, the unchanged Job image,
-paused Scheduler and absence of executions since the failure. An existing
-`deployment-backups/<commit>-<run>-<attempt>.yaml` must match the current exported
-Job bytes at its recorded generation. Unknown/different content stops recovery.
+### 公開専用処理
 
-The operator records available GCP audit error/authorization fields privately in
-`work/initial-release/recovery-evidence.private.json`. The original Actions log
-discarded stderr, so a missing audit record does not prove an original 403/412.
-Recovery verifies the existing prefix-conditioned objectCreator binding and
-adds objectViewer only for `deployment-backups/`, for object readback. Its
-condition does not grant bucket-wide object listing, database access or deletion.
-No Secret, DB or existing backup is changed. SDK object APIs replace CLI copy
-discovery; immutable creation, pinned generation and SHA-256 readback are retained.
+`python -m tatemono_map.cloud.republish`は再ログイン・再収集せず、既存正式採用情報から公開リリースを再構成する処理です。元収集証跡の世代・SHA・current snapshotを検証して継承し、collection leaseとHEAD CASを使います。通常は正本内容を保持します。既存CLIの例外隔離指定は正本のhidden変更を伴うため、通常の公開処理とは区別します。
 
-Pushes run tests only. After they pass, the operator journals one explicit
-dispatch, retaining all previous progress under `deployment_recovery`. Repeating
-the command observes that dispatch instead of sending another. The deploy script
-also records a create-only execution intent independent of workflow attempt,
-and refuses an existing intent or active Cloud Run execution. Ambiguous execute
-outcomes do not trigger another execution or automatic rollback. Only a confirmed
-terminal failure of the newly observed execution permits a generation-checked
-Job rollback. All backups remain private and retained.
+これは読み取り専用コマンドではなくGCSリリース/HEADを書き換えます。必須引数は`--bucket`、`--work`、`--expected-generation`、`--source-commit`。通常週次の追加審査や調査時の再実行手順にはしません。
 
-Public deployment failures show only an allowlisted HTTP status and permission
-names. Raw CLI/SDK errors go to the private backup prefix when storage permits;
-they are never uploaded as public Actions artifacts. Recovery continues through
-fresh collection, GCS commit, Pages production proof and Scheduler verification;
-a passed CI or successful dispatch is not completion evidence.
+## 公開実績と証拠
+
+以下は**リリース`20261018T150227Z-f7fc07ea9a53`の時点値**で、将来の現在値・固定期待値ではありません。
+
+| 項目 | 当該リリースの記録 |
+| --- | ---: |
+| 正式正本の建物 | 7,556棟 |
+| 公開DB / 検索JSON | 7,550棟 / 7,550件 |
+| 公開空室 | 7,000件 |
+| 明示的非公開 | 6棟 |
+| Ulucks追加488棟 | 487棟公開、全明細保留の仮登録1棟を既存hiddenで隔離 |
+| 過去未公開91棟 | 86棟公開、既存hiddenの5棟は維持 |
+| 今回のPDF再取得 | 0件 |
+
+- [Cloud配置 #39138548455](https://github.com/aik38/tatemono-map/actions/runs/39138548455): success。収集なしの配置。
+- [Pages #39139167694](https://github.com/aik38/tatemono-map/actions/runs/39139167694): release_check/build/deploy成功。本番Web照合とScheduler有効状態確認ステップもsuccess。
+- 当該runログでrelease ID、公開DB7,550・空室7,000・検索JSON7,550を確認。正本・6棟差の内訳/世代/SHAは[Work B引継ぎ](HANDOFF_WORK_B_PUBLICATION.md)に記録。
+- [後続定時チェック #39142974069](https://github.com/aik38/tatemono-map/actions/runs/39142974069): release_check成功、build/deploy skipped。新規収集・新リリースの実証を意味しません。
+
+## 障害・復旧
+
+まず既存実行・正式HEAD・private証跡・公開markerを読み取り専用で確認します。[Runbook](../docs/runbook.md)を使用し、再収集・初期接続・IAM準備・再配置・公開専用更新を診断目的で繰り返しません。
+
+切戻し前には最新HEAD generation、master/public参照、Jobの稼働中有無を再確認します。後発正常リリースがある場合は古い成果へ戻しません。バックアップ復旧は期待generationと対象を固定した別の変更作業です。
+
+## 初回移行・過去資料
+
+[初期Cloud文書全文（固定コミット）](https://github.com/aik38/tatemono-map/blob/03be5e82c5dcc65f1d4960f0da421024cefa3e27/cloud/README.md)にはIAM/WIF準備、Windows正本候補照合、初期bootstrap・旧PoC手順を保存しています。現在の週次手順として実行しません。
+
+[Work A引継ぎ](HANDOFF_ULUCKS_FULLAREA.md)・[Work B引継ぎ](HANDOFF_WORK_B_PUBLICATION.md)は原記録を維持し、後続結果を追記しています。[履歴索引](../docs/archive/README.md)から旧README/Docsも復元できます。RealPro・Mansion Reviewの同等クラウド収集完成はこのUlucks実績から推定しません。

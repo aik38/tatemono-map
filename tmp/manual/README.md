@@ -1,5 +1,7 @@
 # tmp/manual（手動一次資料フローの固定 I/O 契約）
 
+> 旧手動運用の作業場所・開発補助です（2026-10-19 JST）。現在のUlucks通常週次は[Cloud経路](../../cloud/README.md)で実行し、このディレクトリのPDF/CSV/SQLiteは不要です。ここで生成したローカルDBをGCS正式正本に上書きしません。
+
 ## 入力（inputs）
 - `inputs/pdf_zips/`
   - 手動入手した PDF ZIP（Ulucks / RealPro）を保管する。

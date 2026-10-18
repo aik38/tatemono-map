@@ -1,41 +1,30 @@
-# MVP運用における CI / pytest 仕分け
+# CI・Cloud配置・収集・公開の責務
 
-## 結論（先に要点）
-- `.github/workflows/pages.yml` は **Pages公開用**。`pytest` は実行しない。
-- `.github/workflows/ci.yml` は **PR検証用**。`pull_request` で `pytest -q` を実行する。
-- 週次のMVP運用（`run_to_pages.ps1`）に `pytest` は必須ではない。
-- ただし、PRを作る週は CI 失敗を分類して対処する。
+2026-10-19 JST時点のWorkflowを照合した説明です。
 
-## 1) Pages workflow の責務
-対象: `.github/workflows/pages.yml`
+| Workflow / 起動元 | 実際の責務 | 成功から分かる範囲 |
+| --- | --- | --- |
+| [ci.yml](../.github/workflows/ci.yml) `pull_request` | 必須テスト・全体比較、Docker build、コンテナ内Chromium合成確認 | コード回帰検証。実Ulucks収集や本番配置は行わない |
+| [cloud_deploy.yml](../.github/workflows/cloud_deploy.yml) / `Deploy Ulucks cloud collector` | mainの対象path pushでtest。deployはdispatchや特定コミットmarker等の条件を満たす時のみ | testと配置を区別。通常main pushが常に収集を起動するわけではない |
+| Cloud Scheduler → Cloud Run | 通常週次のfresh会社判定・PDF取得・解析・正本/リリース更新 | execution・HEAD・会社別証跡を確認して実収集を判断 |
+| [deploy_pages.yml](../.github/workflows/deploy_pages.yml) / `Deploy GitHub Pages` | 公開リリース確認、公開DB取得・検証、render、Pages配置、実Web照合 | release_check/build/deployと各ステップ結果を区別 |
 
-実施内容（抜粋）:
-- `data/public/public.sqlite3` の存在確認
-- `building_summaries` テーブル存在確認
-- `building_summaries` が非空であることを確認
-- `dist/` を build
-- `dist/index.html` に building-card が存在することを確認
-- 禁止語の簡易 grep チェック
+## Pagesの発火・省略・設定確認
 
-> つまり pages.yml は「公開可能な配信物か」のガードであり、テストスイートではない。
+- main push（path制限なし）、毎時23分（`23 * * * *`）、Cloud配置Workflowのmain成功後`workflow_run`、手動dispatchが入口です。
+- `cloud/check_release.py`はschedule時にGCS HEADと実Web markerのrun ID/公開SHAを比較し、変更なしならbuild/deployを省略します。通常pushは変更なしでもbuild対象です。
+- Cloud有効時はWIFでHEADと公開専用SQLiteを読み、generation・SHA・件数を照合します。Git管理の旧公開DBを本番正本にしません。
+- buildではID集合・集約値・禁止情報等を検証し、deploy後に`verify_public --production`で実Webを照合します。
+- deploy末尾の`cloud/enable_scheduler.py`は予定/宛先を検証し、ENABLEDなら変更なし、PAUSEDならresumeします。従って文書だけのpushでも本番側ステップを動かし得ます。
 
-## 2) PR CI workflow の責務
-対象: `.github/workflows/ci.yml`
+## 文書だけの変更
 
-実施内容:
-- トリガー: `pull_request`
-- 依存をインストール
-- `python -m pytest -q` を実行
+Workflowの変更や本番の再収集・再配置を伴わずに文書を反映する場合、発火条件を必ず確認します。今回の文書整合PRは通常のPR CIを実行し、main反映コミットに`[skip ci]`を指定してpush起点の本番処理を抑止する方針です。Workflow設定そのものは変更しません。
 
-> つまり ci.yml は「変更の品質確認（テスト）」の担当。
+GitHubのskip命令はpush/pull_requestに適用され、scheduleやworkflow_run自体を停止する設定ではありません。通常の毎時チェック・週次収集は維持します。必要なチェックやリポジトリ規則を無効化・迂回せず、安全に反映できない場合はPRで停止します。
 
-## 3) 運用方針（weekly run と PR週）
-- **weekly run（運用実行のみ）**:
-  - `run_to_pages.ps1` を正とし、PagesのSuccessと公開値確認を優先
-  - `pytest` は必須ゲートにしない
-- **PRを作る週**:
-  - `ci.yml` の失敗を確認し、以下で分類して対処
-    - テスト壊れ（実装修正が必要）
-    - テストデータ/前提差異（fixture/前提調整が必要）
-    - 環境差異（依存・OS差）
-  - 「失敗理由を書いて次アクションを決める」までを完了条件にする
+参照: [GitHub公式skip仕様](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs)。
+
+## 実績の読み方
+
+テスト成功≠Cloud配置成功≠実収集成功≠正本更新成功≠Pages配置成功≠実Web一致です。変更なしの定時skipも、新規収集や公開の証明にはしません。既存失敗と新規失敗を比較するCIの判定はそのまま尊重し、今回の文書更新のために全件データを再生成しません。
