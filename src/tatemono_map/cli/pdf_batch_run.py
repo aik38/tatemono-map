@@ -434,104 +434,114 @@ class UlucksParser:
         document_updated = ""
         with pdfplumber.open(str(pdf_path)) as pdf:
             for pi, page in enumerate(pdf.pages, start=1):
-                text = page.extract_text() or ""
-                text = normalize_pdf_text(text)
-                # The observed print has the issue date only on page one.
-                document_updated = parse_updated_at(text) or document_updated
-                updated = document_updated
-                ward_hint = current_ward or extract_ward_hint(text)
-                # The area/property print repeats the company's address only
-                # on page 1, and area headings can change within a page. Use
-                # the heading immediately above each table, retaining it for
-                # continuation pages; never use the office address as every
-                # property's ward.
-                if hasattr(page, "find_tables"):
-                    positioned = page.find_tables() or []
-                    tables_with_hints = []
-                    previous_bottom = 0
-                    for table in positioned:
-                        top = table.bbox[1]
-                        if top > previous_bottom:
-                            heading = page.crop((0, previous_bottom, page.width, top)).extract_text() or ""
-                            areas = re.findall(rf"(?:^|\n)\s*({ULUCKS_AREA_RE})\s+\S", heading)
-                            if areas:
-                                current_ward = areas[-1]
-                        tables_with_hints.append((table.extract(), current_ward or ward_hint))
-                        previous_bottom = table.bbox[3]
-                else:
-                    tables_with_hints = [(table, ward_hint) for table in (page.extract_tables() or [])]
-                for table_i, (tb, table_ward) in enumerate(tables_with_hints, start=1):
-                    if not tb or len(tb) < 2:
-                        continue
-                    header = [normalize_pdf_text(c) for c in tb[0]]
-                    if not ("物件名" in header and "号室" in header and "賃料" in header):
-                        continue
-                    idx = {h: header.index(h) for h in header if h}
-                    for row_i, r in enumerate(tb[1:], start=1):
-                        if not r or all(normalize_pdf_text(c) == "" for c in r):
+                try:
+                    text = page.extract_text() or ""
+                    text = normalize_pdf_text(text)
+                    # The observed print has the issue date only on page one.
+                    document_updated = parse_updated_at(text) or document_updated
+                    updated = document_updated
+                    ward_hint = current_ward or extract_ward_hint(text)
+                    # The area/property print repeats the company's address only
+                    # on page 1, and area headings can change within a page. Use
+                    # the heading immediately above each table, retaining it for
+                    # continuation pages; never use the office address as every
+                    # property's ward.
+                    if hasattr(page, "find_tables"):
+                        positioned = page.find_tables() or []
+                        tables_with_hints = []
+                        previous_bottom = 0
+                        for table in positioned:
+                            top = table.bbox[1]
+                            if top > previous_bottom:
+                                heading = page.crop((0, previous_bottom, page.width, top)).extract_text() or ""
+                                areas = re.findall(rf"(?:^|\n)\s*({ULUCKS_AREA_RE})\s+\S", heading)
+                                if areas:
+                                    current_ward = areas[-1]
+                            tables_with_hints.append((table.extract(), current_ward or ward_hint))
+                            previous_bottom = table.bbox[3]
+                    else:
+                        tables_with_hints = [(table, ward_hint) for table in (page.extract_tables() or [])]
+                    for table_i, (tb, table_ward) in enumerate(tables_with_hints, start=1):
+                        if not tb or len(tb) < 2:
                             continue
-                        r = list(r) + [None] * (len(header) - len(r))
-                        building = get_cell_text(r, idx, ["物件名"])
-                        address = get_cell_text(r, idx, ["所在地"])
-                        address = complement_print_address(address, table_ward)
-                        room = get_cell_text(r, idx, ["号室"])
-                        room = re.sub(r"\s*《.*?》\s*", "", room).strip()
-                        building = ulucks_building_name(building, room)
-                        layout_detail = get_cell_text(r, idx, ["間取詳細"])
-                        layout = nfkc(layout_detail.split(":")[0]) if layout_detail else ""
-                        availability_raw = get_cell_text(r, idx, ["入居時期", "状態・入居時期", "入居可能日", "退予"])
-                        if not availability_raw:
-                            availability_raw = get_cell_text_by_header_patterns(
-                                r,
-                                header,
-                                ["退予", "入居", "入居時期", "入居可能", "退去予定", "状態"],
+                        header = [normalize_pdf_text(c) for c in tb[0]]
+                        if not ("物件名" in header and "号室" in header and "賃料" in header):
+                            continue
+                        idx = {h: header.index(h) for h in header if h}
+                        for row_i, r in enumerate(tb[1:], start=1):
+                            if not r or all(normalize_pdf_text(c) == "" for c in r):
+                                continue
+                            r = list(r) + [None] * (len(header) - len(r))
+                            building = get_cell_text(r, idx, ["物件名"])
+                            address = get_cell_text(r, idx, ["所在地"])
+                            address = complement_print_address(address, table_ward)
+                            room = get_cell_text(r, idx, ["号室"])
+                            room = re.sub(r"\s*《.*?》\s*", "", room).strip()
+                            building = ulucks_building_name(building, room)
+                            layout_detail = get_cell_text(r, idx, ["間取詳細"])
+                            layout = nfkc(layout_detail.split(":")[0]) if layout_detail else ""
+                            availability_raw = get_cell_text(r, idx, ["入居時期", "状態・入居時期", "入居可能日", "退予"])
+                            if not availability_raw:
+                                availability_raw = get_cell_text_by_header_patterns(
+                                    r,
+                                    header,
+                                    ["退予", "入居", "入居時期", "入居可能", "退去予定", "状態"],
+                                )
+                            built_raw = get_cell_text(r, idx, ["築年", "築年月"])
+                            built_raw = built_raw.replace("\\n", " ")
+                            built_raw = re.sub(r"\s+", " ", built_raw).strip()
+                            structure_raw = get_cell_text(r, idx, ["構造"])
+                            area_raw = get_cell_text(r, idx, ["面積"])
+                            # The live source can explicitly print 0.00 for an
+                            # unknown area. Preserve the unit, but never publish
+                            # zero square metres or invent a replacement value.
+                            area_source_zero = bool(re.fullmatch(r"0(?:\.0+)?(?:㎡|m2)?", nfkc(area_raw).replace(" ", "")))
+                            raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")
+                            # Keep the existing CSV contract; the importer reads
+                            # labelled terms from raw_block. Positional values alone
+                            # lose their meaning at that boundary.
+                            for label in ('敷金', '礼金'):
+                                value = get_cell_text(r, idx, [label])
+                                if value:
+                                    raw = f'{label}:{value}|' + raw
+                            rows.append(
+                                {
+                                    "page": pi,
+                                    "category": "ulucks",
+                                    "updated_at": updated,
+                                    "building_name": building,
+                                    "room": room,
+                                    "address": address,
+                                    "rent_man": parse_money_to_man(get_cell_text(r, idx, ["賃料"])),
+                                    "fee_man": parse_money_to_man(get_cell_text(r, idx, ["共益費"])),
+                                    "floor": "",
+                                    "layout": layout,
+                                    "area_sqm": float("nan") if area_source_zero else parse_area_sqm(area_raw),
+                                    "area_source_zero": area_source_zero,
+                                    "availability_raw": availability_raw,
+                                    "built_raw": built_raw,
+                                    "age_years": parse_built_raw_to_age_years(built_raw),
+                                    "structure": structure_raw,
+                                    "built_year_month": "",
+                                    "built_age_years": float("nan"),
+                                    "availability_date": "",
+                                    "availability_flag_immediate": float("nan"),
+                                    "structure_raw": structure_raw,
+                                    "file": pdf_path.name,
+                                    "raw_block": raw,
+                                    "raw_blockfile": raw,
+                                    "evidence_id": f"pdf:{pdf_path.name}#p={pi}#t={table_i}#i={row_i}",
+                                }
                             )
-                        built_raw = get_cell_text(r, idx, ["築年", "築年月"])
-                        built_raw = built_raw.replace("\\n", " ")
-                        built_raw = re.sub(r"\s+", " ", built_raw).strip()
-                        structure_raw = get_cell_text(r, idx, ["構造"])
-                        area_raw = get_cell_text(r, idx, ["面積"])
-                        # The live source can explicitly print 0.00 for an
-                        # unknown area. Preserve the unit, but never publish
-                        # zero square metres or invent a replacement value.
-                        area_source_zero = bool(re.fullmatch(r"0(?:\.0+)?(?:㎡|m2)?", nfkc(area_raw).replace(" ", "")))
-                        raw = f"[source=ulucks file={pdf_path.name} page={pi}] " + "|".join(normalize_pdf_text(c) for c in r if normalize_pdf_text(c) != "")
-                        # Keep the existing CSV contract; the importer reads
-                        # labelled terms from raw_block. Positional values alone
-                        # lose their meaning at that boundary.
-                        for label in ('敷金', '礼金'):
-                            value = get_cell_text(r, idx, [label])
-                            if value:
-                                raw = f'{label}:{value}|' + raw
-                        rows.append(
-                            {
-                                "page": pi,
-                                "category": "ulucks",
-                                "updated_at": updated,
-                                "building_name": building,
-                                "room": room,
-                                "address": address,
-                                "rent_man": parse_money_to_man(get_cell_text(r, idx, ["賃料"])),
-                                "fee_man": parse_money_to_man(get_cell_text(r, idx, ["共益費"])),
-                                "floor": "",
-                                "layout": layout,
-                                "area_sqm": float("nan") if area_source_zero else parse_area_sqm(area_raw),
-                                "area_source_zero": area_source_zero,
-                                "availability_raw": availability_raw,
-                                "built_raw": built_raw,
-                                "age_years": parse_built_raw_to_age_years(built_raw),
-                                "structure": structure_raw,
-                                "built_year_month": "",
-                                "built_age_years": float("nan"),
-                                "availability_date": "",
-                                "availability_flag_immediate": float("nan"),
-                                "structure_raw": structure_raw,
-                                "file": pdf_path.name,
-                                "raw_block": raw,
-                                "raw_blockfile": raw,
-                                "evidence_id": f"pdf:{pdf_path.name}#p={pi}#t={table_i}#i={row_i}",
-                            }
-                        )
+                finally:
+                    # pdfplumber retains each page's layout/character caches in
+                    # pdf.pages. A 54-page live print exceeded the 2 GiB Job.
+                    # Rows above are plain values; release the page immediately.
+                    close = getattr(page, 'close', None)
+                    if callable(close):
+                        close()
+                    import gc
+                    gc.collect()
         df = pd.DataFrame(rows)
         return ParseResult(df=df, warnings=[], drop_reasons={})
 

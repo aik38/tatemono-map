@@ -155,7 +155,17 @@ def main() -> int:
                     credentials = {} if args.reuse_acquisition else secret_json(os.environ["ULUCKS_LOGIN_SECRET"])
                     if config.get('collection_mode') == 'all_companies':
                         from tatemono_map.cloud.batch import execute_all
-                        head = execute_all(store, config, credentials, work, source_commit,reuse_release=args.reuse_successful_release,replay_acquisition_run=args.replay_acquisition_run)
+                        replay=args.replay_acquisition_run
+                        # Explicit operator recovery is time bounded. A future
+                        # weekly execution always returns to fresh acquisition.
+                        deadline=os.environ.get('ULUCKS_RECOVERY_UNTIL')
+                        if not replay and deadline:
+                            until=datetime.fromisoformat(deadline.replace('Z','+00:00'))
+                            if until.tzinfo is None:raise CollectionError('recovery_deadline_timezone_required')
+                            remaining=(until-datetime.now(timezone.utc)).total_seconds()
+                            if remaining>3*3600:raise CollectionError('recovery_window_exceeds_limit')
+                            if remaining>0:replay=os.environ.get('ULUCKS_RECOVERY_ACQUISITION_RUN')
+                        head = execute_all(store, config, credentials, work, source_commit,reuse_release=args.reuse_successful_release,replay_acquisition_run=replay)
                     else:
                         if args.reuse_acquisition:
                             from tatemono_map.cloud.acquisition import reuse_verified
