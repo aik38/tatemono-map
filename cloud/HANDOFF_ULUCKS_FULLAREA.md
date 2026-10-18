@@ -1,63 +1,68 @@
-# Ulucks 全域・全業者 再開チェックポイント
-更新: 2026-10-18。最新main/Actions/GCS HEADを照会し、実行中なら二重起動しない。
+# Ulucks 全域・全業者：通常週次運用への復旧完了
+更新: 2026-10-18 13:22 UTC / 日本時間22:22。過去の診断・経緯は本ファイルのgit履歴を参照。
 
-## 今回の確定方針・進行
-- 会社一覧の物件数が数値で1以上の会社のみ収集。0・空欄・削除会社の以前のrouteを再導入しない。既存snapshotは保持。対象数/IDは固定しない。
-- 週次通常実行からall_company_initial_proof_required gateを廃止。前回部分成功でも全社fresh census/収集を実行する。proofは参考証跡だけ。
-- 孤立した住所/対象地域異常はprivate anomalyとして隔離し旧募集を保持。全行異常、又は3行以上かつ20%超の住所異常は会社を安全停止。PDF件数不一致/会社取り違えのQCは維持。
-- 会社ごとに正本のdisposable rollback。成功/部分成功/正常0件/失敗/対象外を区別。private GCSに原本、解析行、失敗時画面/DOM/エラー、active checkpointを保存。
-- 一時的な取得障害だけ最大2回試行。定期収集に旧添付PDFを流用しない。
-- 本改修の本番経路は通常argsで起動し、fresh PDF→QC→正式CAS→Pages照合まで継続する。完了前に新リリース成功と報告しない。
+## 確定した本番コードと実行
+- 本番コード: `c4c378bff13ae2c80c72c7df424baa1fc5b54bf5`（PR #378）。PR #377の見出し正規化・分割PDF解析もmain反映済み。
+- PR #377 CI: https://github.com/aik38/tatemono-map/actions/runs/39127568767
+- PR #378 CI: https://github.com/aik38/tatemono-map/actions/runs/39129321683
+- 最終本番配置: https://github.com/aik38/tatemono-map/actions/runs/39129844561
+- 必須検証・全体回帰比較・コンテナ/Chromium確認成功。既存の全体suite失敗20件に新規失敗なし。無関係な失敗は今回の対象外。
+- Scheduler強制実行: 2026-10-18 13:11:57 UTC。Cloud Run `tatemono-collection-poc-pb4m9`、起動元 `tm-weekly-trigger@tatemono-map.iam.gserviceaccount.com`。13:12:19開始、13:14:45正常終了。
+- **これは手動で強制起動したScheduler経路の実績。月曜04:00の無人定期実行の成功実績とは区別する。**
 
-## 現在の本番実行（2026-10-18 07:48 UTC）
-- PR375 merged、収集source `479ae7731ab53ea785c4f39850befe4314e6a5d5`。CI39108110378成功（新規失敗0）、本番配置39108483763成功。変更前Job設定はprivate GCSへ保全済み。
-- Scheduler画面の強制実行を07:48:40 UTCに1回実施。Scheduler呼出成功、Cloud Run execution `tatemono-collection-poc-9wvnw`。実行ユーザー `tm-weekly-trigger@tatemono-map.iam.gserviceaccount.com` を実画面照合。通常Job args、旧PDF再利用指定なし。
-- **同executionは07:54:50 UTC、会社8 PDF解析中のOOM/signal9で終了。正式CASなし、旧HEAD維持。** Task終了07:54:52 UTCを実画面で照合。取得原本とcompany4/6/7のcheckpointはprivate GCSに保存済み。
-- 原因: UlucksParserがpdfplumberのページキャッシュをPDF全体で保持。ページごとのclose/GCに修正し、54ページ参考PDFを1045行/警告0/最大RSS102.2MiBで解析できた（参考資料は実取得実績に未算入）。Job memory2→4GiBの余裕も確保する。
-- SIGKILLによる孤立leaseを停止済execution/owner/generation照合後に安全解除し、修正後は保存済み原本を検証して再利用、未取得会社はfresh取得で本番再開する。再設定・再取得を繰り返さない。
-- 収集run `20261018T074956Z-3f92737cfbba`、private prefix `private-runs/20261018T074956Z-3f92737cfbba/`。16:50 JSTに131社中positive65/zero4/blank62を自動判定、会社4の新PDF6ページ94件を取得・解析。正式CASはまだ未実施。
-- 新しいGCS正式リリースと今回の最終件数は未確定。直前正式リリースは下記の旧releaseを保持。
-- 次回定期予定: 2026-10-19 04:00 Asia/Tokyo。未来の無人定期成功は未確認。
+## 最新正式正本・公開
+- project `tatemono-map` / region `asia-northeast1` / Job `tatemono-collection-poc`
+- bucket `tatemono-map-poc-523194690131` / 正式HEAD `state/current.json`（generation `1792329282447313`）
+- 正式release: `20261018T131235Z-5ac1145986ff`、QC passed。
+- master: `masters/20261018T131235Z-5ac1145986ff.sqlite3`
+  - generation `1792329282085352`
+  - SHA256 `8775b879304c1f772084c0aea5dd7be605bc93fa76b87066fb8a794ed9041753`
+- public: `public/releases/20261018T131235Z-5ac1145986ff/public.sqlite3`
+  - generation `1792329282371980`
+  - SHA256 `c8c089be5dea1569fd93427b10b5f39757874984025dd23d38e6bcaeb85abf61`
+- 正本: 建物7,556、listings58,862、raw_sources122,031、sale_listings11,907。
+- 今回引継ぎ時の7,492棟から+64棟。直前中間成功版7,552棟から最終runで+4棟。分譲11,907件は維持。
+- 公開対象6,977棟は固定したまま。公開空室5,922件。public実体の世代/SHAとSQLite quick_checkを照合済み。
+- 最終Pages: https://github.com/aik38/tatemono-map/actions/runs/39130865166 （workflow_dispatch）
+- 本番 `https://www.tatemono-map.com/cloud_release.json` のrelease・source_commit・public SHA・集計値と、Pagesの生成物/実Web proofを照合済み。
+- 変更前の正式DBバックアップ、世代CAS、SHA検査、排他lease、会社単位rollbackを維持。元PDF・checkpoint・診断・保留原文はprivate GCSだけに保存。
 
-## メモリ修正後の再開（2026-10-18 08:25 UTC）
-- PR376/main source `afdd6ceb10b7ec0497d08b5d4ff4292ccd7ddff2`。CI39110020396成功、配置39110491519成功。ページclose/GC、memory4GiB。参考54ページの旧実装RSS1668MiB→修正版102MiB、抽出1045行は一致（参考PDFは新規実績に未算入）。
-- 旧OOM executionは終了/active0/lease owner `20261018T074953Z-4912cbb69333`、generation1792309793525731を照合。private backup後CAS解除済み。正式HEAD旧release維持。
-- 通常Jobに本日の取得原本run `20261018T074956Z-3f92737cfbba` の検証再利用を期限2026-10-18T10:20:20.368314Zまで明示設定（最大3h制限）。期限後は必ずfresh。完了後 `ULUCKS_RECOVERY_ACQUISITION_RUN` と `ULUCKS_RECOVERY_UNTIL` の2envを削除する。
-- 最初の再開execution `tatemono-collection-poc-dt85t` は認証後company_search_missingで終了（17:21:41JST）。Chrome実画面でログイン3/3を確認し、操作用Chromeのみログアウト済み。新しい認証登録や値の表示はしていない。
-- 再開Schedulerは17:24:54JSTに1回起動。現在のexecution **`tatemono-collection-poc-czfhn`**、17:25:05JSTタスク開始、実行ユーザーtm-weekly-trigger。**二重起動せずこれを追跡。**
-- 最新収集run **`20261018T082512Z-b5584cf526cb`**、private prefix `private-runs/20261018T082512Z-b5584cf526cb/`。17:25:35JSTに65対象/131一覧を再取得、保存原本会社4/6の解析・統合まで再開成功。取得済み4社原本だけgeneration/SHA/会社/route/22エリア/24h内を照合して再利用し、残りはfresh。正式CASはまだ未実施。
-- 識別可能な再開intentは元run private prefix配下 `recovery-scheduler-intent-afdd.json` と `recovery-after-session-release-dt85t.json`。新しいrun ID/正式CAS/Pagesは未確定。
+## 会社・明細の確定結果
+- 最新censusは131行中、物件数が数値で1以上の65社を動的選択。会社数・IDは固定していない。
+- 正常処理64社（明細保留を含む）、技術的失敗0社、会社全体を元データ異常で停止した会社0社。
+- 会社16は `access_request_required` のまま。利用申請は送らず、正常0件扱いもしない。
+- 最終runは正常61社の有効な正式結果を世代/SHA・current snapshot・鮮度で検証して再利用。69/102/119の新しいPDF3件だけを取得。
+- 解析4,139 = 採用3,114 + 保留1,004 + 異常20 + 重複1。保留と異常は非公開のまま。採用件数を増やすための推測はしていない。
 
-## 現在runを継続しながら準備した最後のUI修正（17:40JST）
-- czfhn/run082512 は継続中。17:36まで10社1413行を統合し、会社26の新PDF38ページ715行は17:38に解析完了。会社8は17:31に統合完了しOOM解消を実証。
-- 会社11だけcompany_title_missing、会社16はaccess_request_required。全体は停止せず継続している。
-- 会社11の原因は観測名のNFKC後の半角空白とraw DOMの全角空白の不一致（観測名抽出とは別のsearch見出し照合）。**PR377** `fix/ulucks-normalized-company-heading-20261018` HEAD `aaf56f771efec0a2850da06d89c18742e163c845` で、実見出しDOMと期待名を両方正規化して比較する修正をCI中。private診断には実search_list_headerも保存。
-- **現在の収集を止めず、完了/正式HEAD確認後にPR377をmerge/配置する。** 収集sourceはまだafdd。配置はSCHEDULER_VERIFY markerでJob配置だけ行い、二重起動しない。
-- PR377では既存の正式成功scope検証再利用を、最大3hの明示windowに限り `ULUCKS_RECOVERY_SUCCESSFUL_RELEASE` でも指定可能。現在runの正式HEADを確認した後、そのreleaseを指定し失敗会社だけfreshで再試行する。正常会社のPDF再取得/再解析は不要。期限後の通常週次は必ずfresh。
-- 次回の復旧では旧 `ULUCKS_RECOVERY_ACQUISITION_RUN` を外し、同じ通常args/Scheduler経路を使う。最後に復旧専用3env（ACQUISITION_RUN/SUCCESSFUL_RELEASE/UNTIL）を除去して週次設定・Pages実公開を確認する。
+| 会社ID | 解析 | 採用 | 保留 | 異常 | 結果 |
+| --- | ---: | ---: | ---: | ---: | --- |
+| 11 | 75 | 66 | 9 | 0 | 正式反映 |
+| 39 | 337 | 219 | 117 | 1 | 検索337件と厳密一致、正式反映 |
+| 69 | 14 | 7 | 7 | 0 | 新規PDF取得・正式反映 |
+| 102 | 3 | 1 | 2 | 0 | 新規PDF取得・正式反映 |
+| 119 | 4 | 3 | 1 | 0 | 新規PDF取得・正式反映 |
+| 16 | — | — | — | — | 利用申請が必要、取得しない |
 
+## 最小修正の内容
+- PR #377: 観測した会社見出しと比較対象の両方をNFKC/空白正規化。会社39の分割表は、同一ページの直前header-only表と単一行の実際の列境界が一致し、必須項目を備える場合だけ回復。検索/PDF件数QCは維持。
+- 最初の復旧 `20261018T124742Z-bce0c7725467` で11・39成功、61社の成果を正式保存。69/102/119は当初の見出し問題とは別にログイン画面へ戻されていた。
+- PR #378: 観測した同一originのルートに一意な可視password fieldがあるときだけ、既存Secretで1バッチ最大1回の再認証。未知の転送先・不明なフォーム・繰返す認証失敗は隔離。会社routeと会社/PDF identityのQCは維持。
+- 最終復旧で69/102/119も成功。成功会社を再収集し直す変更や、会社ごとの特例は追加していない。
 
-## 継続中の修正実証（18:10JST）
-- czfhnは停止/重複起動せず継続中。最新43社3361行以上を正常処理。以前scope異常で停止した会社9/27/41等も会社単位隔離で処理できている。
-- 会社39の新規取得PDF19ページは検索337件に対し旧parser336行。実原本をgeneration/SHA照合してGCP内で解析し、8ページ先頭でheader-only表と1行のdata-only表が分離する原因を確認。
-- PR377 HEAD `503031ff507ccb0cfdf8ce5cf6d36e078bfd0aaa` は、直前同一ページの明示header-only表と単一データ行の実際の列境界が一致した場合だけ回復する。装飾blank行の境界を除き、header実行の境界を使用。会社39実原本は**337行/8ページ16行/evidence重複なし**で検索件数一致を実証。正式QCの件数照合は緩和していない。
-- 非公開証拠は現run配下 `company-39-parser-repair-proof.private.json` と既存原本。公開commitに実物件行やPDFは含めない。新規CI39113979450を追跡し、現在run完了後に配置する。
+## 通常週次設定と残る実証
+- Scheduler `tatemono-ulucks-weekly`: ENABLED、`0 4 * * 1`、`Asia/Tokyo`。既存Cloud Run Jobのrun API宛て。
+- 常設args: `-m tatemono_map.cloud.run`。collection_mode `all_companies`、area_id `kitakyushu`、北九州22子エリア。
+- 通常週次はfresh census・新しいPDF取得。以前のpartial releaseやrevisionのproofは収集開始の必須gateにしない。
+- **復旧専用3環境変数は全削除・再照合済み**:
+  `ULUCKS_RECOVERY_ACQUISITION_RUN` / `ULUCKS_RECOVERY_SUCCESSFUL_RELEASE` / `ULUCKS_RECOVERY_UNTIL`
+- 削除前Job設定backup: `deployment-backups/normal-weekly-20261018T131556Z.json`。既存IAM/WIF/Secretは再構築していない。
+- Pagesは既存の毎時23分チェックがGCSの正式release変更を検出して自動公開する。変更なしのscheduleでは重いビルドを省略する。
+- **次回予定は2026-10-19（月）04:00 JST。保存時点では未来であり、無人定期実行の実証待ち。**
+- 次回確認は、Schedulerの実際の定刻起動→Cloud Run終了→正式HEAD→Pages→実Webを観測する。確認目的だけの手動再収集はしない。
+- プログラム側の既知の未解決失敗は0。保留1,004明細/異常20明細の精査、会社16の利用申請、追加建物公開は今回の対象外。
 
-## 着手時の実環境照合（2026-10-18 07:23 UTC）
-- 最新main a77379186a02db3edd82ba63450f790368224bec。PR372/373/374 merged。
-- 実行中Cloud Runなし。前回nrppkは23:33:33 UTC正常終了。
-- 正式release 20261017T224648Z-cfcacaf910f6、HEAD generation1792280010837543。
-- master SHA256 4e7bb67c1ad3b6c81d50173e1ee1adb6fb096d7737aa501082cff8969403c540。
-- public SHA256 a2a7b1f8d5690888932913e7f76d40beb9a2b910acb0edd13f0c16b1cee67abe。
-- 前回69 route/52正常/13失敗/4利用申請。解析3219/採用2468/保留751、新規335、正本7403棟。過去実績と今回を混同しない。
-- 前回失敗: 9/27/41/67/72/98/118/134=住所scope、11/69/102/119=見出し、39=PDF件数。最新positive censusに該当する会社だけ再試行。
-- Scheduler ENABLED、0 4 * * 1、Asia/Tokyo、既存Job URI。未来の無人実行は未確認。
-- 閲覧のみの状態照合Actions39076549763 attempt2、release照合39102735096。
-
-## 保全・接続
-- project tatemono-map / asia-northeast1 / Job tatemono-collection-poc / bucket tatemono-map-poc-523194690131。
-- 既存Actions→WIF→GCPを使用。IAM/WIF/Secret初期構築を繰り返さない。ULUCKS_LOGIN_SECRET参照、値を表示しない。
-- Scheduler即時実行権限は既存deployerにない（get/enableのみ）。Chromeの既存GCP本人セッションは接続済み。今回SCHEDULER_VERIFY mergeではJob配置のみ→既存Scheduler画面から1回強制実行→全工程を観測する。未来の月曜無人実行とは区別。
-- 正式正本・バックアップ・canonical ID/URL/名称/住所/履歴・RealPro/MR/分譲を保持。公開対象IDは直前baseline固定。
-- 非公開PDF/画面/解析/保留情報はprivate GCSのみ。公開GitHub/Actions artifactへ追加しない。QC後HEAD CASとleaseで同時更新を防ぐ。
-- 従来の証拠・経緯はこのファイルのgit履歴を参照。古い成功環境を再構築しない。
+## 保護する範囲
+- canonical建物ID・URL・名称・住所・履歴、RealPro/Mansion Review/分譲データを保護。
+- 既存の未公開424棟、過去差分91棟、今回増えた正本建物を追加Web公開しない。公開ID制限は維持。
+- UI/SEO/デザイン、他ソースの収集、半自動レビュー機能は今回変更していない。
+- 再開時は最新main・GCS正式HEAD・Cloud Run active・Pagesを先に照合。動作中のジョブを二重起動せず、既存の成功成果・認証・環境を再作成しない。
