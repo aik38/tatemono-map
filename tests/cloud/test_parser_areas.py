@@ -99,8 +99,10 @@ def test_separate_header_and_single_data_row_require_identical_column_geometry(t
     SimpleDocTemplate(str(p)).build([
         grid([[""] * 5, header], widths), Spacer(1, 10),
         grid([["架空継続建物", "301", "北九州市小倉北区魚町1-1-1", "55000", "25.0㎡"]], widths),
+        Spacer(1, 10),
         grid([header], widths), Spacer(1, 10),
         grid([["架空誤配置", "999", "北九州市小倉北区魚町2-2-2", "99000", "30.0㎡"]], [140,40,190,60,60]),
+        Spacer(1, 10),
         grid([["架空見出しなし", "998", "北九州市小倉北区魚町3-3-3", "88000", "30.0㎡"]], widths),
     ])
     frame = UlucksParser().parse(p).df
