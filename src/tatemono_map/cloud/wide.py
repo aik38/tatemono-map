@@ -342,7 +342,7 @@ def collect_all(config: dict, credentials: dict, root: Path, on_company) -> list
                             'observed_url':page.url,'code':str(error),'attempt':attempt+1}
                         try:
                             if page.locator('input[type=password]').count()==0:
-                                state['dom']=page.locator('form,h1,h2,h3,table').evaluate_all("els=>els.map(el=>({tag:el.tagName,text:el.innerText,controls:Array.from(el.querySelectorAll('input,button,select')).map(c=>({tag:c.tagName,type:c.type,name:c.name,checked:c.checked}))}))")
+                                state['dom']=page.locator('form,h1,h2,h3,table,#search_list_header').evaluate_all("els=>els.map(el=>({tag:el.tagName,text:el.innerText,controls:Array.from(el.querySelectorAll('input,button,select')).map(c=>({tag:c.tagName,type:c.type,name:c.name,checked:c.checked}))}))")
                                 picture=folder/('failure-'+str(attempt)+'.png')
                                 page.screenshot(path=str(picture),full_page=True)
                         except Exception:pass
