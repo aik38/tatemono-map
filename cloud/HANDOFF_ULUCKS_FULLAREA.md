@@ -12,7 +12,9 @@
 ## 現在の本番実行（2026-10-18 07:48 UTC）
 - PR375 merged、収集source `479ae7731ab53ea785c4f39850befe4314e6a5d5`。CI39108110378成功（新規失敗0）、本番配置39108483763成功。変更前Job設定はprivate GCSへ保全済み。
 - Scheduler画面の強制実行を07:48:40 UTCに1回実施。Scheduler呼出成功、Cloud Run execution `tatemono-collection-poc-9wvnw`。実行ユーザー `tm-weekly-trigger@tatemono-map.iam.gserviceaccount.com` を実画面照合。通常Job args、旧PDF再利用指定なし。
-- **実行中のため二重起動しない。** 同executionのログとprivate-runsを追跡し、QC/CAS/Pages公開まで続行。起動成功を収集/公開完了と混同しない。
+- **同executionは07:54:50 UTC、会社8 PDF解析中のOOM/signal9で終了。正式CASなし、旧HEAD維持。** Task終了07:54:52 UTCを実画面で照合。取得原本とcompany4/6/7のcheckpointはprivate GCSに保存済み。
+- 原因: UlucksParserがpdfplumberのページキャッシュをPDF全体で保持。ページごとのclose/GCに修正し、54ページ参考PDFを1045行/警告0/最大RSS102.2MiBで解析できた（参考資料は実取得実績に未算入）。Job memory2→4GiBの余裕も確保する。
+- SIGKILLによる孤立leaseを停止済execution/owner/generation照合後に安全解除し、修正後は保存済み原本を検証して再利用、未取得会社はfresh取得で本番再開する。再設定・再取得を繰り返さない。
 - 収集run `20261018T074956Z-3f92737cfbba`、private prefix `private-runs/20261018T074956Z-3f92737cfbba/`。16:50 JSTに131社中positive65/zero4/blank62を自動判定、会社4の新PDF6ページ94件を取得・解析。正式CASはまだ未実施。
 - 新しいGCS正式リリースと今回の最終件数は未確定。直前正式リリースは下記の旧releaseを保持。
 - 次回定期予定: 2026-10-19 04:00 Asia/Tokyo。未来の無人定期成功は未確認。
