@@ -13,7 +13,8 @@
 - PR375 merged、収集source `479ae7731ab53ea785c4f39850befe4314e6a5d5`。CI39108110378成功（新規失敗0）、本番配置39108483763成功。変更前Job設定はprivate GCSへ保全済み。
 - Scheduler画面の強制実行を07:48:40 UTCに1回実施。Scheduler呼出成功、Cloud Run execution `tatemono-collection-poc-9wvnw`。実行ユーザー `tm-weekly-trigger@tatemono-map.iam.gserviceaccount.com` を実画面照合。通常Job args、旧PDF再利用指定なし。
 - **実行中のため二重起動しない。** 同executionのログとprivate-runsを追跡し、QC/CAS/Pages公開まで続行。起動成功を収集/公開完了と混同しない。
-- 新しいGCS正式リリースと今回の件数は未確定。直前正式リリースは下記の旧releaseを保持。
+- 収集run `20261018T074956Z-3f92737cfbba`、private prefix `private-runs/20261018T074956Z-3f92737cfbba/`。16:50 JSTに131社中positive65/zero4/blank62を自動判定、会社4の新PDF6ページ94件を取得・解析。正式CASはまだ未実施。
+- 新しいGCS正式リリースと今回の最終件数は未確定。直前正式リリースは下記の旧releaseを保持。
 - 次回定期予定: 2026-10-19 04:00 Asia/Tokyo。未来の無人定期成功は未確認。
 
 ## 着手時の実環境照合（2026-10-18 07:23 UTC）
