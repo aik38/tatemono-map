@@ -1,160 +1,68 @@
-# データフローと Source of Truth（運用メモ）
+# データフローと正本
 
-このページは、建物DB運用における **「どこが正本か / どこを直すべきか / どこを直接触ってはいけないか」** を、図なしで把握するための実務メモです。
+2026-10-19 JST更新。本番の入口はGCS `state/current.json`です。ローカルパスの有無でクラウドの通常週次処理は変わりません。
 
-## 1) 一言で分かる整理
+## 原本から公開まで
 
-- **正本（SoT）**
-  - 建物正本: `data/tatemono_map.sqlite3` の `buildings`
-  - 空室正本: `data/tatemono_map.sqlite3` の `listings`（ただし source ごとの current snapshot 合成で参照）
-  - canonical入力正本: `data/canonical/buildings_master.csv`（canonical建物入力）
-- **入力（weeklyの原材料）**
-  - ZIP/PDF から生成する `tmp/pdf_pipeline/out/.../master_import.csv`
-- **派生物（再生成される結果）**
-  - `building_summaries`（`buildings` + current snapshot の `listings` から集約）
-  - `data/public/public.sqlite3`（公開用スナップショット）
-  - `dist/`（Pages配信用の生成物）
-- **レビュー用（例外処理・監査）**
-  - `tmp/review/new_buildings_*.csv`
-  - `tmp/review/suspects_*.csv`
-  - `tmp/review/unmatched_listings_*.csv`
-- **直接触ってはいけない場所**
-  - `data/public/public.sqlite3` と `dist/` を手修正しない（いずれも結果物）
+| 段階 | 保存先・実体 | 意味と取り扱い |
+| --- | --- | --- |
+| 取得原本 | private GCSのPDF・manifest・evidence | 取得時の証拠。解析しても原本を保存する実装 |
+| 解析・構造化 | `parsed-rows.json`、作業中の`master_import.csv` | PDFから抽出した建物名・住所・募集条件。全行が正式採用されるわけではない |
+| 精査・内部保留 | `review-rows.csv`、private診断、正本内raw履歴等 | 曖昧・異常・未採用の記録。Webへ流さない |
+| 正式採用と履歴 | HEADの`master`参照が指すSQLite | canonical、募集、alias、由来、run、source別currentを保持 |
+| 公開派生DB | HEADの`public`参照が指すSQLite | 非hidden正式採用建物と安全な集約・aliasだけを生成 |
+| 配信成果物 | 検索JSON・HTML・サイトマップ・release marker | Pagesが公開DBから生成し、本番Webで検証 |
 
----
+通常経路は **Scheduler → Cloud Run fresh収集 → 原本保存 → 解析・名寄せ・QC → 正本/公開DB保存・HEAD CAS更新 → Pagesリリース確認 → ビルド・デプロイ・実Web照合** です。WindowsでPDFやZIPを置く工程は必須ではありません。
 
-## 2) 用語整理
+## GCS上の対応
 
-- **canonical building**
-  - canonicalとして確定管理する建物エンティティ。`buildings` の1行。
-- **buildings**
-  - 建物の正本テーブル。建物ID・canonical名/住所・建物属性を保持。
-- **listings**
-  - 空室明細テーブル。取り込みrunごとに `ingest_run_id` を持つ。
-  - `source_kind` は provider 別値（`ulucks` / `realpro` / `mansion_review_chintai` など）を保持する。
-- **building_summaries**
-  - 公開・検索向けの建物集約。current snapshot の空室を合成して `vacancy_count` 等を持つ。
-- **public.sqlite3**
-  - 公開専用DB。`publish_public` で main DB から必要最小限をコピーした派生物（SoTではない）。
-- **canonical CSV**
-  - `data/canonical/buildings_master.csv`。canonical建物入力の正本CSV。
-- **alias**
-  - `building_key_aliases`。表記ゆれ等の alias_key を canonical_key に解決する対応表。
-  - canonical building 本体の代替ではなく、正本への入口を増やすための補助。
-- **building_sources**
-  - `source + evidence_id -> building_id` の由来追跡テーブル。
-- **master_import.csv**
-  - weekly取り込みの入力CSV（ZIP/PDFパイプライン生成物）。
-- **review CSV**
-  - 例外行を人が確認するためのCSV（new_buildings / suspects / unmatched_listings）。
-- **current snapshot**
-  - `current_ingest_snapshots` で source ごとに選ばれた現在有効run。空室集計はこの集合を参照。
-  - 運用上、`ingest_runs.source` / `current_ingest_snapshots.source` は `master_import` を使う。
+```text
+state/current.json
+masters/<release-run>.sqlite3
+public/releases/<release-run>/public.sqlite3
+backups/<collection-run>.sqlite3
+private-runs/<collection-run>/
+  companies/<company-id>/
+    pdf/000.pdf
+    pdf/001.pdf
+    parsed-rows.json
+    review-rows.csv
+  company-<company-id>-manifest.json
+  company-<company-id>-evidence.json
+  company-<company-id>-result.json
+```
 
----
+これは主な全社バッチの構造です。正常0件・失敗・処理段階により存在しないファイルがあります。旧単社runでは`private-runs/<run>/pdf/`等も使用します。公開専用releaseでは取得runとrelease-runが異なり、元の参照先をmanifestや継承証跡で辿ります。
 
-## 3) ファイル / テーブル対応（どれが何か）
+PDF原本は証拠として、解析済み数値・文字列はSQLite等の構造化データとして、それぞれ保持します。manifestにPDFとevidenceのobject・generation・SHA-256、会社・対象設定・期待件数を記録します。`replay.py`は対象範囲・取得時刻・件数・参照先・SHA等を検証して保存済みPDFを読み戻す復旧用処理です。通常週次はfresh収集であり、replayを毎回の必須手順にはしません。
 
-### `data/tatemono_map.sqlite3`（main DB, SoT）
+原本PDF総数、バケットのライフサイクル、実保存期間は今回未確認です。「永久保存」とは記載しません。private原本や解析行・認証情報をPagesへ公開しません。
 
-- `buildings`: 建物正本（canonical建物）
-- `listings`: 空室明細正本（run単位で蓄積）
-- `building_summaries`: 公開用集約（派生）
-- `building_key_aliases`: 表記ゆれ吸収の対応表
-- `building_sources`: 証拠IDと建物IDの対応（由来追跡）
-- `raw_sources`: 生データ保管（現行では `source_kind='master'` を保持）
+## SQLiteの役割
 
-### `data/public/public.sqlite3`（公開DB）
+| テーブル等 | 役割 |
+| --- | --- |
+| `buildings` | 恒久的canonical建物。既存ID・正式名・住所を保護 |
+| `building_key_aliases` / `building_sources` | alias解決、入力証拠と建物の対応 |
+| `listings` / `sale_listings` | 賃貸・分譲の別系統の募集と履歴 |
+| `ingest_runs` / `current_ingest_snapshots` | 実行記録とソース別の現在有効run |
+| `cloud_scope_bindings` / `cloud_baseline_ownership` | クラウド対象範囲と確認済み旧明細所有範囲 |
+| `raw_sources` | 入力原文等のprivate履歴。PDFファイル自体の代替ではない |
+| `building_summaries`等 | 有効snapshotを合成した公開向け集約（再生成可能） |
 
-- main DB から生成する公開スナップショット。
-- SoTではない。運用上は「作り直すもの」。
+`listings`を単なる一時派生物として廃棄しません。履歴を保持し、公開集約はsource別currentを使用します。Ulucksのscopeは`ulucks:<scope-hash>`で、旧取り込みrunには`master_import`等もあります。すべてのsource名を`master_import`へ固定しません。
 
-### `data/canonical/buildings_master.csv`（canonical入力）
+## 採用と公開の境界
 
-- canonical建物を人手管理する入力正本CSV。
-- 建物の手修正はまずここ（または canonical側入力）を直す。
+高信頼な既存マッチ・新規auto-seedは正式採用、曖昧・異常行はprivate保留です。正式採用された非hidden建物を原則自動公開し、過去の公開DBを許可リストにしません。旧公開DBは既存IDの欠落検出用です。
 
-### `tmp/pdf_pipeline/out/.../master_import.csv`（weekly入力）
+検索・ページの統合は整合する明示的canonical aliasに限定します。名称・住所一致だけで別IDを消しません。募集0件でも建物は残し、失敗したソースのsnapshotを正常0件として置き換えません。
 
-- ZIP/PDFから生成される ingest 入力。
-- `listings` 更新・新規候補検出（auto-seed判定含む）の入口。
+## ローカルファイルと例外修正
 
-### `tmp/review/*.csv`（例外処理/監査）
+`data/tatemono_map.sqlite3`は開発・旧手動運用で使うパスで、クラウド本番の所在を意味しません。`data/canonical/buildings_master.csv`等のCSVは初回投入や手動補助入力であり、運用中のGCS正本に優先しません。
 
-- `new_buildings_*.csv`: auto-seedで追加された建物の監査ログ
-- `suspects_*.csv`: 曖昧で要確認な候補
-- `unmatched_listings_*.csv`: 建物に解決できなかった明細
+`data/public/public.sqlite3`はPages取得先または開発用公開スナップショット、`dist/`は配信生成物です。直接編集して本番修正としません。建物修正は[correction仕様](building_corrections_csv.md)の記録・dry-runを参考に、最新GCS正本・バックアップ・世代一致を前提とする別作業で行います。古いローカルDBのアップロードで代用しません。
 
----
-
-## 4) weekly 更新フロー（実務順）
-
-1. ZIP/PDF を所定場所に置く。
-2. PDFパイプラインで `master_import.csv` を作る。
-3. `ingest_master_import` で `listings` を取り込み、必要時のみ高信頼新規建物を `buildings` へ auto-seed。
-4. `building_summaries` を current snapshot 合成で再構築。
-5. `publish_public` で `data/public/public.sqlite3` を更新。
-6. `render.build` / Pages CI で `dist` を生成・公開。
-
-補足:
-- source ごとの current snapshot は QC を通った run のみ切り替える。
-- `publish_public` 失敗時は current snapshot を戻し、公開状態を壊さない。
-
----
-
-## 5) 重要ルール（このrepoの現行運用）
-
-- 既存建物（canonical `buildings`）は消さない。
-- 空室は source ごとの current snapshot から更新する。
-- 新規建物の auto-seed は高信頼条件を満たす場合のみ。
-- 怪しい行は review CSV に残して人手確認へ回す。
-- `public.sqlite3` と `dist` は結果物。直接修正しない。
-
----
-
-## 6) 重複・曖昧ケースの扱い
-
-- **aliasで吸収するもの**
-  - 同じ建物を指す表記ゆれ・別名として確信できるものは `building_key_aliases` で canonical に寄せる。
-  - canonical名/住所/同定自体の誤りが疑われる場合は、aliasだけで吸収せず canonical入力側の修正可否を先に判断する。
-- **source evidence で追うもの**
-  - どの入力根拠で建物に紐づいたかは `building_sources` で追跡する。
-- **suspects / unmatched に落とすもの**
-  - 曖昧一致・低信頼候補・解決不能行は review CSV に出力し、自動確定しない。
-- **人が確認すべき場所**
-  - `tmp/review/suspects_*.csv` と `tmp/review/unmatched_listings_*.csv` を優先確認し、必要に応じて「canonical入力を直すケース」と「aliasで吸収するケース」を分けて更新する。
-
----
-
-## 7) 人が直すならどこか（運用者向け）
-
-- **建物マスターの修正**
-  - `data/canonical/buildings_master.csv`（または canonical入力ルート）を修正する。
-- **表記ゆれ吸収の修正**
-  - 同一建物の表記ゆれ吸収は alias方針に従って `building_key_aliases` 側で吸収する。
-  - ただし誤った canonical building を alias だけで無理に吸収し続けない（必要なら canonical入力側を先に修正する）。
-- **由来確認**
-  - `building_sources` と review CSV を見て証拠ID単位で追う。
-- **直接触るべきでない結果物**
-  - `data/public/public.sqlite3` / `dist/` は直接修正せず、ingest→publish→build で再生成する。
-- **reviewで見るCSV**
-  - 新規監査: `new_buildings_*.csv`
-  - 要確認: `suspects_*.csv`
-  - 未解決: `unmatched_listings_*.csv`
-
----
-
-## 8) ありがちな誤解（FAQ）
-
-- **Q. public DB は正本か？**
-  - A. いいえ。`public.sqlite3` は公開用の派生スナップショットです。
-- **Q. dist を直接直せばよいか？**
-  - A. いいえ。`dist` はCIで再生成される成果物です。
-- **Q. review CSV は未反映データそのものか？**
-  - A. いいえ。例外・監査対象の抽出結果です。確定反映には人手判断が必要です。
-- **Q. auto-seed された建物はどこで追うか？**
-  - A. `new_buildings_*.csv`（`ingest_run_id` / `source_evidence_id` / `building_id`）と `building_sources` で追跡します。
-
-## Cloud scoped snapshots
-
-Ulucks cloud jobs retain `listings.source_kind=ulucks` and the existing rental/sale priority contract. A successful company/area update adds a `current_ingest_snapshots.source=ulucks:<scope-hash>` pointer. Existing source pointers remain active. `cloud_scope_bindings` records the immutable target identity; `cloud_baseline_ownership` contains explicitly reviewed legacy listing keys. Only after the corresponding cloud scope has a current pointer does aggregation exclude its owned legacy rows. Historical rows and canonical building IDs are retained. See `cloud/README.md` for private bootstrap and atomic GCS master/public release details.
+詳細: [spec](spec.md)、[データ契約](data_contract.md)、[本番Runbook](runbook.md)、[履歴索引](archive/README.md)。

@@ -1,5 +1,7 @@
 # unmatched_report.ps1 運用メモ
 
+> 手動分析補助（2026-10-19 JST）: ローカルDB/CSV向けの集計です。クラウド正本やprivate保留はGCS HEADと会社別manifest/resultから確認し、[Runbook](runbook.md)に従います。人間の週次必須作業や追加公開承認ではありません。
+
 ## 目的
 `tmp/review/unmatched_listings_*.csv` の傾向を、**週次の最小確認**で把握するための簡易集計です。  
 パイプライン本体は改造せず、既存CSVを読むだけに限定します。

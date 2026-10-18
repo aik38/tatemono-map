@@ -1,5 +1,7 @@
 # `building_corrections.csv` 仕様（correction サブフロー実行台帳）
 
+> 2026-10-19 JST補足: このCSV/CLIは例外訂正の技術仕様・手動補助です。通常週次の公開承認には使用しません。本番はGCS HEADが指す正本であり、以下のローカルapply/publish/push例だけで本番修正とはしません。最新正本・バックアップ・世代一致・後発更新保護を前提に別の変更作業として適用します。名称/住所の一致だけで別canonical IDを統合せず、review_duplicateは判断資料、hiddenは明示的除外です。[Runbook](runbook.md)参照。
+
 ## 1. 役割（このCSVを何に使うか）
 
 `tmp/manual/building_corrections.csv` は、フロントエンド確認・目視レビュー・手動検証で見つけた建物情報の誤りを記録するCSVです。  

@@ -63,3 +63,17 @@ project tatemono-map / region asia-northeast1 / bucket tatemono-map-poc-52319469
 6. 配置後Jobが実装SHAのimageと TATEMONO_SOURCE_COMMIT を使い、args=-m tatemono_map.cloud.run、all_companies/kitakyushu、復旧用環境変数なしを確認。SchedulerはENABLED、0 4 * * 1、Asia/Tokyoを維持。
 7. Pages artifact内の全建物ページ・JSON・sitemap ID集合と、追加/既存の実URLを確認してこの文書を実績へ更新する。
 8. 通常週次との接続は公開専用HEAD→fresh batch→新規採用→自動公開の統合テストで成功。次の実際の定刻実行の成功と混同しない。
+
+## 後続結果追記（2026-10-19 JST文書整合時）
+
+上の「途中状態」「実行中／未完了」「再開する具体的操作」は保存時点の原記録です。原文を変更せず、後続の確認結果を追記します。完了済み操作を再実行する指示ではありません。
+
+- [Cloud配置 #39138548455](https://github.com/aik38/tatemono-map/actions/runs/39138548455)はsuccess。収集なしのWork B配置を完了。
+- 手動Pages #39138925727はcancelled。後続の[Pages #39139167694](https://github.com/aik38/tatemono-map/actions/runs/39139167694)がrelease_check/build/deployを完了し、実Web照合・Scheduler確認もsuccess。
+- 当該runログにrelease `20261018T150227Z-f7fc07ea9a53`、公開DB/検索JSON7,550、公開空室7,000を確認。上記正本7,556・hidden6の内訳を当該リリースの履歴値として維持し、現在値に固定しない。
+- [後続schedule #39142974069](https://github.com/aik38/tatemono-map/actions/runs/39142974069)はrelease_check success、build/deploy skipped。変更なし確認であり新収集ではない。
+- 現行の正式採用非hidden建物は自動公開し、旧公開DBを許可リストにしない。追加の毎週人間承認なし。
+- 2026-10-19 04:00 JSTの定刻無人収集は文書整理時点では未来。Scheduler設定/確認成功と定刻収集成功は区別し、後者は未実証。
+- 今回は文書のみ。Ulucks再収集、republish、Cloud Run実行/配置、GCS HEAD/DB更新、Scheduler/Workflow設定変更は実施しない。
+
+現在の手順は[Cloud README](README.md)と[Runbook](../docs/runbook.md)を参照します。

@@ -1,5 +1,7 @@
 # Ulucks Phase A（smartlink 一覧のみ）
 
+> 過去検証・手動補助（2026-10-19 JST整理）: 以下はsmartlink一覧解析モジュールの仕様であり、現行の全社・北九州全域PDF収集とは別経路です。group keyはこの解析内の集計キーで、恒久canonical IDや公開除外条件ではありません。[現行Cloud](../cloud/README.md)を通常運用の参照先にしてください。
+
 ## 目的
 Phase A は **smartlink 一覧ページのみ** を巡回・解析して、建物サマリ（建物単位の空室集計）を作成します。`/view/detail page/<id>/` のリンクIDは抽出しますが、detail page 個別ページには遷移しません。
 

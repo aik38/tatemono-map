@@ -1,8 +1,8 @@
 # Manual PDF(CSV) ingest runbook
 
-本ドキュメントは、正式ルート「手動で保存した PDF → ChatGPT で CSV 化 → DB upsert → dist build」を固定化するための正本です。
+本書は旧手動ルート「保存PDF → CSV化 → ローカルDB → dist」の技術参照・手動補助です。2026-10-19 JST現在のUlucks通常週次は[Cloud経路](../cloud/README.md)で自動取得・解析・公開します。ローカルDB/CSVはGCS正式正本に優先せず、この手順だけで本番正本更新は成立しません。
 
-## 1. 正式ルート（PDF→CSV→DB→dist）
+## 1. 手動補助ルート（PDF→CSV→ローカルDB→dist）
 
 1. 新しい物件 PDF を手動で保存する（`tmp/manual/*.pdf`）。
    - 「60件」は管理画面プルダウンの**表示件数の例**です。PDF件数そのものは管理会社・検索条件で変動し、10〜500件以上になることがあります。

@@ -66,3 +66,13 @@
 - 既存の未公開424棟、過去差分91棟、今回増えた正本建物を追加Web公開しない。公開ID制限は維持。
 - UI/SEO/デザイン、他ソースの収集、半自動レビュー機能は今回変更していない。
 - 再開時は最新main・GCS正式HEAD・Cloud Run active・Pagesを先に照合。動作中のジョブを二重起動せず、既存の成功成果・認証・環境を再作成しない。
+
+## 後続Work B結果追記（2026-10-19 JST文書整合時）
+
+上記「既存未公開・今回増えた正本建物を追加Web公開しない」「公開ID制限維持」はWork A当時の範囲です。その原記録は保持しますが、現行公開仕様には使用しません。
+
+後続Work Bでは正式採用された非hidden建物を原則自動公開し、旧公開DBを新規建物の許可リストにする制限を廃止しました。`hidden_from_public`とprivate保留は維持しています。
+
+公開専用release `20261018T150227Z-f7fc07ea9a53`の記録は正本7,556、公開DB/検索JSON7,550、公開空室7,000、hidden6。Ulucks追加488のうち487、過去未公開91のうち86を公開し、残る1+5は明示的hiddenを維持しました。これは時点実績です。
+
+[Cloud配置 #39138548455](https://github.com/aik38/tatemono-map/actions/runs/39138548455)と[Pages #39139167694](https://github.com/aik38/tatemono-map/actions/runs/39139167694)はsuccessで、Pagesの実Web照合も成功。Work Bの新規PDF取得は0件です。詳細は[Work B追記](HANDOFF_WORK_B_PUBLICATION.md)と[現行Cloud](README.md)を参照します。定刻無人実行は別の実証で、文書整理時点の次回04:00 JST実行前には成功と扱いません。
