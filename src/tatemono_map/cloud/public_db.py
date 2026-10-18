@@ -133,14 +133,32 @@ def export_public(master: Path, output: Path, *, baseline: Path | None = None) -
     return counts
 
 
-def rendered_ids(database: Path) -> set[str]:
-    """Only explicit canonical aliases can reduce the search/page ID set."""
+def publication_merge_targets(database: Path) -> dict[str, str]:
+    """A stale alias cannot override two contradictory canonical identities."""
     from tatemono_map.normalize.effective_rentals import canonical_key
+    from tatemono_map.util.text import normalize_text
     ids, _ = publication_ids(database)
     with readonly(database) as conn:
         present = conn.execute("SELECT 1 FROM sqlite_master WHERE name='building_key_aliases'").fetchone()
         mapping = dict(conn.execute('SELECT alias_key,canonical_key FROM building_key_aliases')) if present else {}
-    return {target if (target := canonical_key(key, mapping)) in ids else key for key in ids}
+        identities = {}
+        for key, name, address, norm_name, norm_address in conn.execute(
+                'SELECT building_id,canonical_name,canonical_address,norm_name,norm_address FROM buildings'):
+            identities[key] = ((normalize_text(norm_name) or normalize_text(name)).lower(),
+                (normalize_text(norm_address) or normalize_text(address)).lower())
+    result = {}
+    for key in ids:
+        target = canonical_key(key, mapping)
+        if (target != key and target in ids and all(identities[key])
+                and identities[key] == identities[target]):
+            result[key] = target
+    return result
+
+
+def rendered_ids(database: Path) -> set[str]:
+    """Only consistent explicit canonical aliases reduce the search/page set."""
+    ids, _ = publication_ids(database)
+    return ids - publication_merge_targets(database).keys()
 
 
 def id_fingerprint(ids) -> str:

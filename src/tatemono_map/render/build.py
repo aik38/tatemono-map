@@ -1136,10 +1136,12 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
     # Names and addresses are not identities (separate blocks can share both).
     # Only an explicit registry alias can collapse distinct IDs. Keep the
     # canonical row and redirect every historical URL of the merged row.
+    from tatemono_map.cloud.public_db import publication_merge_targets
+    merge_targets = publication_merge_targets(Path(db_path))
     by_id = {str(b['building_key']): b for b in building_list}
     merged = set()
     for key, building in by_id.items():
-        target = resolve_canonical_key(key, alias_map)
+        target = merge_targets.get(key, key)
         if target != key and target in by_id:
             by_id[target].setdefault('merged_urls', []).extend(
                 [_build_detail_filename(building), f'{key}.html'])
