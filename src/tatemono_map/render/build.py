@@ -1133,15 +1133,20 @@ def _load_buildings(db_path: str) -> tuple[list[dict], int, int, int, int]:
         }
         building["sale_current"] = sale_current_map.get(canonical_key) or sale_current_map.get(building_key) or {}
 
-    deduped_buildings: dict[tuple[str, str], dict] = {}
-    for building in building_list:
-        dedupe_key = _dedupe_building_key(building)
-        if not dedupe_key[0] and not dedupe_key[1]:
-            dedupe_key = (str(building.get("building_key") or ""), "")
-        current = deduped_buildings.get(dedupe_key)
-        if current is None or _building_information_score(building) > _building_information_score(current):
-            deduped_buildings[dedupe_key] = building
-    building_list = list(deduped_buildings.values())
+    # Names and addresses are not identities (separate blocks can share both).
+    # Only an explicit registry alias can collapse distinct IDs. Keep the
+    # canonical row and redirect every historical URL of the merged row.
+    from tatemono_map.cloud.public_db import publication_merge_targets
+    merge_targets = publication_merge_targets(Path(db_path))
+    by_id = {str(b['building_key']): b for b in building_list}
+    merged = set()
+    for key, building in by_id.items():
+        target = merge_targets.get(key, key)
+        if target != key and target in by_id:
+            by_id[target].setdefault('merged_urls', []).extend(
+                [_build_detail_filename(building), f'{key}.html'])
+            merged.add(key)
+    building_list = [b for key, b in by_id.items() if key not in merged]
     print(
         "render_kpi_counts canonical_buildings_count={} summary_buildings_count={} vacancy_total={}".format(
             canonical_buildings_count,
@@ -1585,6 +1590,13 @@ def _build_dist_version(
                 target_label=str(b.get("name") or "建物詳細"),
             )
             (output_dir / "b" / b["legacy_detail_filename"]).write_text(legacy_stub, encoding="utf-8")
+
+        for old_filename in b.get('merged_urls', []):
+            if old_filename != b['detail_filename']:
+                (output_dir / 'b' / old_filename).write_text(
+                    _render_legacy_redirect_stub(canonical_url=seo['canonical_url'],
+                        target_path=detail_path, target_label=str(b.get('name') or '建物詳細')),
+                    encoding='utf-8')
 
     _write_favicon_assets(output_dir, base_path=base_path)
     _write_buildings_json(output_dir, buildings)

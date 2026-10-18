@@ -15,7 +15,7 @@ def test_accounted_partial_release_publishes_only_checked_public_fields(store,co
     assert result['report']['parsed_rows']==2 and result['report']['attached_rows']==1
     output=tmp_path/'published.sqlite3';marker=tmp_path/'marker.json'
     public=fetch(store,output,marker)
-    assert set(public)=={'schema','run_id','public_sha256','source_commit','counts','proof'}
+    assert set(public)=={'schema','run_id','public_sha256','source_commit','counts','proof','rendered_buildings','rendered_ids_sha256'}
     assert '非公開保留専用名称'.encode() not in output.read_bytes()
     assert 'review_key' not in marker.read_text() and '非公開保留専用名称' not in marker.read_text()
     store.head['report']['row_counts']['held']=0

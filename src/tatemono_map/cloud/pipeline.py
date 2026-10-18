@@ -271,11 +271,8 @@ def update_master(master: Path, pdfs: list[Path], expected_rows: int, config: di
     rebuild(str(master))
     validate_master(master)
     counts = export_public(master, work / "public.sqlite3", baseline=public_baseline)
-    if public_baseline is not None:
-        from tatemono_map.cloud.public_db import publication_ids
-        public_ids, _ = publication_ids(public_baseline)
-    else:
-        public_ids = None
+    from tatemono_map.cloud.public_db import rendered_ids
+    public_ids = rendered_ids(master)
     with readonly(master) as conn:
         counts_after = {t: conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in counts_before}
         affected = previous_buildings | {row[0] for row in conn.execute("SELECT DISTINCT building_key FROM listings WHERE ingest_run_id=?", (report.ingest_run_id,))}

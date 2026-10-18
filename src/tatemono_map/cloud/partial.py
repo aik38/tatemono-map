@@ -126,6 +126,29 @@ class PartialIngest:
                 self.scope,self.run,evidence,self.company,item['review_key'],item['classification'],item['building_id'],
                 item['row'].get('room',''),json.dumps(item['row'],ensure_ascii=False),item['reason'],
                 json.dumps(item['candidates']),item['listing_key']))
+        # A seed is provisional until at least one final offer is accepted.
+        # Conflicting rows above can revoke every offer after auto-seeding.
+        # Keep the complete seed in private raw history; never adopt that
+        # empty provisional registry row or change any pre-existing building.
+        accepted = {i['building_id'] for i in self.rows.values()
+                    if i['classification'] in ('accepted_existing', 'accepted_new')}
+        provisional = {i['building_id'] for i in self.rows.values() if i['building_id']} - self.initial - accepted
+        for building in provisional:
+            if (self.conn.execute('SELECT 1 FROM listings WHERE building_key=?', (building,)).fetchone()
+                    or self.conn.execute('SELECT 1 FROM sale_listings WHERE building_key=?', (building,)).fetchone()):
+                continue
+            row = self.conn.execute('SELECT * FROM buildings WHERE building_id=?', (building,)).fetchone()
+            if row is None:
+                continue
+            sources = self.conn.execute('SELECT * FROM building_sources WHERE building_id=?', (building,)).fetchall()
+            aliases = self.conn.execute('SELECT * FROM building_key_aliases WHERE canonical_key=? OR alias_key=?', (building, building)).fetchall()
+            payload = {'reason': 'no_final_accepted_offer', 'building': dict(row),
+                'sources': [dict(r) for r in sources], 'aliases': [dict(r) for r in aliases]}
+            self.conn.execute("INSERT INTO raw_sources(provider,source_kind,source_url,content) VALUES ('ulucks','held_building_seed',?,?)",
+                (f'{self.scope}:{self.run}:{building}', json.dumps(payload, ensure_ascii=False)))
+            self.conn.execute('DELETE FROM building_sources WHERE building_id=?', (building,))
+            self.conn.execute('DELETE FROM building_key_aliases WHERE canonical_key=? OR alias_key=?', (building, building))
+            self.conn.execute('DELETE FROM buildings WHERE building_id=?', (building,))
         counts=defaultdict(int)
         for item in self.rows.values():counts[item['classification']]+=1
         return dict(counts)

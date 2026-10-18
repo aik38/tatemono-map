@@ -11,7 +11,7 @@ from tatemono_map.cloud.collector import CollectionError, validate_config
 from tatemono_map.cloud.pipeline import update_master, validate_master
 from tatemono_map.cloud.pipeline import unit_room
 from tatemono_map.cloud.public_db import export_public, readonly, validate_public, snapshot_sqlite
-from tatemono_map.cloud.storage import commit_release, validate_head
+from tatemono_map.cloud.storage import commit_release, validate_head, collection_run_id
 from tatemono_map.cloud.wide import collect_all,CompanyUnavailable
 
 
@@ -56,7 +56,7 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
     previous=[]
     reference=head['report'].get('company_catalog_ref')
     if reference is not None:
-        if reference.get('object')!=f"private-runs/{head['run_id']}/company-catalog.json":
+        if reference.get('object')!=f"private-runs/{collection_run_id(head)}/company-catalog.json":
             raise CollectionError('previous_company_catalog_reference_invalid')
         previous_file=work/'previous-company-catalog.json'
         store.download(reference,previous_file)
@@ -228,7 +228,9 @@ def execute_all(store, config: dict, credentials: dict, work: Path, source_commi
         counts=export_public(master,work/'public.sqlite3',baseline=baseline)
         with readonly(master) as conn:
             final_counts={t:conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in initial_counts}
-        proof=public_proof(work/'public.sqlite3',affected)
+        from tatemono_map.cloud.public_db import rendered_ids
+        public_ids = rendered_ids(work/'public.sqlite3')
+        proof=public_proof(work/'public.sqlite3',affected & public_ids)
         total=sum(r['parsed_rows'] for r in reports)
         pdfs=sum(r['pdf_count'] for r in reports)
         report={'collection_mode':'all_companies','area_id':'kitakyushu','company_count':len(catalog),
