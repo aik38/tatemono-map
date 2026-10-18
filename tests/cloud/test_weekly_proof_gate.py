@@ -9,12 +9,20 @@ def test_weekly_full_collection_requires_complete_proof_for_its_revision():
     assert not all_company_proof_ready({**head,'report':{**head['report'],'collection_mode':'company8'}},'a'*40)
 
 
-def test_normal_weekly_execution_does_not_read_prior_proof(monkeypatch,config):
+import pytest
+
+@pytest.mark.parametrize('recovery_hours',[None,-1,1])
+def test_normal_weekly_execution_does_not_read_prior_proof(monkeypatch,config,recovery_hours):
     import json
     from contextlib import nullcontext
     from types import SimpleNamespace
     from tatemono_map.cloud import run,batch
+    from datetime import datetime,timezone,timedelta
     calls=[]
+    monkeypatch.delenv('ULUCKS_RECOVERY_UNTIL',raising=False)
+    if recovery_hours is not None:
+        monkeypatch.setenv('ULUCKS_RECOVERY_UNTIL',(datetime.now(timezone.utc)+timedelta(hours=recovery_hours)).isoformat())
+        monkeypatch.setenv('ULUCKS_RECOVERY_ACQUISITION_RUN','20261018T074956Z-3f92737cfbba')
     monkeypatch.setattr(run,'GCSStore',lambda bucket:SimpleNamespace(collection_lease=lambda owner:nullcontext()))
     monkeypatch.setattr(run,'secret_json',lambda ref:{})
     def execute(*args,**kwargs):
@@ -29,4 +37,4 @@ def test_normal_weekly_execution_does_not_read_prior_proof(monkeypatch,config):
     assert run.main()==0
     assert len(calls)==1
     assert calls[0][1]['reuse_release'] is None
-    assert calls[0][1]['replay_acquisition_run'] is None
+    assert calls[0][1]['replay_acquisition_run']==('20261018T074956Z-3f92737cfbba' if recovery_hours==1 else None)

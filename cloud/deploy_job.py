@@ -84,7 +84,7 @@ def main():
     print('Private Job backup verified; immutable deployment intent recorded.', flush=True)
     gc("run", "jobs", "update", job, "--region", region, "--image", env["COLLECTOR_IMAGE"],
        "--service-account", env["GCP_RUNTIME_SERVICE_ACCOUNT"], "--command=python", "--args=-m,tatemono_map.cloud.run",
-       "--tasks=1", "--parallelism=1", "--max-retries=0", "--task-timeout=21600s" if env.get('ULUCKS_EXPANSION_STAGE')=='all' else "--task-timeout=3600s", "--memory=2Gi", "--cpu=1",
+       "--tasks=1", "--parallelism=1", "--max-retries=0", "--task-timeout=21600s" if env.get('ULUCKS_EXPANSION_STAGE')=='all' else "--task-timeout=3600s", "--memory=4Gi", "--cpu=1",
        "--update-env-vars", "^|^" + "|".join(f"{k}={v}" for k, v in variables.items()),
        "--update-labels", f"managed-by=tatemono-cloud,source-commit={env['GITHUB_SHA']}")
     generation = gc("run", "jobs", "describe", job, "--region", region, "--format=value(metadata.generation)")
