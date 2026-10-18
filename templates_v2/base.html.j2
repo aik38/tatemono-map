@@ -29,6 +29,20 @@
       root.classList.remove("theme-ph", "theme-mercari");
       if (theme === "ph") root.classList.add("theme-ph");
       if (theme === "mercari") root.classList.add("theme-mercari");
+      if (allowed.has(q)) {
+        document.addEventListener("click", (event) => {
+          if (event.defaultPrevented || event.button !== 0 ||
+              event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+          const link = event.target.closest && event.target.closest("a[href]");
+          if (!link || link.hasAttribute("download") ||
+              (link.target && link.target !== "_self")) return;
+          const destination = new URL(link.href, window.location.href);
+          if (destination.origin !== window.location.origin) return;
+          if (allowed.has(destination.searchParams.get("theme"))) return;
+          destination.searchParams.set("theme", q);
+          link.href = destination.href;
+        }, true);
+      }
     })();
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
