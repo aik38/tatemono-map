@@ -36,6 +36,13 @@
 - PR377では既存の正式成功scope検証再利用を、最大3hの明示windowに限り `ULUCKS_RECOVERY_SUCCESSFUL_RELEASE` でも指定可能。現在runの正式HEADを確認した後、そのreleaseを指定し失敗会社だけfreshで再試行する。正常会社のPDF再取得/再解析は不要。期限後の通常週次は必ずfresh。
 - 次回の復旧では旧 `ULUCKS_RECOVERY_ACQUISITION_RUN` を外し、同じ通常args/Scheduler経路を使う。最後に復旧専用3env（ACQUISITION_RUN/SUCCESSFUL_RELEASE/UNTIL）を除去して週次設定・Pages実公開を確認する。
 
+
+## 継続中の修正実証（18:10JST）
+- czfhnは停止/重複起動せず継続中。最新43社3361行以上を正常処理。以前scope異常で停止した会社9/27/41等も会社単位隔離で処理できている。
+- 会社39の新規取得PDF19ページは検索337件に対し旧parser336行。実原本をgeneration/SHA照合してGCP内で解析し、8ページ先頭でheader-only表と1行のdata-only表が分離する原因を確認。
+- PR377 HEAD `503031ff507ccb0cfdf8ce5cf6d36e078bfd0aaa` は、直前同一ページの明示header-only表と単一データ行の実際の列境界が一致した場合だけ回復する。装飾blank行の境界を除き、header実行の境界を使用。会社39実原本は**337行/8ページ16行/evidence重複なし**で検索件数一致を実証。正式QCの件数照合は緩和していない。
+- 非公開証拠は現run配下 `company-39-parser-repair-proof.private.json` と既存原本。公開commitに実物件行やPDFは含めない。新規CI39113979450を追跡し、現在run完了後に配置する。
+
 ## 着手時の実環境照合（2026-10-18 07:23 UTC）
 - 最新main a77379186a02db3edd82ba63450f790368224bec。PR372/373/374 merged。
 - 実行中Cloud Runなし。前回nrppkは23:33:33 UTC正常終了。
