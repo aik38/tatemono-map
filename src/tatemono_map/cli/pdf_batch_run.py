@@ -432,6 +432,7 @@ class UlucksParser:
         rows: List[Dict[str, Any]] = []
         current_ward = ""
         document_updated = ""
+        pending_header = None
         with pdfplumber.open(str(pdf_path)) as pdf:
             for pi, page in enumerate(pdf.pages, start=1):
                 try:
@@ -457,18 +458,55 @@ class UlucksParser:
                                 areas = re.findall(rf"(?:^|\n)\s*({ULUCKS_AREA_RE})\s+\S", heading)
                                 if areas:
                                     current_ward = areas[-1]
-                            tables_with_hints.append((table.extract(), current_ward or ward_hint))
+                            edges = tuple(sorted({round(float(x), 2) for cell in getattr(table, "cells", []) for x in (cell[0], cell[2])}))
+                            tables_with_hints.append((table.extract(), current_ward or ward_hint, edges))
                             previous_bottom = table.bbox[3]
                     else:
-                        tables_with_hints = [(table, ward_hint) for table in (page.extract_tables() or [])]
-                    for table_i, (tb, table_ward) in enumerate(tables_with_hints, start=1):
-                        if not tb or len(tb) < 2:
+                        tables_with_hints = [(table, ward_hint, ()) for table in (page.extract_tables() or [])]
+                    for table_i, (tb, table_ward, edges) in enumerate(tables_with_hints, start=1):
+                        preceding = pending_header
+                        pending_header = None
+                        if not tb:
                             continue
-                        header = [normalize_pdf_text(c) for c in tb[0]]
-                        if not ("物件名" in header and "号室" in header and "賃料" in header):
+                        header = None
+                        body = []
+                        for hi, candidate in enumerate(tb[:3]):
+                            normalized = [normalize_pdf_text(c) for c in (candidate or [])]
+                            if all(not normalize_pdf_text(c) for row in tb[:hi] for c in (row or [])) and all(
+                                key in normalized for key in ("物件名", "号室", "賃料", "所在地")
+                            ):
+                                header = normalized
+                                body = list(enumerate(tb[hi + 1:], start=hi + 1))
+                                break
+                        if header is None:
+                            # The live print can split an explicit header-only
+                            # table from its single data row at a page boundary.
+                            # Reuse only that immediately preceding same-page
+                            # header, with identical observed column geometry.
+                            if not preceding or not edges or len(tb) != 1:
+                                continue
+                            previous_header, previous_edges, previous_page, previous_table, previous_ward = preceding
+                            if not (
+                                previous_page == pi and previous_table + 1 == table_i
+                                and previous_ward == table_ward
+                                and len(edges) == len(previous_edges)
+                                and all(abs(a - b) <= 0.5 for a, b in zip(edges, previous_edges))
+                                and len(tb[0]) == len(previous_header)
+                            ):
+                                continue
+                            header = previous_header
+                            candidate_idx = {h: header.index(h) for h in header if h}
+                            if not all(get_cell_text(tb[0], candidate_idx, [key]) for key in ("物件名", "所在地")):
+                                continue
+                            if not re.search(r"\\d", get_cell_text(tb[0], candidate_idx, ["賃料"])):
+                                continue
+                            body = [(0, tb[0])]
+                        if not any(r and any(normalize_pdf_text(c) for c in r) for _, r in body):
+                            if edges:
+                                pending_header = (header, edges, pi, table_i, table_ward)
                             continue
                         idx = {h: header.index(h) for h in header if h}
-                        for row_i, r in enumerate(tb[1:], start=1):
+                        for row_i, r in body:
                             if not r or all(normalize_pdf_text(c) == "" for c in r):
                                 continue
                             r = list(r) + [None] * (len(header) - len(r))

@@ -81,3 +81,30 @@ def test_explicit_fukuoka_town_completes_its_unique_county_without_previous_ward
         assert municipality_of(actual)=='遠賀郡芦屋町'
     assert complement_print_address('北九州市小倉北区魚町1-1-1','遠賀郡')=='北九州市小倉北区魚町1-1-1'
     assert complement_print_address('兵庫県芦屋市架空町1-2','遠賀郡')=='兵庫県芦屋市架空町1-2'
+
+
+def test_separate_header_and_single_data_row_require_identical_column_geometry(tmp_path):
+    from reportlab.platypus import Spacer
+    pdfmetrics.registerFont(UnicodeCIDFont("HeiseiKakuGo-W5"))
+    header = ["物件名", "号室", "所在地", "賃料", "面積"]
+    widths = [130, 50, 190, 60, 60]
+    def grid(rows, columns):
+        t = Table(rows, colWidths=columns)
+        t.setStyle(TableStyle([
+            ("FONTNAME", (0,0), (-1,-1), "HeiseiKakuGo-W5"),
+            ("GRID", (0,0), (-1,-1), 0.5, colors.black),
+        ]))
+        return t
+    p = tmp_path / "synthetic-separated-header.pdf"
+    SimpleDocTemplate(str(p)).build([
+        grid([[""] * 5, header], widths), Spacer(1, 10),
+        grid([["架空継続建物", "301", "北九州市小倉北区魚町1-1-1", "55000", "25.0㎡"]], widths),
+        grid([header], widths), Spacer(1, 10),
+        grid([["架空誤配置", "999", "北九州市小倉北区魚町2-2-2", "99000", "30.0㎡"]], [140,40,190,60,60]),
+        grid([["架空見出しなし", "998", "北九州市小倉北区魚町3-3-3", "88000", "30.0㎡"]], widths),
+    ])
+    frame = UlucksParser().parse(p).df
+    assert frame["building_name"].tolist() == ["架空継続建物"]
+    assert frame["room"].tolist() == ["301"]
+    assert frame["rent_man"].tolist() == [5.5]
+    assert frame["evidence_id"].is_unique
