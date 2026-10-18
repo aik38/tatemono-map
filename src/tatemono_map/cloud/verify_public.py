@@ -17,6 +17,11 @@ def compare(marker: dict, rows: list[dict]) -> None:
     if not marker.get("proof"):
         raise ValueError("release_has_no_collection_proof")
     by_id = {str(row["id"]): row for row in rows}
+    if marker.get('rendered_ids_sha256'):
+        from tatemono_map.cloud.public_db import id_fingerprint
+        if (len(rows) != len(by_id) or len(by_id) != marker['rendered_buildings']
+                or id_fingerprint(by_id) != marker['rendered_ids_sha256']):
+            raise ValueError('public_json_building_id_set_mismatch')
     for proof in marker["proof"]:
         row = by_id.get(str(proof["building_key"]))
         if row is None:

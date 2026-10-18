@@ -1,9 +1,32 @@
+> 現行の全域・全業者の収集運用は [HANDOFF_ULUCKS_FULLAREA.md](HANDOFF_ULUCKS_FULLAREA.md) を参照。
+> 正式採用済み建物は `COALESCE(hidden_from_public,0)=0` で自動公開します。
+> 過去公開DBは欠落防止にのみ使用し、新規建物の公開許可リストにはしません。
+> 以下の会社8・小倉北区と初回接続に関する記述は移行当時の記録です。
+>
 > 2026-10-16監査後の初回入口は `cloud/complete_initial_release.sh` です。
 > [監査と現行契約](AUDIT_20261016.md) を参照してください。下記の旧Secret作成方式に対し、
 > prepared activationは非秘密の収集条件をJob環境へ渡し、既存Secretを変更しません。
 > SchedulerはPagesによる本番照合の成功後に有効化します。
 
 # Ulucks: one-company cloud collector
+
+## 現行の公開同期契約
+
+収集時の解析・名寄せ・行ごとの保留判定後に正式正本へ採用し、同じID集合から
+公開建物・賃貸集約・分譲集約・aliasを生成します。募集0件でも建物を残します。
+未採用の仮登録はprivate raw履歴へ保存し、正式建物には残しません。
+検索JSONは名前・住所の一致だけでは別IDを削除せず、明示的なcanonical aliasのみを統合し旧URLを残します。
+PagesではID集合の指紋も照合します。
+
+再収集を行わない公開専用の操作は `python -m tatemono_map.cloud.republish` です。
+最新HEAD generationを必須指定し、通常のcollection lease・SHA・SQLite検査・CASを使います。
+実収集のrun ID、世代/SHA付きの元HEAD・会社一覧・会社別結果・current snapshotを継承し、
+今回の新規取得PDF数は0と記録します。次の通常週次収集は元の会社一覧を検証してfresh取得します。
+この操作を週次の追加審査・承認工程として使う必要はありません。
+
+Cloudデプロイのdispatchは既定で配置のみ（`deployment_only=true`）です。
+明示的な収集起動は `deployment_only=false` の場合に限ります。
+既存Schedulerの月曜04:00 JSTとPagesの毎時23分・変更なし省略は維持します。
 
 実装対象は、ユーザー提供画面の `kitakyushu.ulucks.jp` → 会社検索 → 会社8（株式会社不動産中央情報センター）→ 小倉北区のみ →「（新）エリア・物件別で印刷」です。印刷APIのURL・パラメーターは生成しません。実際のリンクをクリックし、そのブラウザ通信を `route.fetch()` で転送して元PDFを捕捉します。inline / popup / XHRのPDFを扱い、ログインHTMLや印刷画面のスクリーンショットをPDFの代用にしません。
 

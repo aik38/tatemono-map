@@ -101,25 +101,62 @@ class GCSStore:
     def commit(self, head: dict, generation: int) -> None:
         self.bucket.blob(HEAD).upload_from_string(json.dumps(head, sort_keys=True), content_type="application/json", if_generation_match=generation)
 
+    def clone_verified(self, ref: dict, name: str) -> dict:
+        """Copy already downloaded/hashed immutable bytes without reuploading."""
+        source = self.bucket.blob(ref['object'], generation=int(ref['generation']))
+        source.reload()
+        target = self.bucket.blob(name)
+        token = None
+        while True:
+            token, _, _ = target.rewrite(source, token=token, if_generation_match=0,
+                if_source_generation_match=int(ref['generation']), timeout=TRANSFER_TIMEOUT)
+            if token is None:
+                break
+        target.reload()
+        if source.size != target.size or source.crc32c != target.crc32c:
+            raise CollectionError('publication_master_copy_mismatch')
+        return {'object': name, 'generation': int(target.generation), 'sha256': ref['sha256']}
+
 
 def validate_head(head: dict) -> None:
     if head.get("schema") != 1 or head.get("qc") != "passed" or not RUN_RE.fullmatch(head.get("run_id", "")):
         raise CollectionError("unvalidated_release_head")
     run = head["run_id"]
+    report = head.get('report', {})
+    if report.get('release_kind') == 'publication_only':
+        ref = report.get('inherited_head_ref', {})
+        if (collection_run_id(head) == run or report.get('newly_acquired_pdf_count') != 0
+                or ref.get('object') != f'private-runs/{run}/inherited-head.json'
+                or not re.fullmatch(r'[0-9a-f]{64}', ref.get('sha256', ''))
+                or int(ref.get('generation', 0)) <= 0):
+            raise CollectionError('invalid_inherited_collection_reference')
     for key, expected in (("master", f"masters/{run}.sqlite3"), ("public", f"public/releases/{run}/public.sqlite3")):
         ref = head.get(key, {})
         if ref.get("object") != expected or not re.fullmatch(r"[0-9a-f]{64}", ref.get("sha256", "")) or int(ref.get("generation", 0)) <= 0:
             raise CollectionError("invalid_release_object_reference")
 
 
-def commit_release(store, work: Path, run_id: str, generation: int, report: dict, source_commit: str) -> dict:
+def collection_run_id(head: dict) -> str:
+    """Publication-only heads retain the last actual collection's catalog."""
+    run = head.get('report', {}).get('collection_run_id', head['run_id'])
+    if not isinstance(run, str) or not RUN_RE.fullmatch(run):
+        raise CollectionError('invalid_collection_run_reference')
+    return run
+
+
+def commit_release(store, work: Path, run_id: str, generation: int, report: dict, source_commit: str, *, master_reference: dict | None = None) -> dict:
     if not RUN_RE.fullmatch(run_id) or not re.fullmatch(r"[0-9a-f]{40}", source_commit):
         raise CollectionError("invalid_release_identity")
     # Upload a SQLite backup, not a bare file copy that could omit committed
     # WAL pages when the imported Windows master retains WAL journal mode.
-    standalone = work / "master-upload.sqlite3"
-    snapshot_sqlite(work / "master.sqlite3", standalone)
-    master = store.upload(standalone, f"masters/{run_id}.sqlite3")
+    if master_reference is not None and hasattr(store, 'clone_verified'):
+        if sha256(work / 'master.sqlite3') != master_reference['sha256']:
+            raise CollectionError('publication_master_changed')
+        master = store.clone_verified(master_reference, f'masters/{run_id}.sqlite3')
+    else:
+        standalone = work / "master-upload.sqlite3"
+        snapshot_sqlite(work / "master.sqlite3", standalone)
+        master = store.upload(standalone, f"masters/{run_id}.sqlite3")
     public = store.upload(work / "public.sqlite3", f"public/releases/{run_id}/public.sqlite3")
     head = {"schema": 1, "qc": "passed", "run_id": run_id, "source_commit": source_commit, "master": master, "public": public, "report": report}
     validate_head(head)

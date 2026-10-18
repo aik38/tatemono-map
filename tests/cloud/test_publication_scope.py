@@ -8,26 +8,27 @@ from tatemono_map.db.repo import connect
 from tatemono_map.normalize.building_summaries import rebuild
 
 
-def test_wide_private_building_and_aliases_never_reach_public_bytes(master, tmp_path):
+def test_new_adopted_buildings_and_aliases_automatically_reach_public(master, tmp_path):
     baseline = tmp_path / 'baseline.sqlite3'
     export_public(master, baseline)
     approved, _ = publication_ids(baseline)
     with connect(master) as conn:
-        conn.execute("INSERT INTO buildings(building_id,canonical_name,canonical_address,norm_name,norm_address) VALUES ('private-new','PRIVATE_AREA_SENTINEL','PRIVATE_ADDRESS_SENTINEL','PRIVATE_AREA_SENTINEL','PRIVATE_ADDRESS_SENTINEL')")
-        conn.execute("INSERT INTO building_key_aliases(alias_key,canonical_key) VALUES ('private-alias','private-new')")
-        conn.execute("INSERT INTO building_key_aliases(alias_key,canonical_key) VALUES ('private-new-link',?)", (next(iter(approved)),))
+        conn.execute("INSERT INTO buildings(building_id,canonical_name,canonical_address,norm_name,norm_address) VALUES ('adopted-new','ADOPTED_AREA_SENTINEL','ADOPTED_ADDRESS_SENTINEL','ADOPTED_AREA_SENTINEL','ADOPTED_ADDRESS_SENTINEL')")
+        conn.execute("INSERT INTO building_key_aliases(alias_key,canonical_key) VALUES ('adopted-alias','adopted-new')")
+        conn.execute("INSERT INTO building_key_aliases(alias_key,canonical_key) VALUES ('adopted-new-link',?)", (next(iter(approved)),))
     rebuild(str(master))
     public = tmp_path / 'public.sqlite3'
     export_public(master, public, baseline=baseline)
-    assert publication_ids(public) == publication_ids(baseline)
+    assert publication_ids(public)[0] == approved | {'adopted-new'}
+    assert {'adopted-alias','adopted-new-link'} <= publication_ids(public)[1]
     with readonly(public) as conn:
         for table in ('building_summaries','building_rental_summaries','building_sale_summaries'):
-            assert {r[0] for r in conn.execute(f'SELECT building_key FROM {table}')} <= approved
+            assert {r[0] for r in conn.execute(f'SELECT building_key FROM {table}')} <= approved | {'adopted-new'}
         # Keep an existing building even though it has no advertised vacancies.
-        assert conn.execute('SELECT COUNT(*) FROM buildings').fetchone()[0] == len(approved)
+        assert conn.execute('SELECT COUNT(*) FROM buildings').fetchone()[0] == len(approved) + 1
     raw = public.read_bytes()
-    for forbidden in (b'PRIVATE_AREA_SENTINEL', b'PRIVATE_ADDRESS_SENTINEL', b'private-new', b'private-alias'):
-        assert forbidden not in raw
+    for forbidden in (b'ADOPTED_AREA_SENTINEL', b'ADOPTED_ADDRESS_SENTINEL', b'adopted-new', b'adopted-alias'):
+        assert forbidden in raw
 
 
 def test_existing_public_building_cannot_silently_disappear(master, tmp_path):
@@ -42,7 +43,7 @@ def test_existing_public_building_cannot_silently_disappear(master, tmp_path):
 def test_already_hidden_buildings_and_aliases_are_not_the_publication_audience(master,tmp_path):
     with connect(master) as conn:
         conn.execute("INSERT INTO buildings(building_id,canonical_name,hidden_from_public) VALUES ('hidden-private','HIDDEN_PRIVATE_SENTINEL',1)")
-        conn.execute("INSERT INTO building_key_aliases(alias_key,canonical_key) VALUES ('hidden-private-alias','hidden-private')")
+        conn.execute("INSERT INTO building_key_aliases(alias_key,canonical_key) VALUES ('hidden-adopted-alias','hidden-private')")
     rebuild(str(master))
     baseline=tmp_path/'baseline.sqlite3'
     export_public(master,baseline)

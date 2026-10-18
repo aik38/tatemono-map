@@ -60,6 +60,25 @@ def test_same_company_duplicates_are_audited_once_and_conflicting_offers_are_hel
         assert conn.execute("SELECT availability_raw,structure FROM buildings WHERE canonical_name='架空テストマンション'").fetchone()==('昔の確認済み','確認済み構造')
 
 
+def test_conflicting_new_seed_stays_in_private_history_until_a_final_offer_is_adopted(master,config,tmp_path):
+    baseline = setup_scope(master, config, tmp_path, rooms=('101',))
+    name = '新規保留専用マンション'
+    a = make_pdf(tmp_path/'new-a.pdf', building=name, address='福岡県北九州市小倉北区宇佐町9-8-7')
+    b = make_pdf(tmp_path/'new-b.pdf', building=name, address='福岡県北九州市小倉北区宇佐町9-8-7', rent='6万円')
+    cfg = dict(broad(config), auto_seed_high_confidence=True)
+    result = update_master(master, [a,b], 2, cfg, tmp_path, 'new-conflict', public_baseline=baseline)
+    assert result['held_rows'] == 2 and result['attached_rows'] == 0
+    with readonly(master) as c:
+        assert not c.execute('SELECT 1 FROM buildings WHERE canonical_name=?', (name,)).fetchone()
+        assert c.execute("SELECT 1 FROM raw_sources WHERE source_kind='held_building_seed'").fetchone()
+        assert c.execute('SELECT COUNT(*) FROM cloud_collection_rows WHERE ingest_run_id=?', (result['ingest_run_id'],)).fetchone()[0] == 2
+    assert name.encode() not in (tmp_path/'public.sqlite3').read_bytes()
+    clean = update_master(master, [a], 1, cfg, tmp_path, 'new-corrected', public_baseline=baseline)
+    assert clean['attached_rows'] == 1 and clean['new_buildings'] == 1
+    with readonly(tmp_path/'public.sqlite3') as c:
+        assert c.execute('SELECT 1 FROM buildings WHERE canonical_name=?', (name,)).fetchone()
+
+
 def test_confirmed_review_reused_and_explicit_block_overrides_auto_alias(master,config,tmp_path):
     baseline=setup_scope(master,config,tmp_path,rooms=('101',))
     changed=make_pdf(tmp_path/'changed.pdf',building='まったく異なる名称',rooms=('101',))
