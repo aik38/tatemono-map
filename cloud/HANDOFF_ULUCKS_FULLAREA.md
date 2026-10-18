@@ -9,6 +9,13 @@
 - 一時的な取得障害だけ最大2回試行。定期収集に旧添付PDFを流用しない。
 - 本改修の本番経路は通常argsで起動し、fresh PDF→QC→正式CAS→Pages照合まで継続する。完了前に新リリース成功と報告しない。
 
+## 現在の本番実行（2026-10-18 07:48 UTC）
+- PR375 merged、収集source `479ae7731ab53ea785c4f39850befe4314e6a5d5`。CI39108110378成功（新規失敗0）、本番配置39108483763成功。変更前Job設定はprivate GCSへ保全済み。
+- Scheduler画面の強制実行を07:48:40 UTCに1回実施。Scheduler呼出成功、Cloud Run execution `tatemono-collection-poc-9wvnw`。実行ユーザー `tm-weekly-trigger@tatemono-map.iam.gserviceaccount.com` を実画面照合。通常Job args、旧PDF再利用指定なし。
+- **実行中のため二重起動しない。** 同executionのログとprivate-runsを追跡し、QC/CAS/Pages公開まで続行。起動成功を収集/公開完了と混同しない。
+- 新しいGCS正式リリースと今回の件数は未確定。直前正式リリースは下記の旧releaseを保持。
+- 次回定期予定: 2026-10-19 04:00 Asia/Tokyo。未来の無人定期成功は未確認。
+
 ## 着手時の実環境照合（2026-10-18 07:23 UTC）
 - 最新main a77379186a02db3edd82ba63450f790368224bec。PR372/373/374 merged。
 - 実行中Cloud Runなし。前回nrppkは23:33:33 UTC正常終了。
