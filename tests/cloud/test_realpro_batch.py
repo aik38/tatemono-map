@@ -114,3 +114,25 @@ def test_reused_workdir_preserves_all_duplicate_originals_before_parser_failure(
     assert sum('/originals/' in name for name in store.objects)==2
     assert sum('/analysis/' in name for name in store.objects)==2
     assert not (work/'master.sqlite3').exists()
+
+
+def test_realpro_release_preserves_verified_ulucks_census_reference():
+    import pytest
+    from tatemono_map.cloud.realpro_batch import preserve_ulucks_catalog
+    old_run='20261018T190110Z-9aa6143e7cf5';new_run='20261023T182821Z-886d59ee8c82'
+    reference={'object':f'private-runs/{old_run}/company-catalog.json','generation':123,'sha256':'a'*64}
+    head={'run_id':old_run,'report':{'company_catalog_ref':reference,'company_ids':['4','8']}}
+    class Store:
+        def clone_verified(self,ref,name):
+            assert ref==reference and name==f'private-runs/{new_run}/company-catalog.json'
+            return {**ref,'object':name,'generation':456}
+    report={'source':'realpro','pdf_count':99}
+    preserve_ulucks_catalog(Store(),head,new_run,report)
+    assert report['company_ids']==['4','8']
+    assert report['inherited_ulucks_collection_run_id']==old_run
+    assert report['source']=='realpro' and report['pdf_count']==99
+    assert report['company_catalog_ref']['generation']==456
+    assert head['report']['company_catalog_ref']==reference
+    invalid={'run_id':new_run,'report':head['report']}
+    with pytest.raises(ValueError,match='previous_company_catalog_reference_invalid'):
+        preserve_ulucks_catalog(Store(),invalid,new_run,{})

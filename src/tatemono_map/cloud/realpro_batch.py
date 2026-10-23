@@ -29,7 +29,7 @@ from tatemono_map.building_registry.normalization import normalize_building_inpu
 from tatemono_map.cloud.partial import literal_room, review_key
 from tatemono_map.cloud.pipeline import validate_master, preservation_state, digest
 from tatemono_map.cloud.public_db import export_public, readonly, rendered_ids
-from tatemono_map.cloud.storage import GCSStore, validate_head, commit_release
+from tatemono_map.cloud.storage import GCSStore, validate_head, commit_release, collection_run_id
 from tatemono_map.cloud.run import new_run_id
 from tatemono_map.db.repo import connect
 from tatemono_map.normalize.building_summaries import rebuild
@@ -388,6 +388,19 @@ def backup_current(store,work,run):
     return head,generation,refs
 
 
+def preserve_ulucks_catalog(store, previous_head, run, report):
+    """Carry the last verified Ulucks census across a RealPro-only release."""
+    previous_report=previous_head['report']
+    reference=previous_report.get('company_catalog_ref')
+    if reference is None:return
+    previous_run=collection_run_id(previous_head)
+    if reference.get('object')!=f'private-runs/{previous_run}/company-catalog.json':
+        raise ValueError('previous_company_catalog_reference_invalid')
+    report['company_catalog_ref']=store.clone_verified(reference,f'private-runs/{run}/company-catalog.json')
+    report['company_ids']=list(previous_report.get('company_ids',[]))
+    report['inherited_ulucks_collection_run_id']=previous_report.get('inherited_ulucks_collection_run_id',previous_run)
+
+
 def execute(store,zip_path,work,source_commit,*,commit=False,expected_pdfs=None):
     work.mkdir(parents=True,exist_ok=True);run=new_run_id()
     archive_sha=sha256_file(zip_path)
@@ -434,6 +447,7 @@ def execute(store,zip_path,work,source_commit,*,commit=False,expected_pdfs=None)
         head,generation,backups=backup_current(store,work,run)
         report=update_batch(work/'master.sqlite3',inputs,work,run,work/'baseline.sqlite3')
         report.update(original_manifest_ref=manifest_ref,backup_refs=backups,newly_acquired_pdf_count=0)
+        preserve_ulucks_catalog(store,head,run,report)
         output=work/'report.json';output.write_text(json.dumps(report,ensure_ascii=False))
         store.upload_verified(output,f'private-runs/{run}/realpro-report.json')
         if commit:
