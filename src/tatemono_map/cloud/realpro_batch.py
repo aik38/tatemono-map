@@ -18,7 +18,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pandas as pd
-from pypdf import PdfReader
+import pdfplumber
 
 from tatemono_map.cli.pdf_batch_run import (
     RealproParser, sha256_file, normalize_pdf_text, nfkc, write_master_import_csv,
@@ -53,7 +53,7 @@ def fukuoka_address(value):
 
 def inventory(pdf):
     logging.getLogger('pypdf').setLevel(logging.ERROR)
-    reader = PdfReader(pdf)
+    reader = pdfplumber.open(pdf)
     first = normalize_pdf_text(reader.pages[0].extract_text())
     # Header precedes the provider's office address, never a property's address.
     company = first.split('空室一覧表')[0]
@@ -65,26 +65,30 @@ def inventory(pdf):
     room_ids = {}
     for page_no, page in enumerate(reader.pages,1):
         ids=[]
-        for obj in page.get('/Annots',[]):
-            annotation=obj.get_object()
-            uri=annotation.get('/A',{}).get('/URI','')
+        for annotation in page.annots:
+            uri=annotation.get('uri','')
             parts=urlsplit(str(uri))
             if parts.path.endswith('/room_detail.php'):
                 value=parse_qs(parts.query).get('id',[''])[0]
                 if not value.isdigit(): raise ValueError('invalid_source_room_id')
                 if value not in ids:ids.append(value)
         room_ids[page_no]=ids
-    return {'filename':pdf.name,'sha256':sha256_file(pdf),'company':company,
+    metadata={'filename':pdf.name,'sha256':sha256_file(pdf),'company':company,
         'acquired_at':acquired,'pages':len(reader.pages),'room_ids':room_ids}
+    reader.close()
+    return metadata
 
 
 def parse_pdf(pdf, cache):
-    metadata=inventory(pdf)
+    hashed=sha256_file(pdf)
     cache.mkdir(parents=True,exist_ok=True)
-    target=cache/(metadata['sha256']+'.json')
+    target=cache/(hashed+'.json')
     if target.exists():
         cached=json.loads(target.read_text())
-        if cached.get('parser_version')==PARSER_VERSION:return cached
+        if (cached.get('parser_version')==PARSER_VERSION and
+                cached['metadata']['sha256']==hashed and cached['metadata']['filename']==pdf.name):
+            return cached
+    metadata=inventory(pdf)
     parsed=RealproParser().parse(pdf)
     rows=json.loads(parsed.df.to_json(orient='records',force_ascii=False))
     errors=[]
