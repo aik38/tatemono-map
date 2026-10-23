@@ -91,3 +91,38 @@ After successful owner credential registration:
 The integration adapter reuses the registry, priorities, public exporter and immutable release
 writer. It preserves other current snapshots, existing canonical attributes and historical
 rows, retains unresolved prior company units, and rejects unaccounted/duplicate/out-of-scope rows.
+
+## Resume after owner registration — 2026-10-23 22:08 JST
+
+- Owner registered Secret version 2 at 12:50:56 UTC, route `rnp`. Do not request
+  another registration merely because the cloud authentication is unconfirmed.
+- Read `WORK_MESSAGE.txt` and all six screenshots in
+  `RealPro_CloudLogin_6Screens_WorkHandoff_20261023.zip`; every SHA256SUMS entry passed.
+  The owner reports successful fresh local RNP login, terms consent, service start,
+  optional linkage deferral and confirmation, then main.php. These remain local
+  observations, not proof of cloud authentication.
+- Executed the already-deployed source `5b279024db0e2fab2c887db3b7894c9f86af15fd`
+  without rebuilding or collecting Ulucks. Execution `tatemono-realpro-weekly-dh5hh`,
+  run `20261023T125524Z-7abf4d702c6e`, failed at 12:56:39 UTC with
+  `realpro_login_not_confirmed`.
+- Fresh GCP headless and ordinary headed Chromium both display the observed RNP
+  fields. The ordinary login UI submits `id`, `pass`, `gr`; POST responds 200 and
+  the login form remains. A PHP session cookie exists. A subsequent main.php GET
+  redirects to the login form. No explicit credential-rejection message or
+  post-authentication terms gate was observed. Do not claim either invalid
+  credentials or an anti-bot/IP restriction as a proven cause.
+- The same outcome occurs using the actual www homepage form instead of
+  index.php. Bare realnetpro.com returns a service-index page in both the user's
+  connected Chrome and GCP; that is not evidence of a GCP-only routing problem.
+- Debug browsers have been closed. No Chrome cookies were exported. No login
+  identifiers, passwords, token values or authenticated URLs were written to files.
+- At 13:08 UTC official HEAD generation remains `1792354071251039`; Ulucks
+  Scheduler remains ENABLED, `0 4 * * 1`, Asia/Tokyo. No RealPro PDF, master
+  update, Pages release or enabled RealPro Scheduler resulted from this run.
+- Private safe diagnostic receipt:
+  `gs://tatemono-map-poc-523194690131/private-runs/20261023T125524Z-7abf4d702c6e/auth-diagnosis.json`.
+- Next owner action: `python3 cloud/verify_realpro_login.py` compares the exact
+  credentials that worked locally against immutable Secret version 2 using hidden
+  inputs. It reports only match booleans, does not submit a login or alter the
+  Secret. If both match, preserve version 2 and investigate the service-side
+  authentication outcome; do not request another blind registration or retry loop.
