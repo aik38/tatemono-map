@@ -364,7 +364,14 @@ def _is_area_listing_line(line: str) -> bool:
     s = nfkc(line)
     if not s:
         return False
-    return "エリア" in s and all((ward in s) for ward in WARD_NAMES)
+    if "エリア" in s and all((ward in s) for ward in WARD_NAMES):
+        return True
+    # RealPro prints a slash-separated collection scope above the first
+    # property on every page. It is neither a building name nor an address.
+    parts = s.split("/")
+    return len(parts) > 1 and all(
+        re.fullmatch(r"[^0-9/]+(?:市|区|町|村)", part.strip()) for part in parts
+    )
 
 
 def looks_like_address(line: str) -> bool:
@@ -620,6 +627,8 @@ class RealproParser:
             s = nfkc(line)
             if not s or is_noise_line(s):
                 continue
+            if _is_area_listing_line(s):
+                continue
             if is_table_header_like_line(s):
                 continue
             if looks_like_address(s):
@@ -743,7 +752,7 @@ class RealproParser:
 
                 prev_bottom = 0.0
                 last_context: Tuple[str, str, str, float, str, str] = ("", "", "", float("nan"), "", "")
-                for t in sorted(page_tables, key=lambda x: float(x.bbox[1]) if getattr(x, "bbox", None) else 0.0):
+                for table_i, t in enumerate(sorted(page_tables, key=lambda x: float(x.bbox[1]) if getattr(x, "bbox", None) else 0.0), start=1):
                     tb = t.extract() or []
                     if not tb or len(tb) < 2:
                         prev_bottom = float(t.bbox[3]) if getattr(t, "bbox", None) else prev_bottom
@@ -836,7 +845,7 @@ class RealproParser:
                                 "structure_raw": context[2],
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
-                                "evidence_id": f"pdf:{pdf_path.name}#p={pi}#i={row_i}",
+                                "evidence_id": f"pdf:{pdf_path.name}#p={pi}#t={table_i}#i={row_i}",
                             }
                         )
                     prev_bottom = float(t.bbox[3]) if getattr(t, "bbox", None) else prev_bottom
