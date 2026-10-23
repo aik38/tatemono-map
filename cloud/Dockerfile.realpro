@@ -1,0 +1,9 @@
+# Reuse the deployed collector's pinned Chromium and installed dependencies.
+FROM asia-northeast1-docker.pkg.dev/tatemono-map/tatemono-poc/ulucks@sha256:a5df90d89829d7fab665f0f573aedbf045bce28a987e887a154fd688fe904cd9
+USER root
+WORKDIR /app
+COPY src ./src
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir --no-deps --no-build-isolation .
+USER collector
+ENTRYPOINT ["python", "-m", "tatemono_map.cloud.realpro_run"]

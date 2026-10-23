@@ -17,13 +17,8 @@ from tatemono_map.cloud.realpro_pipeline import update
 def execute(store, config, work, source_commit, *, reuse=None, acquire_only=False, dry_run=False):
     run = new_run_id()
     head, generation = store.read_head();validate_head(head)
-    master, baseline = work/'master.sqlite3',work/'baseline.sqlite3'
-    store.download(head['master'],master);validate_master(master)
-    store.download(head['public'],baseline)
-    backup = store.upload_verified(master,f'backups/{run}.sqlite3')
     old_head = work/'previous-head.json';old_head.write_text(json.dumps(head))
     store.upload(old_head,f'private-runs/{run}/previous-head.json')
-    print(json.dumps({'stage':'backup_verified','run_id':run,'previous_head_generation':generation}),flush=True)
     if reuse:
         if not RUN_RE.fullmatch(reuse):raise CollectionError('realpro_invalid_reuse_run')
         manifest_blob = store.bucket.blob(f'private-runs/{reuse}/realpro-acquisition.json')
@@ -40,6 +35,11 @@ def execute(store, config, work, source_commit, *, reuse=None, acquire_only=Fals
     print(json.dumps({'stage':'pdf_acquired','run_id':run,'pdf_count':1,'pdf_pages':evidence['pdf_pages'],
         'expected_rows':evidence['expected_rows'],'fresh':not bool(reuse)}),flush=True)
     if acquire_only:return {'status':'acquired','run_id':run}
+    master, baseline = work/'master.sqlite3',work/'baseline.sqlite3'
+    store.download(head['master'],master);validate_master(master)
+    store.download(head['public'],baseline)
+    backup = store.upload_verified(master,f'backups/{run}.sqlite3')
+    print(json.dumps({'stage':'backup_verified','run_id':run,'previous_head_generation':generation}),flush=True)
     report=update(master,pdf,evidence,config,work,run,baseline)
     report.update(acquisition_manifest_ref=manifest_ref,backup_ref=backup,newly_acquired_pdf_count=0 if reuse else 1)
     result=work/'report.json';result.write_text(json.dumps(report,ensure_ascii=False))

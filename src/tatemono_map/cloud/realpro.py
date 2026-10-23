@@ -37,7 +37,11 @@ def login(page, credentials):
         if len(choices) != 1:
             raise CollectionError('realpro_login_action_ambiguous')
         choices[0].click(timeout=30000)
-        page.wait_for_function("() => location.pathname === '/main.php' || document.body.innerText.includes('ログインに失敗')", timeout=60000)
+        try:
+            page.wait_for_url('**/main.php*', wait_until='domcontentloaded', timeout=60000)
+        except Exception:
+            raise CollectionError('realpro_login_not_confirmed') from None
+        page.wait_for_timeout(800)
     later = page.get_by_text('あとで連携する', exact=False)
     if later.count() == 1 and later.is_visible():
         later.click()
