@@ -3,6 +3,14 @@
 Status: incomplete. No RealPro release has been committed to the official HEAD.
 Do not describe parser tests, a built image, or a started Job as collection/publication success.
 
+## Current priority update — 2026-10-24 (supersedes the old login-first resumption steps below)
+
+- Initial Chrome/manual Fukuoka-wide batch: of 100 named companies/offices, original PDFs confirmed for 97 (95 in the ZIP + 2 separately supplied); 2 were recorded as having no Fukuoka target area and 1 had no currently published listings. **Provisional collection inventory only**, not GCS-ingested, canonical-adopted or Web-published counts; reconcile each original and its company/area manifest during ingestion.
+- GCP RealPro login still returns to the login screen; cause unconfirmed. Do not block the next work on further authentication/Secret diagnostics. Interim collection: approximately fortnightly, using a logged-in Chrome session and ChatGPT Work to acquire PDFs.
+- **Next implementation goal:** ingest supplied PDFs as a batch → immutable private GCS originals with checksum/manifest → parse, deduplicate, match and QC → merge into the *latest* canonical SQLite with fresh backup, collection lease and HEAD-generation CAS → immutable GCS release → Pages publication and live-Web verification. Preserve Ulucks, building IDs/history, other-source snapshots and rental priority (Ulucks > RealPro > Mansion Review).
+- Keep Fukuoka-wide accepted records in the canonical DB, but expose only the existing 22-subarea northern Kitakyushu trade area (including Tagawa, Yukuhashi, Kanda and Chikujo) in public exports; do not discard outside-publication-area records or treat missing PDFs as a deletion instruction. Local PDF cleanup is safe only after verified private GCS preservation and the required DB/publication checks.
+- Final objective remains fully unattended RealPro login → acquisition → publication. Return to auto-login after the PDF-to-Web pipeline works. **No RealPro PDF batch has yet been committed/published by this handoff; the old diagnostic steps below are historical, not the immediate next task.**
+
 ## Preserved production baseline
 
 - main before work: `33d10349659739808891eae6bd7b2208aa9e162b`.
