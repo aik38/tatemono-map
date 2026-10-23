@@ -12,7 +12,7 @@ from tatemono_map.cloud.storage import GCSStore, validate_head
 
 
 def accounted_collection(report):
-    if report.get('integration_contract')!='ulucks-partial-v1':
+    if report.get('integration_contract') not in ('ulucks-partial-v1','realpro-partial-v1'):
         return report.get('parsed_rows')==report.get('attached_rows')
     counts=report.get('row_counts',{})
     allowed={'accepted_existing','accepted_new','held','anomaly','duplicate'}

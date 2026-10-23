@@ -364,7 +364,20 @@ def _is_area_listing_line(line: str) -> bool:
     s = nfkc(line)
     if not s:
         return False
-    return "エリア" in s and all((ward in s) for ward in WARD_NAMES)
+    if "エリア" in s and all((ward in s) for ward in WARD_NAMES):
+        return True
+    # RealPro prints a slash-separated collection scope above the first
+    # property on every page. It is neither a building name nor an address.
+    parts = s.split("/")
+    municipality = r"[^0-9/]+(?:市|区|町|村)"
+    if len(parts) == 1:
+        return False
+    # Long scope headers are printed with an ellipsis in the last municipality.
+    # Validate the complete preceding municipalities, rather than accepting the
+    # truncated header as the first property's canonical name.
+    return all(re.fullmatch(municipality, p.strip()) for p in parts[:-1]) and bool(
+        re.fullmatch(municipality, parts[-1].strip()) or
+        re.fullmatch(r"[^0-9/]*(?:\.{2,}|…+)", parts[-1].strip()))
 
 
 def looks_like_address(line: str) -> bool:
@@ -401,6 +414,11 @@ def complement_address_with_ward(address: str, ward_hint: str) -> str:
     if not addr:
         return addr
     if re.search(rf"北九州市(?:{WARD_RE})", addr):
+        return addr
+    # The page's scope header may mention Kitakyushu while the property itself
+    # is in Fukuoka, Hiroshima or another municipality. Never prepend its ward
+    # to an already explicit source address.
+    if re.match(r"[^0-9\s-]+?(?:都|道|府|県|市|郡)", addr):
         return addr
     if re.match(rf"(?:{WARD_RE})", addr):
         return f"北九州市{addr}"
@@ -616,22 +634,34 @@ class RealproParser:
             return "", "", "", float("nan"), "", ""
         local_ward_hint = extract_ward_hint(" ".join(lines)) or ward_hint
         building = ""
-        for line in lines:
+        address_lines = []
+        for line_i, line in enumerate(lines):
             s = nfkc(line)
             if not s or is_noise_line(s):
                 continue
-            if is_table_header_like_line(s):
+            if _is_area_listing_line(s):
                 continue
-            if looks_like_address(s):
+            if is_table_header_like_line(s):
                 continue
             if looks_like_structure_or_age(s):
                 continue
             if "空室" in s or "一覧" in s:
                 continue
+            if s.startswith('本体設備'):
+                continue
+            # Name is the first property line; the address follows it. A
+            # property's name may itself contain 市/区/番/号 (EAGLE宰都弐番館,
+            # クラヴィエ西宮市, or an address-named detached house).
+            # Searching for address tokens before respecting this order
+            # confuses those names with addresses and then selects facilities.
+            subsequent = lines[line_i + 1:]
+            if looks_like_address(s) and not any(looks_like_address(n) for n in subsequent):
+                continue
             building = s
+            address_lines = subsequent
             break
 
-        address, _address_raw, _normalize_failed = self._extract_address(lines, local_ward_hint)
+        address, _address_raw, _normalize_failed = self._extract_address(address_lines or lines, local_ward_hint)
 
         nearby = " ".join(lines)
         structure = ""
@@ -743,7 +773,7 @@ class RealproParser:
 
                 prev_bottom = 0.0
                 last_context: Tuple[str, str, str, float, str, str] = ("", "", "", float("nan"), "", "")
-                for t in sorted(page_tables, key=lambda x: float(x.bbox[1]) if getattr(x, "bbox", None) else 0.0):
+                for table_i, t in enumerate(sorted(page_tables, key=lambda x: float(x.bbox[1]) if getattr(x, "bbox", None) else 0.0), start=1):
                     tb = t.extract() or []
                     if not tb or len(tb) < 2:
                         prev_bottom = float(t.bbox[3]) if getattr(t, "bbox", None) else prev_bottom
@@ -783,8 +813,9 @@ class RealproParser:
                         else [],
                         ward_hint,
                     )
-                    if not address:
-                        address = context[1]
+                    # Context extraction respects name -> address ordering.
+                    # A second free scan can pick an address-like property name.
+                    address = context[1]
                     if address_normalize_failed:
                         warns.append("address_normalize_failed")
 
@@ -796,8 +827,7 @@ class RealproParser:
                         rentcell = get_cell_text(r, idx, ["賃料"])
                         if roomcell == "" and rentcell == "":
                             continue
-                        room_m = re.search(r"(\d{2,4})", roomcell)
-                        room = room_m.group(1) if room_m else roomcell
+                        room = re.split(r"\s*[（(]", roomcell, maxsplit=1)[0].strip()
                         floor_m = re.search(r"(\d+)\s*階", roomcell)
                         floor = floor_m.group(1) if floor_m else ""
                         la = get_cell_text(r, idx, ["間取・面積"])
@@ -821,7 +851,7 @@ class RealproParser:
                                 "room": room,
                                 "address": address,
                                 "rent_man": parse_money_to_man(get_cell_text(r, idx, ["賃料"])),
-                                "fee_man": parse_money_to_man(get_cell_text(r, idx, ["共益費"])),
+                                "fee_man": parse_money_to_man(get_cell_text(r, idx, ["共益費", "管理費"])),
                                 "floor": floor,
                                 "layout": layout,
                                 "area_sqm": area,
@@ -836,7 +866,7 @@ class RealproParser:
                                 "structure_raw": context[2],
                                 "raw_block": raw,
                                 "raw_blockfile": raw,
-                                "evidence_id": f"pdf:{pdf_path.name}#p={pi}#i={row_i}",
+                                "evidence_id": f"pdf:{pdf_path.name}#p={pi}#t={table_i}#i={row_i}",
                             }
                         )
                     prev_bottom = float(t.bbox[3]) if getattr(t, "bbox", None) else prev_bottom
