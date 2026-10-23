@@ -292,6 +292,7 @@ def update_batch(master, inputs, work, run, baseline):
         if c.execute('PRAGMA foreign_key_check').fetchone():raise ValueError('foreign_key_error')
     area=apply_publication_scope(master,baseline)
     rebuild(str(master));validate_master(master)
+    adopted_qc=validate_adopted_rows(master)
     public_counts=export_public(master,work/'public.sqlite3',baseline=baseline)
     public_ids=rendered_ids(work/'public.sqlite3')
     with readonly(master) as c:
@@ -318,8 +319,51 @@ def update_batch(master, inputs, work, run, baseline):
         'collection_mode':'supplied_pdf_batch','parsed_rows':parsed_total,'attached_rows':totals['accepted_new']+totals['accepted_existing'],
         'row_counts':dict(totals),'new_buildings':after['buildings']-before['buildings'],'counts_before':before,'counts_after':after,
         'pdf_count':len(inputs),'pdf_pages':sum(i['metadata']['pages'] for i in inputs),'public_counts':public_counts,
-        'publication_area':area,'historical_rows_preserved':True,'other_snapshots_preserved':True,'ulucks_preserved':True,
+        'publication_area':area,'adopted_qc':adopted_qc,'historical_rows_preserved':True,'other_snapshots_preserved':True,'ulucks_preserved':True,
         'proof':proof,'company_results':results,'processed_at':datetime.now(timezone.utc).isoformat()}
+
+
+
+def validate_adopted_rows(master):
+    """Compare adopted private rows with their source evidence and selection."""
+    from decimal import Decimal
+    with readonly(master) as c:
+        c.row_factory = __import__('sqlite3').Row
+        rows=c.execute("""SELECT q.raw_json,q.listing_key FROM cloud_collection_rows q
+            JOIN current_ingest_snapshots s ON s.source=q.scope_key AND s.ingest_run_id=q.ingest_run_id
+            WHERE q.scope_key LIKE 'realpro:batch:%'
+              AND q.classification IN ('accepted_existing','accepted_new')""").fetchall()
+        checked=0; adopted_keys=set()
+        for evidence,key in rows:
+            raw=json.loads(evidence)
+            listing=c.execute('SELECT * FROM listings WHERE listing_key=?',(key,)).fetchone()
+            if listing is None:raise ValueError('adopted_listing_missing')
+            if not fukuoka_address(raw['address']):raise ValueError('adopted_outside_fukuoka')
+            if listing['rent_yen']!=int(Decimal(str(raw['rent_man']))*10000):raise ValueError('adopted_rent_differs_from_pdf')
+            fee=raw.get('fee_man')
+            expected_fee=None if fee is None else int(Decimal(str(fee))*10000)
+            if listing['maint_yen']!=expected_fee:raise ValueError('adopted_fee_differs_from_pdf')
+            if abs(listing['area_sqm']-raw['area_sqm'])>0.000001:raise ValueError('adopted_area_differs_from_pdf')
+            if literal_room(listing['room_label'])!=literal_room(raw['room']):raise ValueError('adopted_room_differs_from_pdf')
+            incoming=normalize_building_input(raw['building_name'],raw['address'])
+            stored=normalize_building_input(listing['name'],listing['address'])
+            if (incoming.normalized_name,incoming.normalized_address)!=(stored.normalized_name,stored.normalized_address):
+                raise ValueError('adopted_source_identity_differs_from_pdf')
+            checked+=1;adopted_keys.add(key)
+        by_building=defaultdict(list)
+        for listing in effective_rentals(c):by_building[listing['building_key']].append(listing)
+        effective=0
+        for building,listings in by_building.items():
+            if any(r['source_kind']=='ulucks' for r in listings) and any(r['source_kind']=='realpro' and r['listing_key'] in adopted_keys for r in listings):
+                raise ValueError('realpro_selected_alongside_ulucks')
+            units=defaultdict(list)
+            for listing in listings:
+                if listing['source_kind']=='realpro':
+                    units[literal_room(listing['room_label'])].append(listing['listing_key'])
+                    effective+=listing['listing_key'] in adopted_keys
+            for keys in units.values():
+                if len(keys)>1 and any(k in adopted_keys for k in keys):raise ValueError('duplicate_effective_realpro_unit')
+    return {'adopted_evidence_rows_checked':checked,'effective_adopted_rows':effective}
 
 
 def backup_current(store,work,run):
