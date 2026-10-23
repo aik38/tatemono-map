@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import re
+from decimal import Decimal
 from datetime import datetime
 from pathlib import Path
 
@@ -55,7 +56,7 @@ def _parse_man_to_yen(value: str | None) -> int | None:
     cleaned = _clean_text(value)
     if not cleaned:
         return None
-    return int(float(cleaned.replace(",", "")) * 10000)
+    return int(Decimal(cleaned.replace(",", "")) * 10000)
 
 
 def _parse_area(value: str | None) -> float | None:
