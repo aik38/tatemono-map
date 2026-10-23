@@ -420,7 +420,7 @@ def execute(store,zip_path,work,source_commit,*,commit=False,expected_pdfs=None)
                 'errors':['parse_failed:'+type(exc).__name__]}
             analysis_path.parent.mkdir(parents=True,exist_ok=True)
             analysis_path.write_text(json.dumps(item,ensure_ascii=False))
-        analysis_ref=store.upload_verified(analysis_path,f'private-inputs/realpro/analysis/{PARSER_VERSION}/{hashed}.json')
+        analysis_ref=store.upload_verified(analysis_path,f'private-inputs/realpro/analysis/{PARSER_VERSION}/{hashed}/{pdf.name}.json')
         item['metadata'].update(gcs_ref=ref,analysis_ref=analysis_ref);inputs.append(item)
         print(json.dumps({'stage':'pdf_preserved_parsed','file':pdf.name,'pages':item['metadata']['pages'],
             'rows':len(item['rows']),'errors':item['errors']},ensure_ascii=False),flush=True)
