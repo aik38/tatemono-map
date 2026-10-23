@@ -75,3 +75,12 @@ def test_same_address_different_name_never_authorizes_a_match(master,tmp_path):
     result=update_batch(master,data,tmp_path,'name-conflict',baseline)
     assert result['attached_rows']==0 and result['row_counts']=={'held':1}
     assert result['counts_before']==result['counts_after']
+
+
+def test_pdf_money_conversion_preserves_whole_yen_exactly():
+    from tatemono_map.cli.master_import import _parse_man_to_yen
+    assert _parse_man_to_yen('3.03')==30300
+    assert _parse_man_to_yen('4.31')==43100
+    assert _parse_man_to_yen('0.57')==5700
+    assert _parse_man_to_yen('0')==0
+    assert _parse_man_to_yen('') is None
