@@ -85,3 +85,15 @@ def test_realpro_scope_header_is_not_property_name():
         'エテルノカーサ門司港','北九州市門司区大久保2丁目3-28','木造地上2階 / 2011年09月築'])
     assert context[0]=='エテルノカーサ門司港'
     assert context[1]=='北九州市門司区大久保2丁目3-28'
+
+
+def test_terms_gate_is_distinct_and_never_accepts_a_contract():
+    from tatemono_map.cloud.realpro import finish_login
+    class Page:
+        def locator(self, selector):
+            assert selector=='body'
+            return SimpleNamespace(inner_text=lambda:'リアプロBB+仲介ご利用に関する同意のお願い サービス利用規約 に同意する')
+        def get_by_text(self,*args,**kwargs):
+            raise AssertionError('Consent must never be clicked automatically')
+    with pytest.raises(CollectionError,match='realpro_terms_consent_required'):
+        finish_login(Page())

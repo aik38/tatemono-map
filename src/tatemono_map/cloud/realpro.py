@@ -19,6 +19,11 @@ COMPANY_ID = '15974'
 
 
 def login(page, credentials):
+    route = credentials.get('login_route', 'rnp')
+    if route not in ('rnp','bb_store','bb_personal'):
+        raise CollectionError('realpro_login_route_invalid')
+    if route != 'rnp':
+        return login_bb(page,credentials,route)
     page.goto(ORIGIN + '/index.php', wait_until='domcontentloaded', timeout=60000)
     form = page.locator('#login_form')
     password = form.locator('#password_input[name="pass"]')
@@ -42,14 +47,64 @@ def login(page, credentials):
         except Exception:
             raise CollectionError('realpro_login_not_confirmed') from None
         page.wait_for_timeout(800)
+    return finish_login(page)
+
+
+def finish_login(page):
+    """Treat consent as a distinct owner gate, never as rejected credentials."""
+    text = page.locator('body').inner_text()
+    if 'ご利用に関する同意のお願い' in text or (
+            'サービス利用規約' in text and 'に同意する' in text):
+        raise CollectionError('realpro_terms_consent_required')
+    start = page.get_by_text('「リアプロBB+仲介」を利用する',exact=True)
+    if start.count()==1 and start.is_visible():
+        start.click()
+        page.wait_for_load_state('domcontentloaded')
+        page.wait_for_timeout(800)
+        text=page.locator('body').inner_text()
+        if 'ご利用に関する同意のお願い' in text:
+            raise CollectionError('realpro_terms_consent_required')
     later = page.get_by_text('あとで連携する', exact=False)
     if later.count() == 1 and later.is_visible():
         later.click()
         page.get_by_text('連携画面をとじる', exact=False).click()
-    if urlsplit(page.url).path != '/main.php' or page.locator('input[type=password]:visible').count():
+    if urlsplit(page.url).hostname != 'www.realnetpro.com' or urlsplit(page.url).path != '/main.php' or page.locator('input[type=password]:visible').count():
         raise CollectionError('realpro_login_not_confirmed')
     page.get_by_role('link', name='管理会社一覧', exact=True).filter(visible=True).click()
     page.locator('#company_place').wait_for(state='attached', timeout=30000)
+    return page
+
+
+def login_bb(page, credentials, route):
+    """Use the observed legacy banner, preserving its redirect in memory only."""
+    context = page.context
+    page.goto(ORIGIN+'/index.php',wait_until='domcontentloaded',timeout=60000)
+    banner = page.get_by_role('img',name='リアプロBBログインバナー',exact=True)
+    banner.click()
+    page.wait_for_timeout(800)
+    page = context.pages[-1]
+    if urlsplit(page.url).hostname != 'login.n-create.jp':
+        raise CollectionError('realpro_bb_entry_origin_changed')
+    page.locator('input[name=login_id]').wait_for(state='visible',timeout=30000)
+    page.get_by_text('店舗アカウント' if route=='bb_store' else '個人アカウント',exact=True).click()
+    page.locator('input[name=login_id]').fill(credentials['username'])
+    page.locator('input[name=password]').fill(credentials['password'])
+    page.get_by_role('button',name='ログイン',exact=True).click()
+    deadline=time.monotonic()+60
+    while time.monotonic()<deadline:
+        errors=page.get_by_role('alert').all_text_contents()
+        if any('ログインIDまたはパスワードが間違っています' in s for s in errors):
+            raise CollectionError('realpro_bb_credentials_rejected')
+        if urlsplit(page.url).hostname != 'login.n-create.jp':
+            break
+        page.wait_for_timeout(200)
+    else:
+        raise CollectionError('realpro_bb_authentication_incomplete')
+    # The final service remains responsible for authorizing this session.
+    # Never synthesize redirect parameters or copy cookies between sessions.
+    if urlsplit(page.url).hostname != 'www.realnetpro.com':
+        page.goto(ORIGIN+'/main.php',wait_until='domcontentloaded',timeout=60000)
+    return finish_login(page)
 
 
 def choose(page, company_id, label):
@@ -158,7 +213,7 @@ def collect(config, credentials, root):
         try:
             context = browser.new_context(accept_downloads=True, locale='ja-JP', viewport={'width':1536,'height':900})
             page = context.new_page()
-            login(page, credentials)
+            page = login(page, credentials)
             regions = choose(page, config['company_id'], config['company_label'])
             if config['company_id'] == COMPANY_ID and {r['label'] for r in regions} != {
                 '北九州市門司区','北九州市小倉北区','北九州市小倉南区','田川市','行橋市','京都郡苅田町','築上郡築上町'}:

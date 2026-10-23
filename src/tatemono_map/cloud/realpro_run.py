@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 
 from tatemono_map.cloud.collector import CollectionError
@@ -16,6 +17,7 @@ from tatemono_map.cloud.realpro_pipeline import update
 
 def execute(store, config, work, source_commit, *, reuse=None, acquire_only=False, dry_run=False):
     run = new_run_id()
+    print(json.dumps({'stage':'realpro_started','run_id':run}),flush=True)
     head, generation = store.read_head();validate_head(head)
     old_head = work/'previous-head.json';old_head.write_text(json.dumps(head))
     store.upload(old_head,f'private-runs/{run}/previous-head.json')
@@ -59,7 +61,14 @@ def main():
     config=json.loads(os.environ.get('REALPRO_CONFIG_JSON',json.dumps({'company_id':COMPANY_ID,'company_label':COMPANY,'max_drop_ratio':0.25})))
     try:
         store=GCSStore(os.environ['TATEMONO_BUCKET'])
-        with store.collection_lease(new_run_id()),tempfile.TemporaryDirectory(prefix='realpro-cloud-') as directory:
+        if not args.acquire_only:
+            required={'storage.objects.get','storage.objects.create','storage.objects.delete','storage.objects.list'}
+            if not required <= set(store.bucket.test_iam_permissions(sorted(required))):
+                raise CollectionError('realpro_runtime_storage_permissions_insufficient')
+        # PDF-only acquisition appends private objects and cannot update HEAD.
+        # It therefore needs no production collection lease or delete access.
+        lease=nullcontext() if args.acquire_only else store.collection_lease(new_run_id())
+        with lease,tempfile.TemporaryDirectory(prefix='realpro-cloud-') as directory:
             result=execute(store,config,Path(directory),os.environ['TATEMONO_SOURCE_COMMIT'],
                 reuse=args.reuse_run,acquire_only=args.acquire_only,dry_run=args.dry_run)
         print('REALPRO_SAFE_RESULT='+json.dumps(result,ensure_ascii=False),flush=True)
