@@ -401,16 +401,30 @@ def execute(store,zip_path,work,source_commit,*,commit=False,expected_pdfs=None)
         for name in names:
             if archive.getinfo(name).file_size>100*1024*1024:raise ValueError('oversized_pdf')
             (pdf_dir/Path(name).name).write_bytes(archive.read(name))
-    inputs=[]
-    for pdf in sorted(pdf_dir.glob('*.pdf')):
+    # Select only this archive's files when reusing a work directory. Preserve
+    # every original before any parser can fail, independently of integration.
+    pdfs=sorted(pdf_dir/Path(name).name for name in names)
+    original_refs={}
+    for pdf in pdfs:
         hashed=sha256_file(pdf)
-        ref=store.upload_verified(pdf,f'private-inputs/realpro/originals/{hashed}/{pdf.name}')
-        item=parse_pdf(pdf,work/'parsed')
+        original_refs[pdf]=store.upload_verified(pdf,f'private-inputs/realpro/originals/{hashed}/{pdf.name}')
+    inputs=[]
+    for pdf in pdfs:
+        ref=original_refs[pdf];hashed=ref['sha256']
         analysis_path=work/'parsed'/(hashed+'.json')
+        try:
+            item=parse_pdf(pdf,work/'parsed')
+        except Exception as exc:
+            item={'parser_version':PARSER_VERSION,'metadata':{'filename':pdf.name,'sha256':hashed,
+                'company':None,'acquired_at':None,'pages':None},'rows':[],'warnings':[],
+                'errors':['parse_failed:'+type(exc).__name__]}
+            analysis_path.parent.mkdir(parents=True,exist_ok=True)
+            analysis_path.write_text(json.dumps(item,ensure_ascii=False))
         analysis_ref=store.upload_verified(analysis_path,f'private-inputs/realpro/analysis/{PARSER_VERSION}/{hashed}.json')
         item['metadata'].update(gcs_ref=ref,analysis_ref=analysis_ref);inputs.append(item)
         print(json.dumps({'stage':'pdf_preserved_parsed','file':pdf.name,'pages':item['metadata']['pages'],
             'rows':len(item['rows']),'errors':item['errors']},ensure_ascii=False),flush=True)
+    if len(inputs)!=len(names):raise ValueError('batch_input_accounting_failed')
     manifest=work/'original-manifest.json'
     manifest.write_text(json.dumps({'archive_ref':archive_ref,'pdfs':[i['metadata'] for i in inputs]},ensure_ascii=False))
     manifest_ref=store.upload_verified(manifest,f'private-runs/{run}/original-manifest.json')
