@@ -84,3 +84,33 @@ def test_pdf_money_conversion_preserves_whole_yen_exactly():
     assert _parse_man_to_yen('0.57')==5700
     assert _parse_man_to_yen('0')==0
     assert _parse_man_to_yen('') is None
+
+
+def test_reused_workdir_preserves_all_duplicate_originals_before_parser_failure(tmp_path,monkeypatch):
+    import hashlib,zipfile,pytest
+    from tatemono_map.cloud import realpro_batch as batch
+    archive=tmp_path/'inputs.zip'
+    with zipfile.ZipFile(archive,'w') as z:
+        z.writestr('new-one.pdf',b'%PDF-identical-source')
+        z.writestr('new-two.pdf',b'%PDF-identical-source')
+    work=tmp_path/'work';(work/'originals').mkdir(parents=True)
+    (work/'originals'/'stale-from-old-batch.pdf').write_bytes(b'%PDF-old')
+    class Store:
+        def __init__(self):self.objects={}
+        def upload_verified(self,path,name):
+            content=path.read_bytes()
+            if name in self.objects:assert self.objects[name]==content
+            self.objects[name]=content
+            return {'object':name,'generation':1,'sha256':hashlib.sha256(content).hexdigest()}
+    store=Store();parsed=[]
+    def fail(pdf,cache):
+        assert sum('/originals/' in name for name in store.objects)==2
+        parsed.append(pdf.name)
+        raise ValueError('synthetic_unreadable_pdf')
+    monkeypatch.setattr(batch,'parse_pdf',fail)
+    with pytest.raises(ValueError,match='pdf_source_accounting_or_context_failed'):
+        batch.execute(store,archive,work,'a'*40,expected_pdfs=2)
+    assert parsed==['new-one.pdf','new-two.pdf']
+    assert sum('/originals/' in name for name in store.objects)==2
+    assert sum('/analysis/' in name for name in store.objects)==2
+    assert not (work/'master.sqlite3').exists()
