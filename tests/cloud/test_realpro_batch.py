@@ -67,3 +67,11 @@ def test_conflicting_provider_unit_held_and_prior_ulucks_unchanged(master,tmp_pa
     result=update_batch(master,data,tmp_path,'conflict',baseline)
     assert result['attached_rows']==0 and result['counts_before']==result['counts_after']
     assert result['row_counts']=={'anomaly':2}
+
+
+def test_same_address_different_name_never_authorizes_a_match(master,tmp_path):
+    baseline=initialize(master,tmp_path)
+    data=[item([dict(building_name='全く別の建物',address='北九州市小倉北区魚町1-1-1')])]
+    result=update_batch(master,data,tmp_path,'name-conflict',baseline)
+    assert result['attached_rows']==0 and result['row_counts']=={'held':1}
+    assert result['counts_before']==result['counts_after']

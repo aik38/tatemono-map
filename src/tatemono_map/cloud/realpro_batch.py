@@ -166,6 +166,7 @@ def update_batch(master, inputs, work, run, baseline):
                 if item['errors']:invalid[evidence]='pdf_accounting_or_context_failed'
                 elif not fukuoka_address(row['address']):exclusions[evidence]='outside_fukuoka'
                 elif not row['building_name'] or _is_area_listing_line(row['building_name']):invalid[evidence]='invalid_building_name'
+                elif '丁目丁目' in row['address']:invalid[evidence]='incomplete_source_address'
                 elif literal_room(row['room']) is None:invalid[evidence]='ambiguous_room_label'
                 elif not (row.get('rent_man') and row['rent_man']>0 and row.get('area_sqm') and row['area_sqm']>0):invalid[evidence]='invalid_rent_or_area'
         parsed_total+=len(rows)
@@ -213,7 +214,7 @@ def update_batch(master, inputs, work, run, baseline):
             csv=work/('import-'+digest(company)[:12]+'.csv')
             write_master_import_csv(pd.DataFrame(valid),csv)
             imported=ingest_master_import_csv(str(master),str(csv),source='realpro',snapshot_source=scope,
-                snapshot_key=semantic,auto_seed_high_confidence=True)
+                snapshot_key=semantic,auto_seed_high_confidence=True,strict_name_match=True)
             counts=Counter(); retained=0
             with connect(master) as c:
                 offers={r['listing_key']:dict(r) for r in c.execute('SELECT * FROM listings WHERE ingest_run_id=?',(imported.ingest_run_id,))}
@@ -342,7 +343,8 @@ def backup_current(store,work,run):
 def execute(store,zip_path,work,source_commit,*,commit=False,expected_pdfs=None):
     work.mkdir(parents=True,exist_ok=True);run=new_run_id()
     archive_sha=sha256_file(zip_path)
-    archive_ref=store.upload_verified(zip_path,f'private-inputs/realpro/archives/{archive_sha}.zip')
+    # Preserve each original separately; no second archive upload is needed.
+    archive_ref={'sha256':archive_sha,'filename':zip_path.name}
     pdf_dir=work/'originals';pdf_dir.mkdir(exist_ok=True)
     with zipfile.ZipFile(zip_path) as archive:
         names=[n for n in archive.namelist() if n.lower().endswith('.pdf')]

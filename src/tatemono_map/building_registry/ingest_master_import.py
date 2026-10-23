@@ -436,6 +436,7 @@ def ingest_master_import_csv(
     ulucks_full_area: bool = False,
     collection_company: str = '',
     row_anomalies: dict | None = None,
+    strict_name_match: bool = False,
 ) -> Report:
     conn = connect(db_path)
     renormalize_buildings(conn)
@@ -454,6 +455,12 @@ def ingest_master_import_csv(
     unmatched_rows: list[dict[str, str]] = []
     alias_rows = conn.execute("SELECT alias_key, canonical_key FROM building_key_aliases").fetchall()
     alias_map = {row["alias_key"]: row["canonical_key"] for row in alias_rows}
+    trusted_names = set()
+    if strict_name_match:
+        for target, raw_name, raw_address in conn.execute('SELECT building_id,raw_name,raw_address FROM building_sources'):
+            n = normalize_building_input(raw_name or '', raw_address or '')
+            trusted_names.add((target,n.normalized_name,n.normalized_address))
+    match_cache = {}
 
     try:
         partial = None
@@ -554,7 +561,10 @@ def ingest_master_import_csv(
                     # An existing exact alias already fixes the canonical ID.
                     # Re-scanning all historical source names per room cannot
                     # improve that decision and made live weekly runs very slow.
-                    match = match_building(conn, normalized.normalized_name, normalized.normalized_address, source_address_aliases=ulucks_full_area)
+                    pair = (normalized.normalized_name, normalized.normalized_address)
+                    if pair not in match_cache:
+                        match_cache[pair] = match_building(conn, *pair, source_address_aliases=ulucks_full_area)
+                    match = match_cache[pair]
                     building_id = match.building_id
 
                 if not building_id and match.reason in {"unmatched", "address_without_digits"}:
@@ -687,6 +697,20 @@ def ingest_master_import_csv(
                         candidate_scores="|".join(str(score) for score in match.candidate_scores[:3]),
                     )
                     continue
+
+                if building_id and strict_name_match:
+                    from .matcher import _has_series_suffix_conflict, _score_name, NAME_SIMILARITY_THRESHOLD
+                    target = conn.execute('SELECT canonical_name,canonical_address FROM buildings WHERE building_id=?',(building_id,)).fetchone()
+                    target_name = normalize_building_input(target[0],target[1]).normalized_name
+                    score = _score_name(normalized.normalized_name,target_name)
+                    trusted = (building_id,normalized.normalized_name,normalized.normalized_address) in trusted_names
+                    if not trusted and (score < NAME_SIMILARITY_THRESHOLD or _has_series_suffix_conflict(normalized.normalized_name,target_name,strict=True)):
+                        insert_unmatched_queue(conn,source=normalized_source,ingest_run_id=ingest_run_id,evidence_id=evidence_id,
+                            raw_name=normalized.raw_name,raw_address=normalized.raw_address,normalized_name=normalized.normalized_name,
+                            normalized_address=normalized.normalized_address,reason='strict_name_match_unconfirmed',
+                            candidate_building_ids=building_id,candidate_scores=str(round(score,4)))
+                        report.unresolved += 1
+                        continue
 
                 if building_id and partial:
                     from .matcher import _has_series_suffix_conflict
