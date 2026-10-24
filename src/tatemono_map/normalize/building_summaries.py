@@ -311,10 +311,21 @@ def rebuild(db_path: str) -> int:
     alias_map = {row["alias_key"]: row["canonical_key"] for row in alias_rows}
 
     rows = effective_rentals(conn)
+    mr_sale_scopes = conn.execute("SELECT 1 FROM sqlite_master WHERE name='mansion_review_sale_ownership'").fetchone()
+    mr_sale_filter = """WHERE NOT EXISTS (
+        SELECT 1 FROM mansion_review_sale_ownership o
+        JOIN current_ingest_snapshots s ON s.source=o.scope_key
+        WHERE o.listing_key=sale_listings.sale_listing_key)""" if mr_sale_scopes else ''
+    # Only successfully refreshed MR scopes supersede their old advertisements.
+    # Other providers and failed/unavailable municipalities keep their policy.
+    mr_sale_buildings = {r[0] for r in conn.execute('''SELECT b.building_id
+        FROM mansion_review_sale_buildings b JOIN current_ingest_snapshots s
+        ON s.source=b.scope_key''')} if mr_sale_scopes else set()
     sale_rows = conn.execute(
-        """
+        f"""
         SELECT building_key, price_yen, management_fee_yen, repair_fund_yen, tsubo_unit_price_yen AS sqm_unit_price_yen, area_sqm, layout, floor_text, direction_text, updated_at, source, ingest_run_id
         FROM sale_listings
+        {mr_sale_filter}
         ORDER BY id DESC
         """
     ).fetchall()
@@ -403,6 +414,14 @@ def rebuild(db_path: str) -> int:
         fallback_property_kind = normalize_text(building["property_kind"]) if building and building["property_kind"] else ""
 
         normalized_sale_items = _filter_latest_valid_sale_items(sale_items)
+        if building_key in mr_sale_buildings:
+            # Explicit successful zero must not revive denormalized historical
+            # fallback values from buildings. The canonical row stays intact.
+            building = dict(building) if building else None
+            if building:
+                for field in ('sale_price_yen_min','sale_price_yen_max','sale_price_yen_avg',
+                              'sale_area_sqm_min','sale_area_sqm_max','sale_layout_types_json','sale_listing_count'):
+                    building[field] = None
         normalized_sale_rows_all = [_normalize_sale_row_fields(dict(r)) for r in sale_items]
         filtered_sale_items = normalized_sale_items
         sale_listing_count_total = len(normalized_sale_items)

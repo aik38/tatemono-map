@@ -1,0 +1,11 @@
+# Keep the proven production PDF/parser environment digest pinned.
+FROM asia-northeast1-docker.pkg.dev/tatemono-map/tatemono-poc/realpro@sha256:93a63294f5e7aad3fc88f15a2c19d3466c780123ccf4273532bba012c4489986
+USER root
+COPY mansion_*.py /tmp/mansion-patch/
+RUN python -c "import pathlib,shutil; import tatemono_map.cloud.storage as m; target=pathlib.Path(m.__file__).parent; [shutil.copyfile(p,target/p.name) for p in pathlib.Path('/tmp/mansion-patch').glob('*.py')]"
+COPY fetch_public.py /tmp/shared-cloud/fetch_public.py
+COPY building_summaries.py effective_rentals.py /tmp/shared-normalize/
+RUN python -c "import pathlib,shutil; import tatemono_map.cloud.storage as c; import tatemono_map.normalize.effective_rentals as n; shutil.copyfile('/tmp/shared-cloud/fetch_public.py',pathlib.Path(c.__file__).parent/'fetch_public.py'); [shutil.copyfile(p,pathlib.Path(n.__file__).parent/p.name) for p in pathlib.Path('/tmp/shared-normalize').glob('*.py')]"
+USER collector
+ENTRYPOINT ["python"]
+CMD ["-m", "tatemono_map.cloud.mansion_weekly"]

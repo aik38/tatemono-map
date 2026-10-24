@@ -1,0 +1,29 @@
+name: Mansion Review integration checks
+on:
+  pull_request:
+    paths:
+      - 'src/tatemono_map/cloud/mansion_*.py'
+      - 'src/tatemono_map/cloud/fetch_public.py'
+      - 'src/tatemono_map/normalize/**'
+      - 'tests/**'
+      - '.github/workflows/mansion_review_checks.yml'
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -e . -r requirements.txt -r requirements-dev.txt -r requirements-cloud-test.txt -r requirements-cloud.txt
+      - name: Source priority, MR parser, protected histories, and publication regression checks
+        run: >-
+          python -m pytest -p tests.cloud.conftest
+          tests/cloud/test_mansion_weekly.py tests/cloud/test_existing_quality.py
+          tests/test_building_summaries.py tests/cloud/test_realpro_batch.py
+          tests/cloud/test_realpro_weekly.py tests/cloud/test_pipeline.py
+          tests/cloud/test_publication_verification.py tests/cloud/test_contract_consistency.py
+          tests/cloud/test_publication_scope.py tests/cloud/test_republish.py
+          tests/cloud/test_storage_transfer.py tests/cloud/test_partial_publication.py -q

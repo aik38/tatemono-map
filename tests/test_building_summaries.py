@@ -355,7 +355,7 @@ def test_summary_uses_current_snapshot_only_and_keeps_zero_vacancy_buildings(tmp
     assert b["vacancy_count"] == 0
 
 
-def test_summary_combines_current_snapshots_across_sources(tmp_path):
+def test_ranked_provider_wins_over_unranked_legacy_snapshot(tmp_path):
     db = tmp_path / "test_multi_source.sqlite3"
     conn = connect(db)
     conn.execute("INSERT INTO buildings(building_id, canonical_name, canonical_address) VALUES ('b1','Aマンション','東京都A')")
@@ -385,8 +385,8 @@ def test_summary_combines_current_snapshots_across_sources(tmp_path):
     row = conn.execute("SELECT vacancy_count, rent_yen_min, rent_yen_max FROM building_summaries WHERE building_key='b1'").fetchone()
     conn.close()
 
-    assert row["vacancy_count"] == 2
-    assert row["rent_yen_min"] == 60000
+    assert row["vacancy_count"] == 1
+    assert row["rent_yen_min"] == 90000
     assert row["rent_yen_max"] == 90000
 
 

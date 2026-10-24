@@ -12,7 +12,7 @@ from tatemono_map.cloud.storage import GCSStore, validate_head
 
 
 def accounted_collection(report):
-    if report.get('integration_contract') not in ('ulucks-partial-v1','realpro-partial-v1'):
+    if report.get('integration_contract') not in ('ulucks-partial-v1','realpro-partial-v1','mansion-review-partial-v1'):
         return report.get('parsed_rows')==report.get('attached_rows')
     counts=report.get('row_counts',{})
     allowed={'accepted_existing','accepted_new','held','anomaly','duplicate'}
@@ -23,6 +23,15 @@ def accounted_collection(report):
 
 
 def validate_collection_proof(report):
+    if report.get('integration_contract') == 'mansion-review-partial-v1':
+        scopes=report.get('scope_results',[])
+        if (report.get('source') != 'mansion_review' or report.get('acquisition_status') != 'html_verified'
+                or report.get('html_count',0)<=0 or report.get('successful_scopes',0)<=0
+                or not report.get('original_manifest_ref') or not report.get('proof')
+                or not accounted_collection(report)
+                or sum(s.get('parsed_rows',0) for s in scopes)!=report.get('parsed_rows')):
+            raise CollectionError('release_has_no_successful_html_collection_proof')
+        return
     valid_pdf = report.get("acquisition_status") == "pdf_verified" and report.get("pdf_count", 0) > 0 and report.get("parsed_rows", 0) > 0
     valid_zero = report.get("acquisition_status") == "confirmed_zero" and report.get("pdf_count") == report.get("parsed_rows") == 0
     if report.get("bootstrap") or not report.get("proof") or not (valid_pdf or valid_zero) or not accounted_collection(report):
