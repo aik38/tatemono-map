@@ -218,7 +218,7 @@ def update_batch(master, inputs, work, run, baseline):
             csv=work/('import-'+digest(company)[:12]+'.csv')
             write_master_import_csv(pd.DataFrame(valid),csv)
             imported=ingest_master_import_csv(str(master),str(csv),source='realpro',snapshot_source=scope,
-                snapshot_key=semantic,auto_seed_high_confidence=True,strict_name_match=True)
+                snapshot_key=semantic,auto_seed_high_confidence=True,strict_name_match=True,exact_name_match=True)
             counts=Counter(); retained=0
             with connect(master) as c:
                 offers={r['listing_key']:dict(r) for r in c.execute('SELECT * FROM listings WHERE ingest_run_id=?',(imported.ingest_run_id,))}

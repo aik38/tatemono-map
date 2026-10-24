@@ -84,3 +84,13 @@ def test_repair_exact_name_guard_holds_near_identical_same_address_buildings(mas
     assert result.attached_listings==0
     with readonly(master) as c:
         assert c.execute("SELECT reason FROM unmatched_queue WHERE ingest_run_id=?",(result.ingest_run_id,)).fetchone()[0]=='strict_name_match_unconfirmed'
+
+
+def test_future_realpro_batches_also_hold_different_full_building_names(master,tmp_path):
+    from tatemono_map.db.repo import connect
+    with connect(master) as c:
+        c.execute("UPDATE buildings SET canonical_name='グランドレジデンスA',norm_name='グランドレジデンスA' WHERE canonical_name='架空テストマンション'")
+    baseline=initialize(master,tmp_path)
+    data=[item([dict(building_name='グランドレジデンスB',address='北九州市小倉北区魚町1-1-1')])]
+    result=update_batch(master,data,tmp_path,'future-batch',baseline)
+    assert result['attached_rows']==0 and result['row_counts']=={'held':1}
