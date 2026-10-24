@@ -197,6 +197,28 @@ def _has_minimum_address_for_mansion_review(normalized_address: str) -> bool:
     return any(token in normalized_address for token in ("市", "区", "町", "村"))
 
 
+def _mansion_review_space_match(conn, normalized, building_id: str) -> bool:
+    """Only whitespace may differ, at one exact, complete canonical address."""
+    from .normalization import normalize_ulucks_name
+    from tatemono_map.normalize.effective_rentals import canonical_key
+
+    if not _has_realpro_lot_address(normalized.normalized_address):
+        return False
+    compact = re.sub(r"\s+", "", normalize_ulucks_name(normalized.raw_name))
+    target = conn.execute("SELECT canonical_name,canonical_address FROM buildings WHERE building_id=?", (building_id,)).fetchone()
+    if (not target or re.sub(r"\s+", "", normalize_ulucks_name(target[0])) != compact
+            or normalize_address_for_matching(target[1]) != normalized.normalized_address):
+        return False
+    aliases = dict(conn.execute("SELECT alias_key,canonical_key FROM building_key_aliases"))
+    candidates = set()
+    for row in conn.execute("SELECT building_id,canonical_name,canonical_address FROM buildings"):
+        candidate = normalize_building_input(row[1], row[2])
+        if (candidate.normalized_address == normalized.normalized_address
+                and re.sub(r"\s+", "", normalize_ulucks_name(row[1])) == compact):
+            candidates.add(canonical_key(row[0], aliases))
+    return candidates == {canonical_key(building_id, aliases)}
+
+
 def _is_probably_room_or_unit_name(name: str) -> bool:
     lowered = name.strip().lower()
     if not lowered:
@@ -263,6 +285,8 @@ def _can_auto_seed(
         if not _has_minimum_address_for_mansion_review(normalized_address):
             return False, "address_not_granular"
     elif not (_has_minimum_address_granularity(normalized_address) or full_area_lot
+        or (normalized_source in ("mansion_review_chintai", "mansion_review_mansion")
+            and _has_realpro_lot_address(normalized_address))
         or (normalized_source == "realpro" and _has_realpro_lot_address(normalized_address)) or (
         normalized_source == "ulucks"
         # Observed company-8 PDF has streets without chome: 田町3-31.
@@ -748,7 +772,9 @@ def ingest_master_import_csv(
                     trusted = (building_id,normalized.normalized_name,normalized.normalized_address) in trusted_names
                     from .normalization import normalize_ulucks_name
                     exact_failed = exact_name_match and normalize_ulucks_name(normalized.raw_name) != normalize_ulucks_name(target[0])
-                    if exact_failed or (not trusted and (score < NAME_SIMILARITY_THRESHOLD or _has_series_suffix_conflict(normalized.normalized_name,target_name,strict=True))):
+                    mr_space_match = (exact_failed and normalized_source in ("mansion_review_chintai", "mansion_review_mansion")
+                        and _mansion_review_space_match(conn, normalized, building_id))
+                    if (exact_failed and not mr_space_match) or (not trusted and not mr_space_match and (score < NAME_SIMILARITY_THRESHOLD or _has_series_suffix_conflict(normalized.normalized_name,target_name,strict=True))):
                         insert_unmatched_queue(conn,source=normalized_source,ingest_run_id=ingest_run_id,evidence_id=evidence_id,
                             raw_name=normalized.raw_name,raw_address=normalized.raw_address,normalized_name=normalized.normalized_name,
                             normalized_address=normalized.normalized_address,reason='strict_name_match_unconfirmed',
