@@ -334,7 +334,8 @@ def test_exact_alias_never_rescans_historical_source_names(master, config, pdf, 
 @pytest.mark.parametrize('address,source', [
     ('北九州市小倉北区田町3', 'ulucks'),
     ('北九州市小倉北区田町3-31、3-32', 'ulucks'),
-    ('北九州市小倉北区田町3-31', 'realpro'),
+    ('北九州市小倉北区田町3', 'realpro'),
+    ('北九州市小倉北区田町3-31、3-32', 'realpro'),
     ('北九州市小倉南区田町3-31', 'ulucks'),
 ])
 def test_ulucks_street_lot_exception_does_not_weaken_other_address_gates(master, address, source):

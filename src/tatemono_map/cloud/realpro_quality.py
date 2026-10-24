@@ -22,7 +22,7 @@ import pandas as pd
 from tatemono_map.building_registry.ingest_master_import import (
     _has_realpro_lot_address, _listing_key, ingest_master_import_csv,
 )
-from tatemono_map.building_registry.normalization import normalize_building_input
+from tatemono_map.building_registry.normalization import normalize_building_input, normalize_ulucks_name
 from tatemono_map.cli.pdf_batch_run import write_master_import_csv
 from tatemono_map.cloud.partial import literal_room
 from tatemono_map.cloud.pipeline import preservation_state, validate_master
@@ -98,6 +98,10 @@ def proof_reason(raw, proof):
     parsed=normalize_building_input(raw['building_name'],raw['address'])
     if (source.normalized_name,source.normalized_address)!=(parsed.normalized_name,parsed.normalized_address):
         return 'source_identity_differs_from_parser'
+    if normalize_ulucks_name(source_name)!=normalize_ulucks_name(raw['building_name']):
+        return 'source_building_suffix_differs_from_parser'
+    if normalize_ulucks_name(raw['building_name'])!=parsed.normalized_name:
+        return 'building_number_suffix_needs_review'
     if proof['page']!=raw['page'] or literal_room(proof['room'])!=literal_room(raw['room']):return 'source_room_differs_from_parser'
     if not _has_realpro_lot_address(parsed.normalized_address) or not fukuoka_address(raw['address']):return 'source_address_incomplete_or_annotated'
     for column,field in [('rent','rent_man'),('fee','fee_man')]:
@@ -150,11 +154,17 @@ def repair_candidate(master, baseline, archive, work, run):
         raw=json.loads(row['raw_json']);n=normalize_building_input(raw['building_name'],raw['address'])
         identity_groups[n.normalized_name,n.normalized_address,literal_room(raw['room'])].append(row)
     groups=defaultdict(list); decisions=[]; proof_by_evidence={}
+    canonical_names=defaultdict(set)
+    for original in originals.values():
+        canonical_names[normalize_building_input('',original['canonical_address']).normalized_address].add(normalize_ulucks_name(original['canonical_name']))
     for row in rows:
         if row['classification']!='held' or row['reason']!=REASON:continue
         raw=json.loads(row['raw_json']);p=index.get((raw['_pdf_sha256'],str(raw.get('source_room_id',''))))
         detail=proof_reason(raw,p)
         n=normalize_building_input(raw['building_name'],raw['address'])
+        names=canonical_names.get(n.normalized_address,set())
+        if not detail and names and normalize_ulucks_name(raw['building_name']) not in names:
+            detail='existing_address_different_building_name'
         if not detail and len(identity_groups[n.normalized_name,n.normalized_address,literal_room(raw['room'])])>1:
             detail='multiple_source_rows_for_same_unit'
         if not detail:
@@ -184,7 +194,7 @@ def repair_candidate(master, baseline, archive, work, run):
                 # canonical name/address must identify the resulting building.
                 b=c.execute('SELECT canonical_name,canonical_address FROM buildings WHERE building_id=?',(listing['building_key'],)).fetchone()
                 n=normalize_building_input(raw['building_name'],raw['address']);bn=normalize_building_input(*b)
-                if (n.normalized_name,n.normalized_address)!=(bn.normalized_name,bn.normalized_address):raise ValueError('repair_nonexact_canonical_identity')
+                if (normalize_ulucks_name(raw['building_name']),n.normalized_address)!=(normalize_ulucks_name(b[0]),bn.normalized_address):raise ValueError('repair_nonexact_canonical_identity')
                 classification='accepted_existing' if listing['building_key'] in initial_ids else 'accepted_new'
                 c.execute('''UPDATE cloud_collection_rows SET classification=?,reason='',building_id=?,listing_key=?
                     WHERE scope_key=? AND ingest_run_id=? AND evidence_id=? AND classification='held' AND reason=?''',
