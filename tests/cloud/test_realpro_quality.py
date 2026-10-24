@@ -8,7 +8,7 @@ from tatemono_map.cloud.public_db import readonly
 from test_realpro_batch import item,initialize
 
 
-def test_lot_gate_only_changes_realpro_and_keeps_ambiguous_addresses_private(master):
+def test_lot_gate_keeps_realpro_ulucks_contract_and_reviewed_mr_extension(master):
     from tatemono_map.db.repo import connect
     for address in ['久留米市合川町2142-3','大牟田市飯田町7-1','飯塚市伊川250-1']:
         assert not imp._has_minimum_address_granularity(address)
@@ -16,7 +16,8 @@ def test_lot_gate_only_changes_realpro_and_keeps_ambiguous_addresses_private(mas
         with connect(master) as c:
             assert imp._can_auto_seed(c,'正確な新規住宅',address,'unmatched','realpro')[0]
             assert not imp._can_auto_seed(c,'正確な新規住宅',address,'unmatched','ulucks')[0]
-            assert not imp._can_auto_seed(c,'正確な新規住宅',address,'unmatched','mansion_review_chintai')[0]
+            # Mansion Review now has its separately reviewed complete-lot extension.
+            assert imp._can_auto_seed(c,'正確な新規住宅',address,'unmatched','mansion_review_chintai')[0]
     for address in ['久留米市合川町2142','久留米市合川町2142-3?4','久留米市合川町2142-3、4',
                     '久留米市合川町2142-3(地番)','久留米市合川町2142~2143','久留米市合川町2142--3']:
         assert not imp._has_realpro_lot_address(address)
