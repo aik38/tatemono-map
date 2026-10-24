@@ -526,6 +526,9 @@ jobs:
       contents: read
       id-token: write
     env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_JOB: ${{ vars.GCP_JOB }}
       GCP_BUCKET: ${{ vars.GCP_BUCKET }}
     steps:
       - uses: actions/checkout@v4
@@ -536,5 +539,5 @@ jobs:
         with:
           workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
-      - run: pip install -e . -r requirements-cloud.txt
-      - run: python cloud/quality_audit.py
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: python cloud/quality_operator.py
