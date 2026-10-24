@@ -28,6 +28,7 @@ def plan(conn):
         key,name,address=source
         if key in bs and name_identity(name)==name_identity(bs[key]['canonical_name']) and full_address(address):
             evidence[key].add(normalize_address_for_matching(address))
+    aliases=dict(conn.execute('SELECT alias_key,canonical_key FROM building_key_aliases'))
     merges=[];pending=[];distinct=[];pairs=[]
     for name,group in groups.items():
         if not name or len(group)<2:continue
@@ -48,8 +49,12 @@ def plan(conn):
             built={b['built_year_month'] for b in confirmed if b['built_year_month']}
             if len(built)>1:
                 pending.append({'ids':[b['building_id'] for b in confirmed],'reason':'conflicting_built_dates'});continue
-            # Preserve full, already published identity, then earliest registered ID.
-            confirmed.sort(key=lambda b:(b['hidden_from_public']!=0,not full_address(b['canonical_address']),b['created_at'] or '9999',b['building_id']))
+            roots={canonical_key(b['building_id'],aliases) for b in confirmed}
+            confirmed_ids={b['building_id'] for b in confirmed}
+            if not roots <= confirmed_ids:
+                pending.append({'ids':sorted(confirmed_ids),'reason':'existing_alias_conflict'});continue
+            # Preserve an established canonical endpoint and published full identity.
+            confirmed.sort(key=lambda b:(canonical_key(b['building_id'],aliases)!=b['building_id'],b['hidden_from_public']!=0,not full_address(b['canonical_address']),b['created_at'] or '9999',b['building_id']))
             keep=confirmed[0]
             for drop in confirmed[1:]:
                 merges.append({'keep':keep['building_id'],'drop':drop['building_id'],'name':keep['canonical_name'],'reason':'same_name_full_lot_with_source_evidence'})

@@ -35,6 +35,9 @@ def audit(master):
             ids = [b['id'] for b in bs]
             six.append({'buildings':bs, 'listings':[{**{k:r[k] for k in fields},'effective':any(e['listing_key']==r['listing_key'] for e in effective)} for r in c.execute('SELECT * FROM listings WHERE building_key IN ('+','.join('?' for _ in ids)+')',ids)], 'sources': [dict(r) for r in c.execute('SELECT source,building_id,raw_name,raw_address FROM building_sources WHERE building_id IN ('+','.join('?' for _ in ids)+')',ids)]})
     result = {'counts': {t:c.execute('SELECT COUNT(*) FROM "'+t+'"').fetchone()[0] for t in tables}, 'schemas': {t:tables[t] for t in ('raw_units','building_rental_summaries','building_summaries','cloud_collection_rows') if t in tables}, 'effective':len(effective), 'effective_sources':dict(Counter(r['source_kind'] for r in effective)), 'missing_both':len(missing), 'missing_buildings':len({r['building_key'] for r in missing}), 'missing_by_run': {str(k):v for k,v in Counter((r['source_kind'],r['ingest_run_id'],r['updated_at']) for r in missing).items()}, 'missing_sample':[{k:r[k] for k in fields} for r in missing], 'candidate_groups':candidates, 'six':six, 'snapshots':[dict(r) for r in c.execute('SELECT * FROM current_ingest_snapshots')], 'ingest_runs':[dict(r) for r in c.execute('SELECT * FROM ingest_runs WHERE id IN ('+','.join('?' for _ in {r['ingest_run_id'] for r in missing})+')',list({r['ingest_run_id'] for r in missing}))]}
+    from tatemono_map.cloud.legacy_rent_evidence import locate,numeric_fields
+    found,diagnostics=locate(c,missing)
+    result['legacy_original_evidence']={'matched_rows':len(found),'diagnostics':diagnostics,'field_counts':{str(k):v for k,v in Counter(tuple(numeric_fields(raw)) for raw in found.values()).items()},'samples':[numeric_fields(raw) for raw in list(found.values())[:8]]}
     result['raw_source_kinds']=[tuple(r) for r in c.execute('SELECT provider,source_kind,COUNT(*) FROM raw_sources GROUP BY 1,2')]
     result['missing_source_refs']=[{'kind':r['source_kind'],'file':urlsplit(r['source_url'] or '').path.rsplit('/',1)[-1]} for r in missing[:5]]
     result['raw_examples']=[]
@@ -50,9 +53,15 @@ def main():
     work=Path('work/quality-audit');work.mkdir(parents=True,exist_ok=True)
     store=GCSStore(os.environ['GCP_BUCKET']);head,generation=store.read_head();validate_head(head)
     store.download(head['master'],work/'master.sqlite3');validate_master(work/'master.sqlite3')
-    report=audit(work/'master.sqlite3')
-    report['head']={k:head[k] for k in ('run_id','source_commit','master','public')};report['generation']=generation
-    report['public_counts']=head['report']['public_counts']
+    store.download(head['public'],work/'public.sqlite3')
+    c=sqlite3.connect(work/'master.sqlite3');c.row_factory=sqlite3.Row
+    public=sqlite3.connect(work/'public.sqlite3')
+    target={r[0] for r in public.execute('SELECT building_key FROM building_summaries WHERE vacancy_count>0 AND rent_yen_min IS NULL AND area_sqm_min IS NULL')}
+    missing=[dict(r) for r in c.execute("SELECT * FROM listings WHERE ingest_run_id=31 AND source_kind='mansion_review_chintai' AND rent_yen IS NULL AND area_sqm IS NULL") if r['building_key'] in target]
+    from tatemono_map.cloud.legacy_rent_evidence import locate,numeric_fields
+    found,diagnostics=locate(c,missing)
+    report={'target_rows':len(missing),'original_hash_matched':len(found),'diagnostics':diagnostics,'samples':[numeric_fields(raw) for raw in list(found.values())[:20]],'field_counts':{str(k):v for k,v in Counter(tuple(numeric_fields(raw)) for raw in found.values()).items()},'all_fields':[numeric_fields(raw) for raw in found.values()]}
+    report['generation']=generation
     # Only normalized property identities and numeric terms enter the safe report.
     # PDF URLs, credentials, PDF contents and the private SQLite never leave GCS/runner.
     encoded=base64.b64encode(zlib.compress(json.dumps(report,ensure_ascii=False,default=str).encode())).decode()
