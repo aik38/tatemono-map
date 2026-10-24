@@ -206,6 +206,8 @@ def room_count(path):
         for ref in page.get('/Annots', []):
             annotation = ref.get_object()
             action = annotation.get('/A', {})
+            if hasattr(action, 'get_object'):
+                action = action.get_object()
             uri = str(action.get('/URI', ''))
             parsed = urlsplit(uri)
             if parsed.hostname == 'www.realnetpro.com' and parsed.path == '/room_detail.php':
@@ -217,7 +219,7 @@ def room_count(path):
     return len(ids), len(reader.pages)
 
 
-def acquire(page, context, root, company_id):
+def acquire(page, context, root, company_id, *, on_download=None):
     root.mkdir(parents=True, exist_ok=True)
     path = root / ('realpro-' + company_id + '.pdf')
     responses, failures, downloads = [], [], []
@@ -256,6 +258,8 @@ def acquire(page, context, root, company_id):
             raise CollectionError(failures[0] if failures else 'realpro_pdf_not_received')
         if not path.read_bytes().startswith(b'%PDF-') or not 1000 < path.stat().st_size < 100*1024*1024:
             raise CollectionError('realpro_export_response_not_pdf')
+        if on_download is not None:
+            on_download(path)
         count, pages = room_count(path)
         return path, {'pdf_pages':pages, 'expected_rows':count,
             'pdf_sha256':hashlib.sha256(path.read_bytes()).hexdigest(),

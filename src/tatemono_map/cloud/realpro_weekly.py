@@ -12,6 +12,7 @@ import os
 import re
 import tempfile
 import time
+import traceback
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,7 +20,7 @@ from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 from tatemono_map.cloud.collector import CollectionError
-from tatemono_map.cloud.realpro import login, discover, choose, acquire
+from tatemono_map.cloud.realpro import login, discover, choose, acquire, room_count
 from tatemono_map.cloud.run import new_run_id, secret_json
 from tatemono_map.cloud.storage import GCSStore, commit_release, validate_head
 
@@ -181,13 +182,33 @@ def execute(store, work, *, companies=None, cycle, source_commit, commit=False, 
                             'els=>els.map(e=>e.value)')
                         if not towns or any(not re.fullmatch(r'40\d{6}', t) for t in towns):
                             raise CollectionError('realpro_selected_town_prefecture_mismatch')
-                        pdf, evidence = acquire(page, context, work, cid)
-                        ref = store.upload_verified(pdf, f'private-inputs/realpro/originals/{evidence["pdf_sha256"]}/{pdf.name}')
+                        print(json.dumps({'stage': 'realpro_company_selected', 'company_id': cid,
+                                          'regions': len(regions), 'towns': len(towns)}), flush=True)
+                        raw_name = prefix + f'/companies/{cid}/download.json'
+                        saved_download = read_json(store, raw_name)
+                        def preserve_download(path):
+                            import hashlib
+                            hashed = hashlib.sha256(path.read_bytes()).hexdigest()
+                            saved = {'company_title': title, 'regions': regions, 'town_codes': towns,
+                                     'acquired_at': datetime.now(timezone.utc).isoformat(), 'sha256': hashed,
+                                     'pdf': store.upload_verified(path, f'private-inputs/realpro/originals/{hashed}/{path.name}')}
+                            save_json(store, work, raw_name, saved)
+                        if saved_download:
+                            store.download(saved_download['pdf'], pdf)
+                            if saved_download['regions'] != regions or saved_download['town_codes'] != towns:
+                                raise CollectionError('realpro_saved_download_scope_changed')
+                            count, pages = room_count(pdf)
+                            evidence = {'pdf_pages': pages, 'expected_rows': count,
+                                        'pdf_sha256': saved_download['sha256'], 'acquired_at': saved_download['acquired_at']}
+                        else:
+                            pdf, evidence = acquire(page, context, work, cid, on_download=preserve_download)
+                            newly_acquired += 1
+                        raw_receipt = read_json(store, raw_name)
+                        ref = raw_receipt['pdf']
                         receipt = {'company_id': cid, 'company_label': company['company_label'],
                                    'company_title': title, 'regions': regions, 'town_codes': towns,
                                    'pdf': ref, 'evidence': evidence}
                         save_json(store, work, receipt_name, receipt)
-                        newly_acquired += 1
                     item = parse_pdf(pdf, work/'parsed')
                     analysis_path = work/'parsed'/(item['metadata']['sha256']+'.json')
                     analysis_ref = store.upload_verified(analysis_path,
@@ -205,12 +226,15 @@ def execute(store, work, *, companies=None, cycle, source_commit, commit=False, 
                     # Never print provider exception strings: they may contain session URLs.
                     code = str(exc) if isinstance(exc, CollectionError) and re.fullmatch(r'[a-z0-9_]+', str(exc)) else type(exc).__name__
                     result.update(status='failed', failure_code=code)
+                    result['failure_location'] = [dict(file=Path(f.filename).name, line=f.lineno, function=f.name)
+                                                  for f in traceback.extract_tb(exc.__traceback__)[-4:]]
                 finally:
                     save_json(store, work, f'private-runs/{run}/companies/{cid}/result.json', result)
                     close = page.locator('#company_room_close')
                     if close.is_visible(): close.click()
                 print(json.dumps({'stage': 'realpro_company', 'company_id': cid, 'status': result['status'],
-                                  'failure_code': result.get('failure_code'), 'parsed_rows': result.get('parsed_rows')}, ensure_ascii=False), flush=True)
+                                  'failure_code': result.get('failure_code'), 'failure_location': result.get('failure_location'),
+                                  'parsed_rows': result.get('parsed_rows')}, ensure_ascii=False), flush=True)
         finally: browser.close()
     manifest = {'run_id': run, 'cycle': cycle, 'catalog_count': len(catalog),
                 'named_companies': sum(c['availability']=='available' for c in catalog),
