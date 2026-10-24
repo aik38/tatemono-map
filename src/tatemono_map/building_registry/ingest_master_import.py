@@ -170,6 +170,23 @@ def _has_minimum_address_granularity(normalized_address: str) -> bool:
     return len(normalized_address) >= 10
 
 
+def _has_realpro_lot_address(normalized_address: str) -> bool:
+    """Count the first lot number even when it follows the town name.
+
+    Keep the existing source gates unchanged. Only an explicit, complete
+    numeric lot suffix qualifies; missing numbers, annotations and ranges do
+    not. This is an address check, never authorization to match by address.
+    """
+    return bool(
+        len(normalized_address) >= 10
+        and re.fullmatch(
+            r"[一-龥々ヶケぁ-んァ-ヺ]+[0-9]+(?:-[0-9]+){1,2}",
+            normalized_address,
+        )
+        and re.search(r"[市区町村]", normalized_address)
+    )
+
+
 def _has_minimum_address_for_mansion_review(normalized_address: str) -> bool:
     if not normalized_address:
         return False
@@ -235,7 +252,8 @@ def _can_auto_seed(
     if allow_relaxed_for_mr:
         if not _has_minimum_address_for_mansion_review(normalized_address):
             return False, "address_not_granular"
-    elif not (_has_minimum_address_granularity(normalized_address) or full_area_lot or (
+    elif not (_has_minimum_address_granularity(normalized_address) or full_area_lot
+        or (normalized_source == "realpro" and _has_realpro_lot_address(normalized_address)) or (
         normalized_source == "ulucks"
         # Observed company-8 PDF has streets without chome: 田町3-31.
         # Limit this exception to the reviewed ward and a full street/lot pair;
