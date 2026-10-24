@@ -1,3 +1,51 @@
+# Current login result — 2026-10-24 22:17 JST
+
+**Cloud Run fresh-session login and company-list navigation are now proven successful.**
+This section supersedes all authentication failure/owner-input steps in the historical
+checkpoint below. Do not repeat old failed-credential diagnostics.
+
+- Root cause: the version 2 username did not match the owner's successful login ID.
+  Password comparison was true. Owner authorized changing only the username.
+  Version 3 was added; password and every other payload setting (including `rnp`)
+  were verified unchanged. Version 2 remains ENABLED. Never print credential values.
+- Post-login fix: accept only the pinned, owner-approved terms; follow the observed
+  same-origin company-list link instead of clicking a side-menu item outside the viewport.
+  Existing service-start and optional linkage-deferral steps remain conditional.
+- Terms evidence: the Cloud Run page announced the same 2021-08-02 revision as
+  reference screenshot 02, and the displayed reference clauses matched.
+  SHA-256 of the current terms' whitespace-normalized full text:
+  `fc622fe1bb3c3053a255c441ffd438edd9fa38dbce43afd3c975ca7e19bd6165`.
+  A different text stops with `realpro_terms_changed_owner_review_required`.
+- Deployed code tree: `e6998a7f818c2d7bb323ba0349cfe541f01487c9` on
+  `realpro-cloud-20261023`; main was not modified.
+- Cloud Build: `1b50e7af-8a23-4515-a59e-db5eeaf873ea`, SUCCESS.
+- RealPro Job image:
+  `asia-northeast1-docker.pkg.dev/tatemono-map/tatemono-poc/realpro@sha256:664376d8b2ded50579cc870cfbab8fdb2f6a840192c9d9483d13cb034c67535f`.
+  This is a two-module overlay on the formerly deployed pinned image; no parser
+  or other source collector was replaced.
+- Job `tatemono-realpro-weekly`, asia-northeast1, now defaults to
+  `python -m tatemono_map.cloud.realpro_login_check` (LOGIN ONLY).
+  `REALPRO_LOGIN_SECRET` is pinned to
+  `projects/tatemono-map/secrets/tm-poc-realpro-login/versions/3`.
+- Successful execution: `tatemono-realpro-weekly-hf25l`, completed
+  `2026-10-24T13:17:00.508972Z`, succeededCount 1.
+  Safe application evidence: secret_version 3, initial_cookie_count 0,
+  result success, company_list_reached true, final_host www.realnetpro.com,
+  final_path /main.php. Success additionally requires visible `#company_place`
+  and no visible password field; process exit alone is not the proof.
+- Reproduce without overrides:
+  `gcloud run jobs execute tatemono-realpro-weekly --region=asia-northeast1 --project=tatemono-map`.
+  Read only the execution's `REALPRO_LOGIN_SAFE=` log marker.
+- No PDF collection, canonical SQLite update, GCS HEAD write, Pages deployment,
+  other-source change, Scheduler change, or weekly collection activation was performed.
+  Do not re-enable the former acquire-only entrypoint as part of login verification.
+- Pre-change RealPro Job configuration was retained in Cloud Shell:
+  `~/realpro-job-before-login-proof-20261024.yaml`.
+
+---
+
+## Historical checkpoint (authentication observations below are superseded)
+
 # RealPro cloud checkpoint — 2026-10-23
 
 Status: incomplete. No RealPro release has been committed to the official HEAD.
