@@ -1,0 +1,8 @@
+# Minimal overlay: preserve the currently deployed runtime and parser dependencies.
+FROM asia-northeast1-docker.pkg.dev/tatemono-map/tatemono-poc/realpro@sha256:633f0a52dddf70721fbd83d052c43355b9b6ca269e596c4f0d632796573a7b19
+USER root
+COPY realpro.py realpro_login_check.py /tmp/realpro-login-patch/
+RUN python -c "import pathlib,shutil; import tatemono_map.cloud.realpro as m; target=pathlib.Path(m.__file__).parent; shutil.copyfile('/tmp/realpro-login-patch/realpro.py',target/'realpro.py'); shutil.copyfile('/tmp/realpro-login-patch/realpro_login_check.py',target/'realpro_login_check.py')"
+USER collector
+ENTRYPOINT ["python"]
+CMD ["-m", "tatemono_map.cloud.realpro_login_check"]
