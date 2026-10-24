@@ -250,8 +250,8 @@ def repair_candidate(master, baseline, archive, work, run):
     causes=defaultdict(Counter)
     for row in after_rows:company[row['company_id']][row['classification']]+=1
     for name,item in private_rows:company[name]['anomaly']+=1
-    for row,outcome,detail,proof in decisions:causes[row['company_id']][detail]+=1
-    reviewed={row['evidence_id']:detail for row,outcome,detail,proof in decisions if outcome=='held'}
+    for row,outcome,detail,source_proof in decisions:causes[row['company_id']][detail]+=1
+    reviewed={row['evidence_id']:detail for row,outcome,detail,source_proof in decisions if outcome=='held'}
     remaining=Counter(reviewed.get(r['evidence_id'],r['reason']) for r in after_rows if r['classification'] in ('held','anomaly'))
     remaining.update(item['reason'] for name,item in private_rows)
     before_causes=defaultdict(Counter)
@@ -271,6 +271,8 @@ def repair_candidate(master, baseline, archive, work, run):
         public_rescued_buildings=len({r['building_id'] for r in accepted if r['building_id'] in public_ids}),
         remaining_reasons=dict(remaining))
     from tatemono_map.cloud.fetch_public import validate_collection_proof
+    if not isinstance(report['proof'],list) or not all(isinstance(p,dict) and 'building_key' in p for p in report['proof']):
+        raise ValueError('invalid_realpro_public_proof')
     validate_collection_proof(report)
     return report
 

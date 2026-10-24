@@ -51,6 +51,15 @@ def test_verified_repair_preserves_original_inputs_history_snapshots_and_is_idem
     assert report['rescued_count']==2
     assert report['row_counts']['held']==3
     assert report['new_buildings']==1
+    # Exercise the actual Pages boundary, not only private adoption counts.
+    import subprocess,sys,os
+    from tatemono_map.cloud.verify_public import compare
+    assert isinstance(report['proof'],list) and report['proof']
+    dist=tmp_path/'repair-dist'
+    subprocess.run([sys.executable,'-m','tatemono_map.render.build','--db-path',str(tmp_path/'public.sqlite3'),
+        '--output-dir',str(dist),'--version','v2'],check=True,capture_output=True,
+        env={**os.environ,'PYTHONPATH':'src'})
+    compare({'proof':report['proof']},json.loads((dist/'data/buildings.json').read_text()))
     with readonly(master) as c:
         assert [tuple(r) for r in c.execute('SELECT * FROM current_ingest_snapshots')]==[tuple(r) for r in old_snapshots]
         assert [tuple(r) for r in c.execute('SELECT * FROM realpro_pdf_inputs')]==[tuple(r) for r in old_inputs]
