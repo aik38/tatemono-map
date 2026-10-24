@@ -28,6 +28,20 @@ def test_last_week_success_is_not_this_weeks_execution():
     assert upstream_status([execution], since) == 'not_started'
 
 
+def test_shared_lease_is_waited_out_before_acquisition(monkeypatch):
+    from tatemono_map.cloud import realpro_weekly as weekly
+    states = iter([{'expires_at': float('inf')}, None])
+    reads, sleeps = [], []
+    def read(store, name):
+        reads.append(name)
+        return next(states)
+    monkeypatch.setattr(weekly, 'read_json', read)
+    monkeypatch.setattr(weekly.time, 'sleep', sleeps.append)
+    weekly.wait_for_shared_lease(object())
+    assert reads == ['state/collection-lock.json']*2
+    assert sleeps == [60]
+
+
 def test_duplicate_only_does_not_commit_or_change_head(monkeypatch, tmp_path):
     from contextlib import nullcontext
     from tatemono_map.cloud import realpro_batch, realpro_weekly

@@ -19,6 +19,8 @@ The RealPro Scheduler launches the job at Monday 04:05 JST. This is a wake-up ti
 
 A RealPro-only seven-hour acquisition lease prevents concurrent collectors without taking Ulucks' shared collection lease. The runtime task timeout is six hours. Integration separately takes the existing shared collection lease, reads the latest HEAD, verifies/backups master and public, and uses the existing HEAD generation CAS. A concurrent winner is never overwritten. Immutable cycle/company receipts prevent repeated downloads on task retry. Failed companies retain their prior SQLite snapshot; no failed request is classified as zero rooms or ended availability.
 
+Before starting acquisition the weekly entry also waits for any live canonical-store lease to finish, without deleting or stealing it. The normal Job has one task retry; successful PDF receipts and completed cycle integration are reused by that retry.
+
 ## Representative proof and resume
 
 ```
@@ -46,3 +48,28 @@ Reuse the existing `tatemono-poc-runner` runtime and `tm-weekly-trigger` schedul
 Container builds overlay only the listed RealPro Python modules on the digest-pinned deployed main runtime. Do not rebuild Ulucks or dispatch an Ulucks collection as part of RealPro deployment. A future change to the imported runtime must be deliberate and regression-checked.
 
 The scheduled all-company run on 2026-10-26 has not happened at implementation time. Enabled configuration and representative proof must never be reported as all-company collection success.
+
+## Representative production result
+
+`tatemono-realpro-weekly-j6kqc` succeeded using runtime code `4ce636ecd6aee138dd3b25182d1c63480ebf8e91`. Acquisition/integration release: `20261024T143125Z-459011014884`.
+
+| Metric | Verified result |
+| --- | ---: |
+| Fresh Cloud Run catalog | 102 IDs / 99 named links / 3 empty links |
+| Acquired companies | 2 |
+| Daito Kokura / Apaman Kokura PDF | 69 pages / 14 pages |
+| Daito / Apaman parsed rooms | 481 / 136 |
+| Parsed / adopted / held / anomaly | 617 / 438 / 178 / 1 |
+| Adopted existing / new | 434 / 4 |
+| Failed companies / duplicate input rows | 0 / 0 |
+| Official buildings | 9,918 → 9,922 |
+| Historical listing rows | 67,220 → 67,658 |
+| Sale listing rows | 11,907 → 11,907 |
+| Public buildings / vacancies | 8,195 / 8,311 |
+
+Original SHA-256:
+
+- `15974`: `68f86b31bfe3fc7ee655d4cca74ceb65464e84a5c303f9ba68eb8661dbb112f4`
+- `22452`: `941cf69d63b04f0de96bd5007db105bb26cc3728f8fe3e2ff877232e937e8559`
+
+Two earlier executions stopped before PDF export because the legacy download handler used a builtin `list.append`, which Playwright cannot wrap. Stable function handlers fix that incompatibility; a regression test invokes the real Playwright handler wrapper. Those stopped attempts did not download PDFs or update HEAD. Successful originals and integration receipts are retained in the cycle above; never rerun the source acquisition to verify them.

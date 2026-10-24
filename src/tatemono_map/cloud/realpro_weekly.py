@@ -81,6 +81,18 @@ def save_json(store, work, name, data):
     return store.upload_verified(path, name)
 
 
+def wait_for_shared_lease(store, *, timeout=7200):
+    """Check canonical-store contention before collecting; never steal a live lease."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        lease = read_json(store, 'state/collection-lock.json')
+        if lease is None or float(lease.get('expires_at', float('inf'))) < time.time():
+            return
+        print(json.dumps({'stage': 'waiting_for_canonical_lease'}), flush=True)
+        time.sleep(60)
+    raise CollectionError('realpro_canonical_store_busy')
+
+
 @contextmanager
 def acquisition_lease(store, owner):
     """RealPro-only lock: collection must never block the Ulucks shared lease."""
@@ -279,6 +291,7 @@ def main():
             raise CollectionError('realpro_representative_requires_two_or_three_ids')
         store = GCSStore(os.environ['TATEMONO_BUCKET'])
         with acquisition_lease(store, new_run_id()), tempfile.TemporaryDirectory(prefix='realpro-weekly-') as directory:
+            if args.weekly: wait_for_shared_lease(store)
             result = execute(store, Path(directory), companies=companies, cycle=cycle,
                              source_commit=os.environ['TATEMONO_SOURCE_COMMIT'], commit=args.commit, verify=args.verify_web)
         safe = {k: v for k, v in result.items() if k not in ('head', 'companies')}
@@ -289,7 +302,10 @@ def main():
         print(json.dumps({'status': 'failed', 'code': str(exc)}), flush=True)
         return 1
     except Exception as exc:
-        print(json.dumps({'status': 'failed', 'code': 'realpro_weekly_operation_failed', 'type': type(exc).__name__}), flush=True)
+        frames = [dict(file=Path(f.filename).name, line=f.lineno, function=f.name)
+                  for f in traceback.extract_tb(exc.__traceback__)[-6:]]
+        print(json.dumps({'status': 'failed', 'code': 'realpro_weekly_operation_failed',
+                          'type': type(exc).__name__, 'failure_location': frames}), flush=True)
         return 1
 
 
