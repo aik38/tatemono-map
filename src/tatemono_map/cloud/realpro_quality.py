@@ -133,7 +133,8 @@ def repair_candidate(master, baseline, archive, work, run):
     with connect(master) as c:
         rows=current_rows(c)
         expected={r[0] for r in c.execute('SELECT sha256 FROM realpro_pdf_inputs')}
-        private=sum(len(json.loads(r[0]).get('row_results',[])) for r in c.execute("SELECT result_json FROM realpro_pdf_inputs WHERE status='private_no_valid_rows'"))
+        private_rows=[(r[0],item) for r in c.execute("SELECT company,result_json FROM realpro_pdf_inputs WHERE status='private_no_valid_rows'") for item in json.loads(r[1]).get('row_results',[])]
+        private=len(private_rows)
         before=counts(rows,private)
         originals={r['building_id']:dict(r) for r in c.execute('SELECT * FROM buildings')}
         preserved=preservation_state(c)
@@ -180,7 +181,7 @@ def repair_candidate(master, baseline, archive, work, run):
         # Same original run and evidence keys: existing accepted offers are not
         # re-imported, no snapshot is switched, and PDF inputs remain immutable.
         result=ingest_master_import_csv(str(master),str(path),source='realpro',
-            snapshot_source=old_run['source'],snapshot_key=old_run['snapshot_key'],strict_name_match=True)
+            snapshot_source=old_run['source'],snapshot_key=old_run['snapshot_key'],strict_name_match=True,exact_name_match=True)
         if result.ingest_run_id!=ingest_id:raise ValueError('repair_created_new_input_run')
         with connect(master) as c:
             with path.open(encoding='utf-8-sig',newline='') as f:
@@ -248,7 +249,14 @@ def repair_candidate(master, baseline, archive, work, run):
     company=defaultdict(Counter)
     causes=defaultdict(Counter)
     for row in after_rows:company[row['company_id']][row['classification']]+=1
+    for name,item in private_rows:company[name]['anomaly']+=1
     for row,outcome,detail,proof in decisions:causes[row['company_id']][detail]+=1
+    reviewed={row['evidence_id']:detail for row,outcome,detail,proof in decisions if outcome=='held'}
+    remaining=Counter(reviewed.get(r['evidence_id'],r['reason']) for r in after_rows if r['classification'] in ('held','anomaly'))
+    remaining.update(item['reason'] for name,item in private_rows)
+    before_causes=defaultdict(Counter)
+    for row in rows:before_causes[row['company_id']][row['reason'] or 'accepted']+=1
+    for name,item in private_rows:before_causes[name][item['reason']]+=1
     report=dict(source='realpro',integration_contract='realpro-partial-v1',acquisition_status='pdf_verified',
         collection_mode='existing_pdf_quality_repair',repair_version=REPAIR,parsed_rows=sum(before.values()),
         attached_rows=after.get('accepted_existing',0)+after.get('accepted_new',0),rescued_count=len(accepted),
@@ -258,9 +266,10 @@ def repair_candidate(master, baseline, archive, work, run):
         other_snapshots_preserved=True,ulucks_preserved=True,pdf_inputs_unchanged=True,
         source_inventory=inventory,repair_causes={k:dict(v) for k,v in causes.items()},
         company_counts={k:dict(v) for k,v in company.items()},rescued_rows=accepted,
+        company_causes_before={k:dict(v) for k,v in before_causes.items()},
         public_rescued_rows=sum(r['building_id'] in public_ids for r in accepted),
         public_rescued_buildings=len({r['building_id'] for r in accepted if r['building_id'] in public_ids}),
-        remaining_reasons=dict(Counter(r['reason'] for r in after_rows if r['classification'] in ('held','anomaly'))))
+        remaining_reasons=dict(remaining))
     from tatemono_map.cloud.fetch_public import validate_collection_proof
     validate_collection_proof(report)
     return report

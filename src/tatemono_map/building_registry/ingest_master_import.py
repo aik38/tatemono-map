@@ -208,14 +208,24 @@ def _is_probably_room_or_unit_name(name: str) -> bool:
     return False
 
 
-def _has_close_conflict(conn, normalized_name: str, normalized_address: str) -> bool:
+def _has_close_conflict(conn, normalized_name: str, normalized_address: str, *, fast: bool = False) -> bool:
     rows = conn.execute("SELECT norm_name, norm_address FROM buildings").fetchall()
     scores: list[float] = []
     incoming_addr = normalize_address_for_matching(normalized_address)
     for row in rows:
         existing_name = row[0] or ""
+        if fast:
+            name_match = SequenceMatcher(None, normalized_name or "", existing_name)
+            # quick_ratio is an upper bound, and the address score is at most
+            # one. Skip only pairs mathematically unable to reach 0.82.
+            if name_match.quick_ratio() * 0.65 + 0.35 < 0.82:
+                continue
+            name_score = name_match.ratio()
+            if name_score * 0.65 + 0.35 < 0.82:
+                continue
+        else:
+            name_score = _score_similarity(normalized_name, existing_name)
         existing_addr = normalize_address_for_matching(row[1] or "")
-        name_score = _score_similarity(normalized_name, existing_name)
         addr_score = _score_similarity(incoming_addr, existing_addr)
         total = name_score * 0.65 + addr_score * 0.35
         if total >= 0.82:
@@ -263,7 +273,7 @@ def _can_auto_seed(
         return False, "address_not_granular"
     if match_reason in AUTO_SEED_BLOCKED_REASONS and not allow_relaxed_for_mr:
         return False, f"blocked_by_match_reason:{match_reason}"
-    if _has_close_conflict(conn, normalized_name, normalized_address):
+    if _has_close_conflict(conn, normalized_name, normalized_address, fast=normalized_source == "realpro"):
         return False, "close_conflicting_candidate"
     return True, "high_confidence_unmatched"
 
@@ -455,6 +465,7 @@ def ingest_master_import_csv(
     collection_company: str = '',
     row_anomalies: dict | None = None,
     strict_name_match: bool = False,
+    exact_name_match: bool = False,
 ) -> Report:
     conn = connect(db_path)
     renormalize_buildings(conn)
@@ -722,7 +733,9 @@ def ingest_master_import_csv(
                     target_name = normalize_building_input(target[0],target[1]).normalized_name
                     score = _score_name(normalized.normalized_name,target_name)
                     trusted = (building_id,normalized.normalized_name,normalized.normalized_address) in trusted_names
-                    if not trusted and (score < NAME_SIMILARITY_THRESHOLD or _has_series_suffix_conflict(normalized.normalized_name,target_name,strict=True)):
+                    from .normalization import normalize_ulucks_name
+                    exact_failed = exact_name_match and normalize_ulucks_name(normalized.raw_name) != normalize_ulucks_name(target[0])
+                    if exact_failed or (not trusted and (score < NAME_SIMILARITY_THRESHOLD or _has_series_suffix_conflict(normalized.normalized_name,target_name,strict=True))):
                         insert_unmatched_queue(conn,source=normalized_source,ingest_run_id=ingest_run_id,evidence_id=evidence_id,
                             raw_name=normalized.raw_name,raw_address=normalized.raw_address,normalized_name=normalized.normalized_name,
                             normalized_address=normalized.normalized_address,reason='strict_name_match_unconfirmed',

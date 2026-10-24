@@ -60,3 +60,27 @@ def test_verified_repair_preserves_original_inputs_history_snapshots_and_is_idem
     second=quality.repair_candidate(master,baseline,None,tmp_path,'repair-again')
     assert second['rescued_count']==0
     with readonly(master) as c:assert c.execute('SELECT count(*) FROM listings').fetchone()[0]==n
+
+
+def test_realpro_conflict_fast_bound_preserves_existing_decisions(master):
+    from tatemono_map.db.repo import connect
+    with connect(master) as c:
+        for name in ['架空テストマンション','架空テストマンションA','架空テストマンションB','別棟住宅',
+                     '他社テストマンション','新規住宅','レジデンスアルファ','レジデンスベータ']:
+            for address in ['北九州市小倉北区魚町1-1-1','北九州市門司区港町2-2-2','久留米市合川町2142-3']:
+                assert imp._has_close_conflict(c,name,address,fast=True)==imp._has_close_conflict(c,name,address)
+
+
+def test_repair_exact_name_guard_holds_near_identical_same_address_buildings(master,tmp_path):
+    import pandas as pd
+    from tatemono_map.cli.pdf_batch_run import write_master_import_csv
+    from tatemono_map.db.repo import connect
+    with connect(master) as c:
+        c.execute("UPDATE buildings SET canonical_name='グランドレジデンスA',norm_name='グランドレジデンスA' WHERE canonical_name='架空テストマンション'")
+    data=item([dict(building_name='グランドレジデンスB',address='北九州市小倉北区魚町1-1-1')])
+    path=tmp_path/'exact.csv';write_master_import_csv(pd.DataFrame(data['rows']),path)
+    result=imp.ingest_master_import_csv(str(master),str(path),source='realpro',snapshot_source='realpro:repair-test',
+        snapshot_key='test',strict_name_match=True,exact_name_match=True)
+    assert result.attached_listings==0
+    with readonly(master) as c:
+        assert c.execute("SELECT reason FROM unmatched_queue WHERE ingest_run_id=?",(result.ingest_run_id,)).fetchone()[0]=='strict_name_match_unconfirmed'
