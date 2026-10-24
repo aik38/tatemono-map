@@ -36,3 +36,16 @@ def numeric_fields(raw):
         m=re.fullmatch(r'\s*(賃料|家賃|面積|専有面積|間取り|所在階|管理費|敷金|礼金|共益費|物件名)\s*[:：]\s*(.*?)\s*',part,re.S)
         if m:fields[m[1]]=m[2]
     return fields
+
+
+def shifted_terms(raw):
+    """Decode only the audited legacy table shape, retaining one row's terms."""
+    from decimal import Decimal
+    f=numeric_fields(raw)
+    rent=re.fullmatch(r"([0-9][0-9,]*(?:\.[0-9]+)?)万円\s*\(([0-9,]+|-)円\)",f.get('敷金',''))
+    area=re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)m[²2]",f.get('間取り',''))
+    if not rent or not area or not f.get('管理費') or re.search(r'[0-9]円',f['管理費']):return None
+    amount=int(Decimal(rent[1].replace(',',''))*10000)
+    sqm=float(area[1])
+    if not 10000<=amount<=1000000 or not 5<=sqm<=500:return None
+    return {'rent_yen':amount,'area_sqm':sqm}

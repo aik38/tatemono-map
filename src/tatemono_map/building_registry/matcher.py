@@ -93,6 +93,9 @@ def _extract_series_suffix(name: str) -> int | str | None:
     if block:
         token=block[1]
         return int(token) if token.isdigit() else token
+    letter = re.search(r'(?:[\s\-・]|[一-龥ぁ-んァ-ヺ])([A-Z])$', (name or '').upper())
+    if letter:
+        return letter[1]
     annex = re.search(r'(本館|別館|新館|東館|西館|南館|北館)$',name or '')
     if annex:
         return annex[1]
@@ -156,6 +159,8 @@ def _pick_equivalent_duplicate(
 
 
 def match_building(conn: Any, normalized_name: str, normalized_address: str, *, source_address_aliases: bool = False) -> MatchResult:
+    if not normalized_name or '\ufffd' in normalized_name or any(ord(ch)<32 for ch in normalized_name):
+        return MatchResult(None, "invalid_building_name", [], [])
     alias_name = _ulucks_name if source_address_aliases else _alias_name
     if source_address_aliases:
         # A prior source may carry a verified full address that differs from
@@ -230,7 +235,7 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str, *, 
             return equivalent_duplicate
         if len(matched) == 1:
             name_score = _score_name(normalized_name, matched[0][1] or "")
-            if _has_series_suffix_conflict(normalized_name, matched[0][1] or "", strict=source_address_aliases):
+            if _has_series_suffix_conflict(normalized_name, matched[0][1] or "", strict=True):
                 return MatchResult(None, "name_suffix_conflict", [matched[0][0]], [round(name_score, 4)], variant)
             if name_score < NAME_SIMILARITY_THRESHOLD:
                 return MatchResult(None, "address_name_low_confidence", [matched[0][0]], [round(name_score,4)], variant)
@@ -245,7 +250,7 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str, *, 
             name_score = _score_name(normalized_name, row[1] or "")
             addr_score = _score_address(variant, _matching_address(row[2] or ""))
             total = name_score * 0.7 + addr_score * 0.3
-            if _has_series_suffix_conflict(normalized_name, row[1] or "", strict=source_address_aliases):
+            if _has_series_suffix_conflict(normalized_name, row[1] or "", strict=True):
                 continue
             scored.append((row[0], total, name_score, addr_score))
         result = _pick_strong_unique(scored, variant if idx > 0 else "")

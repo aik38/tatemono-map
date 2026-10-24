@@ -180,7 +180,7 @@ def test_matcher_alias_requires_address_match_to_avoid_sibling_mix(tmp_path: Pat
     conn.close()
 
     assert result.building_id is None
-    assert result.reason == "address_name_low_confidence"
+    assert result.reason in {"address_name_low_confidence", "name_suffix_conflict"}
 
 
 def test_matcher_blocks_suffix_conflict_even_when_address_exact(tmp_path: Path) -> None:

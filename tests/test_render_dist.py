@@ -1184,6 +1184,9 @@ def test_render_dist_building_description_handles_missing_values(tmp_path):
         conn,
         ListingRecord("欠損確認マンション", "福岡県北九州市門司区", None, None, None, "2026-11-01", "ulucks", "seo-missing"),
     )
+    # A registered building survives an unpublishable anonymous rental row.
+    conn.execute("INSERT INTO buildings(building_id,canonical_name,canonical_address) SELECT building_key,name,address FROM listings LIMIT 1")
+    conn.commit()
     conn.close()
 
     rebuild(str(db))

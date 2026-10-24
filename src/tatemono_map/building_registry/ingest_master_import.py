@@ -484,6 +484,7 @@ def ingest_master_import_csv(
     unmatched_rows: list[dict[str, str]] = []
     alias_rows = conn.execute("SELECT alias_key, canonical_key FROM building_key_aliases").fetchall()
     alias_map = {row["alias_key"]: row["canonical_key"] for row in alias_rows}
+    blocked_aliases={r[0] for r in conn.execute('SELECT alias_key FROM quality_blocked_building_aliases')} if conn.execute("SELECT 1 FROM sqlite_master WHERE name='quality_blocked_building_aliases'").fetchone() else set()
     trusted_names = set()
     if strict_name_match:
         for target, raw_name, raw_address in conn.execute('SELECT building_id,raw_name,raw_address FROM building_sources'):
@@ -551,6 +552,18 @@ def ingest_master_import_csv(
                     if not proceed:
                         report.unresolved += 1
                         continue
+                blocked_identity = (make_alias_key(normalized.normalized_name,normalized.normalized_address) in blocked_aliases
+                    or make_legacy_alias_key(normalized.normalized_name,normalized.normalized_address) in blocked_aliases)
+                if blocked_identity:
+                    if partial:
+                        partial.hold(evidence_id,'known_unverified_legacy_identity',[])
+                    else:
+                        insert_unmatched_queue(conn,source=normalized_source,ingest_run_id=ingest_run_id,evidence_id=evidence_id,
+                            raw_name=normalized.raw_name,raw_address=normalized.raw_address,
+                            normalized_name=normalized.normalized_name,normalized_address=normalized.normalized_address,
+                            reason='known_unverified_legacy_identity')
+                    report.unresolved += 1
+                    continue
                 if not normalized.raw_name and not normalized.raw_address:
                     reason = "missing_name_and_address"
                     report.unresolved += 1
@@ -799,6 +812,13 @@ def ingest_master_import_csv(
                 built_raw = _clean_text(row.get("built_raw"))
                 structure_raw = _clean_text(row.get("structure_raw")) or structure
                 raw_block = _clean_text(row.get("raw_block"))
+                # Repair only the specifically audited MR legacy header/cell shape.
+                if normalized_source == 'mansion_review_chintai' and rent_yen is None and area_sqm is None:
+                    from tatemono_map.cloud.legacy_rent_evidence import shifted_terms
+                    repaired = shifted_terms(raw_block)
+                    if repaired:
+                        rent_yen, area_sqm = repaired['rent_yen'], repaired['area_sqm']
+                        layout = None
                 floor_text = _clean_text(row.get("floor")) or _extract_text_field(raw_block, ("所在階",))
                 direction_text = _extract_text_field(raw_block, ("向き", "主要採光面"))
                 deposit_text = _extract_text_field(raw_block, ("敷金",))

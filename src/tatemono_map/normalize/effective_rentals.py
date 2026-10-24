@@ -29,7 +29,9 @@ def canonical_key(value, aliases):
     return value
 
 
-def effective_rentals(conn):
+def effective_rentals(conn, diagnostics=None):
+    metrics = diagnostics if diagnostics is not None else {}
+    metrics.update(held_legacy=0, held_other=0, new_missing_terms_without_unit=0, duplicate_units_suppressed=0, exact_room_fallbacks=0)
     aliases = dict(conn.execute("SELECT alias_key,canonical_key FROM building_key_aliases"))
     ranks = dict(conn.execute("SELECT source,priority_rank FROM source_priority WHERE domain='rental' AND enabled=1"))
     rows = conn.execute("""
@@ -51,11 +53,15 @@ def effective_rentals(conn):
         ORDER BY l.id DESC
     """).fetchall()
     has_holds = conn.execute("SELECT 1 FROM sqlite_master WHERE name='quality_listing_holds'").fetchone()
-    holds = {r[0] for r in conn.execute("SELECT listing_key FROM quality_listing_holds WHERE resolved_at IS NULL")} if has_holds else set()
+    holds = dict(conn.execute("SELECT listing_key,reason FROM quality_listing_holds WHERE resolved_at IS NULL")) if has_holds else {}
     grouped = {}
     for raw in rows:
         row = dict(raw)
-        if row['listing_key'] in holds or incomplete_without_unit(row):
+        if row['listing_key'] in holds:
+            metrics['held_legacy' if holds[row['listing_key']].startswith('legacy_') else 'held_other'] += 1
+            continue
+        if incomplete_without_unit(row):
+            metrics['new_missing_terms_without_unit'] += 1
             continue
         if row['building_key']:
             row['building_key'] = canonical_key(row['building_key'], aliases)
@@ -67,7 +73,18 @@ def effective_rentals(conn):
         # Unranked legacy imports keep their existing combined-snapshot policy.
         # Rank filtering applies when all rows have an explicit provider rank.
         best = min(available) if available and len(available) == len(items) else None
-        selected.extend(r for r in items if best is None or ranks.get(r['source_kind']) == best)
+        winners=[r for r in items if best is None or ranks.get(r['source_kind']) == best]
+        for row in winners:
+            room=room_identity(row.get('room_label'))
+            if best is not None and room and (row['rent_yen'] is None or row['area_sqm'] is None):
+                alternatives=[r for r in items if room_identity(r.get('room_label'))==room
+                    and ranks.get(r['source_kind'],best)>best and r['rent_yen'] is not None and r['area_sqm'] is not None
+                    and (row['rent_yen'] is None or row['rent_yen']==r['rent_yen'])
+                    and (row['area_sqm'] is None or row['area_sqm']==r['area_sqm'])]
+                if alternatives:
+                    row=min(alternatives,key=lambda r:(ranks[r['source_kind']],-(r.get('id') or 0)))
+                    metrics['exact_room_fallbacks']+=1
+            selected.append(row)
     # Deduplicate only explicit, literally equivalent units. Never collapse
     # anonymous offers by rent, area or layout. Keep one complete source row.
     units = {}
@@ -79,6 +96,7 @@ def effective_rentals(conn):
             continue
         key = (row['building_key'], room)
         old = units.get(key)
+        if old is not None:metrics['duplicate_units_suppressed'] += 1
         def score(r):
             return (int(r['rent_yen'] is not None) + int(r['area_sqm'] is not None),
                     str(r.get('updated_at') or ''), r.get('id') or 0)

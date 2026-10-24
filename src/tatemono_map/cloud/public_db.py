@@ -96,6 +96,16 @@ def publication_ids(database: Path) -> tuple[set[str], set[str]]:
 def export_public(master: Path, output: Path, *, baseline: Path | None = None) -> dict:
     if master.resolve() == output.resolve():
         raise ValueError("master_and_public_paths_must_differ")
+    # Row selection quarantines anomalies individually; QC reports existing
+    # legacy holds separately from new inputs without blocking healthy updates.
+    import json
+    with readonly(master) as quality_conn:
+        if quality_conn.execute("SELECT 1 FROM sqlite_master WHERE name='listings'").fetchone():
+            quality_conn.row_factory = sqlite3.Row
+            from tatemono_map.normalize.effective_rentals import effective_rentals
+            metrics = {}
+            effective_rentals(quality_conn, metrics)
+            print('PUBLIC_RENTAL_QC_JSON=' + json.dumps(metrics, sort_keys=True), flush=True)
     allowed, allowed_aliases = publication_ids(master)
     previous, _ = publication_ids(baseline) if baseline is not None else (set(), set())
     output.parent.mkdir(parents=True, exist_ok=True)

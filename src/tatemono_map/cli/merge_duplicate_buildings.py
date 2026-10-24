@@ -216,7 +216,7 @@ def run(db_path: Path, review_dir: Path) -> int:
         )
         print(f"[merge] duplicate_merge_csv={merge_csv}")
         print(f"[merge] merged_count={len(planned_merges)}")
-        print("[merge] RESULT=MERGED")
+        print("[merge] RESULT=" + ("MERGED" if planned_merges else "NOOP_AMBIGUOUS" if candidate_rows else "NOOP"))
         return 0
 
 
