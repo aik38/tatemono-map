@@ -223,8 +223,10 @@ def acquire(page, context, root, company_id, *, on_download=None):
     root.mkdir(parents=True, exist_ok=True)
     path = root / ('realpro-' + company_id + '.pdf')
     responses, failures, downloads = [], [], []
+    def receive_download(download):
+        downloads.append(download)
     def register_download(popup):
-        popup.on('download', downloads.append)
+        popup.on('download', receive_download)
     def receive(response):
         parsed = urlsplit(response.url)
         if parsed.hostname != 'www.realnetpro.com' or parsed.path != '/common/pdf_list.php':
@@ -238,7 +240,7 @@ def acquire(page, context, root, company_id, *, on_download=None):
         except Exception:
             failures.append('realpro_pdf_response_read_failed')
     context.on('response', receive)
-    page.on('download', downloads.append)
+    page.on('download', receive_download)
     context.on('page', register_download)
     try:
         page.locator('img.print_button_image[src="./img/DL_list_company.jpg"]').click()
@@ -267,7 +269,7 @@ def acquire(page, context, root, company_id, *, on_download=None):
     finally:
         context.remove_listener('response', receive)
         context.remove_listener('page', register_download)
-        page.remove_listener('download', downloads.append)
+        page.remove_listener('download', receive_download)
         for popup in context.pages:
             if popup != page:
                 popup.close()

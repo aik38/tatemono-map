@@ -61,3 +61,32 @@ def test_private_fukuoka_change_keeps_existing_public_scope(master, tmp_path):
         assert c.execute("SELECT COUNT(*) FROM buildings WHERE canonical_name='福岡保存マンション'").fetchone()[0] == 0
     with readonly(master) as c:
         assert c.execute("SELECT COUNT(*) FROM buildings WHERE canonical_name='福岡保存マンション'").fetchone()[0] == 1
+
+
+def test_download_callbacks_are_compatible_with_playwright_and_removed(tmp_path, monkeypatch):
+    from playwright._impl._impl_to_api_mapping import ImplToApiMapping
+    from tatemono_map.cloud import realpro
+    mapping = ImplToApiMapping()
+    class Events:
+        def __init__(self): self.handlers = {}
+        def on(self, event, handler):
+            # This real Playwright operation rejects builtin list.append handlers.
+            mapping.wrap_handler(handler)
+            self.handlers[event] = handler
+        def remove_listener(self, event, handler):
+            assert self.handlers.pop(event) is handler
+    context = Events()
+    class Download:
+        def save_as(self, path): path.write_bytes(b'%PDF-' + b'x'*2000)
+    class Button:
+        def click(self): page.handlers['download'](Download())
+    class Page(Events):
+        def locator(self, selector): return Button()
+    page = Page()
+    context.pages = [page]
+    monkeypatch.setattr(realpro, 'room_count', lambda path: (2, 1))
+    preserved = []
+    path, evidence = realpro.acquire(page, context, tmp_path, '15974', on_download=preserved.append)
+    assert preserved == [path]
+    assert evidence['expected_rows'] == 2 and evidence['pdf_pages'] == 1
+    assert not page.handlers and not context.handlers
