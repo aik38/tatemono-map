@@ -41,8 +41,8 @@ with tempfile.TemporaryDirectory() as d:
     for attempt in range(12):
         logs=json.loads(gc(['logging','read',query,'--limit=1000','--order=asc','--format=json']))
         lines=[x.get('textPayload','') for x in logs]
-        safe=[line for line in lines if line.startswith('QUALITY_AUDIT_JSON=')]
-        if safe:
+        safe=[line for line in lines if line.startswith(('QUALITY_AUDIT_CHUNK=','QUALITY_AUDIT_END='))]
+        if any(line.startswith('QUALITY_AUDIT_END=') for line in safe):
             for line in safe:print(line,flush=True)
             return
         time.sleep(5)

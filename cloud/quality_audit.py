@@ -3,6 +3,7 @@ import json
 import os
 import sqlite3
 import re
+import base64,zlib
 from collections import Counter, defaultdict
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -33,7 +34,15 @@ def audit(master):
         if any(any(s in (b['name'] or '').lower() for s in ('kasumi','ビーライン足原','ギャラクシー西小倉','グローリア','stage','ギャラン二島','エヴァーグリーン')) for b in bs):
             ids = [b['id'] for b in bs]
             six.append({'buildings':bs, 'listings':[{k:r[k] for k in fields} for r in c.execute('SELECT * FROM listings WHERE building_key IN ('+','.join('?' for _ in ids)+')',ids)], 'sources': [dict(r) for r in c.execute('SELECT source,building_id,raw_name,raw_address FROM building_sources WHERE building_id IN ('+','.join('?' for _ in ids)+')',ids)]})
-    result = {'counts': {t:c.execute('SELECT COUNT(*) FROM "'+t+'"').fetchone()[0] for t in tables}, 'schemas': {t:tables[t] for t in ('raw_units','building_rental_summaries','building_summaries','cloud_collection_rows') if t in tables}, 'effective':len(effective), 'effective_sources':dict(Counter(r['source_kind'] for r in effective)), 'missing_both':len(missing), 'missing_buildings':len({r['building_key'] for r in missing}), 'missing_by_run': {str(k):v for k,v in Counter((r['source_kind'],r['ingest_run_id'],r['updated_at']) for r in missing).items()}, 'missing_sample':[{k:r[k] for k in fields} for r in missing[:12]], 'candidate_groups':candidates, 'six':six, 'snapshots':[dict(r) for r in c.execute('SELECT * FROM current_ingest_snapshots')], 'ingest_runs':[dict(r) for r in c.execute('SELECT * FROM ingest_runs WHERE id IN ('+','.join('?' for _ in {r['ingest_run_id'] for r in missing})+')',list({r['ingest_run_id'] for r in missing}))]}
+    result = {'counts': {t:c.execute('SELECT COUNT(*) FROM "'+t+'"').fetchone()[0] for t in tables}, 'schemas': {t:tables[t] for t in ('raw_units','building_rental_summaries','building_summaries','cloud_collection_rows') if t in tables}, 'effective':len(effective), 'effective_sources':dict(Counter(r['source_kind'] for r in effective)), 'missing_both':len(missing), 'missing_buildings':len({r['building_key'] for r in missing}), 'missing_by_run': {str(k):v for k,v in Counter((r['source_kind'],r['ingest_run_id'],r['updated_at']) for r in missing).items()}, 'missing_sample':[{k:r[k] for k in fields} for r in missing], 'candidate_groups':candidates, 'six':six, 'snapshots':[dict(r) for r in c.execute('SELECT * FROM current_ingest_snapshots')], 'ingest_runs':[dict(r) for r in c.execute('SELECT * FROM ingest_runs WHERE id IN ('+','.join('?' for _ in {r['ingest_run_id'] for r in missing})+')',list({r['ingest_run_id'] for r in missing}))]}
+    result['raw_source_kinds']=[tuple(r) for r in c.execute('SELECT provider,source_kind,COUNT(*) FROM raw_sources GROUP BY 1,2')]
+    result['missing_source_refs']=[{'kind':r['source_kind'],'file':urlsplit(r['source_url'] or '').path.rsplit('/',1)[-1]} for r in missing[:5]]
+    result['raw_examples']=[]
+    for r in missing[:3]:
+        for raw in c.execute('SELECT content FROM raw_sources WHERE source_url=? LIMIT 1',(r['source_url'],)):
+            try: content=json.loads(raw[0])
+            except ValueError: content={'text_length':len(raw[0]),'key_present':r['listing_key'] in raw[0]}
+            if isinstance(content,dict):result['raw_examples'].append({k:v for k,v in content.items() if k not in ('source_url','management_company','management_phone','raw_block')})
     return result
 
 
@@ -46,6 +55,8 @@ def main():
     report['public_counts']=head['report']['public_counts']
     # Only normalized property identities and numeric terms enter the safe report.
     # PDF URLs, credentials, PDF contents and the private SQLite never leave GCS/runner.
-    print('QUALITY_AUDIT_JSON='+json.dumps(report,ensure_ascii=False,default=str),flush=True)
+    encoded=base64.b64encode(zlib.compress(json.dumps(report,ensure_ascii=False,default=str).encode())).decode()
+    for i in range(0,len(encoded),8000):print('QUALITY_AUDIT_CHUNK='+str(i//8000)+':'+encoded[i:i+8000],flush=True)
+    print('QUALITY_AUDIT_END='+str((len(encoded)+7999)//8000),flush=True)
 
 if __name__=='__main__': main()
