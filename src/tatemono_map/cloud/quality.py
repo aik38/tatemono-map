@@ -75,6 +75,8 @@ def maintain(master, apply=True, target_ids=None):
     conn=sqlite3.connect(master);conn.row_factory=sqlite3.Row
     before={t:conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in ('buildings','listings','sale_listings','building_sources','raw_sources')}
     source_counts=dict(conn.execute('SELECT source_kind,COUNT(*) FROM listings GROUP BY source_kind'))
+    snapshot_before=[tuple(r) for r in conn.execute('SELECT * FROM current_ingest_snapshots ORDER BY source')]
+    priorities_before=[tuple(r) for r in conn.execute('SELECT * FROM source_priority ORDER BY source')]
     proposal=plan(conn)
     if not apply:return proposal
     # Persist row-specific decisions. History, source rows, snapshot pointers and
@@ -123,7 +125,9 @@ def maintain(master, apply=True, target_ids=None):
             managed[(row['building_key'],row['source_kind'])].add(room_identity(row['room_label']))
     for row in all_current:
         scope=(row['building_key'],row['source_kind'])
-        if scope in managed and ':' not in runs.get(row['ingest_run_id'],'') and room_identity(row['room_label']) not in managed[scope]:
+        if (row['building_key'] in touched and row['ingest_run_id'] in (4,7,31)
+                and ':' not in runs.get(row['ingest_run_id'],'')
+                and room_identity(row['room_label']) not in managed.get(scope,set())):
             superseded.append(row['listing_key'])
             conn.execute('INSERT OR IGNORE INTO quality_listing_holds(listing_key,reason,original_building_key) VALUES (?,?,?)',(row['listing_key'],'legacy_offer_not_confirmed_by_current_managed_snapshot',originals[row['listing_key']]['building_key']))
     # Name/lot disagreement in a currently selected offer cannot be repaired by
@@ -149,6 +153,9 @@ def maintain(master, apply=True, target_ids=None):
                 conn.execute('INSERT OR IGNORE INTO quality_listing_holds(listing_key,reason,original_building_key) VALUES (?,?,?)',(row['listing_key'],'rental_name_contradicts_canonical_identity',originals[row['listing_key']]['building_key']))
     conn.commit()
     after={t:conn.execute(f'SELECT COUNT(*) FROM {t}').fetchone()[0] for t in before}
+    if after['buildings'] != before['buildings']-len(proposal['merges']):raise ValueError('quality_unplanned_building_loss')
+    if snapshot_before != [tuple(r) for r in conn.execute('SELECT * FROM current_ingest_snapshots ORDER BY source')]:raise ValueError('quality_snapshot_changed')
+    if priorities_before != [tuple(r) for r in conn.execute('SELECT * FROM source_priority ORDER BY source')]:raise ValueError('quality_priority_changed')
     if any(after[t]!=before[t] for t in before if t!='buildings'):raise ValueError('quality_history_count_changed')
     if dict(conn.execute('SELECT source_kind,COUNT(*) FROM listings GROUP BY source_kind'))!=source_counts:raise ValueError('quality_source_count_changed')
     # Every old listing's non-binding fields must be byte-for-byte identical.

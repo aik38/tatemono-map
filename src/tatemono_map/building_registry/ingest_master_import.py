@@ -696,7 +696,7 @@ def ingest_master_import_csv(
                         continue
 
                 if not building_id:
-                    suspect_reason = match.reason
+                    suspect_reason = "strict_name_match_unconfirmed" if strict_name_match and match.reason == "name_suffix_conflict" else match.reason
                     unmatched_reason = "building_id_unresolved"
                     report.unresolved += 1
                     suspect_rows.append(

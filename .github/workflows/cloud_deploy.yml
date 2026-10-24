@@ -541,3 +541,28 @@ jobs:
           service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
       - uses: google-github-actions/setup-gcloud@v2
       - run: python cloud/quality_operator.py --mode plan
+
+  quality_apply:
+    needs: [test, deploy]
+    if: contains(github.event.head_commit.message, 'QUALITY_COMMIT_20261024')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_JOB: ${{ vars.GCP_JOB }}
+      GCP_BUCKET: ${{ vars.GCP_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - run: python cloud/quality_operator.py --mode commit
