@@ -32,6 +32,14 @@ def job(name):
 def task(config):return config['spec']['template']['spec']['template']['spec']
 
 
+def stable_spec(spec):
+    result=copy.deepcopy(spec)
+    metadata=result.get('template',{}).get('metadata',{})
+    metadata.get('labels',{}).pop('client.knative.dev/nonce',None)
+    metadata.get('annotations',{}).pop('run.googleapis.com/client-version',None)
+    return result
+
+
 def stage(root,work,sha):
     context=work/'build';context.mkdir(parents=True,exist_ok=True)
     for p in (root/'src/tatemono_map/cloud').glob('mansion_*.py'):shutil.copyfile(p,context/p.name)
@@ -64,11 +72,14 @@ def apply(work,sha):
     for key,name in [('ulucks','tatemono-collection-poc'),('realpro','tatemono-realpro-weekly')]:
         before=job(name)
         staged=json.loads((work/(name+'.json')).read_text())
-        if before['spec']!=staged['spec']:raise ValueError('existing_job_changed_since_staging')
-        command('gcloud','run','jobs','update',name,'--region='+REGION,'--image='+pinned[key],'--quiet')
+        expected=copy.deepcopy(staged['spec']);expected['template']['spec']['template']['spec']['containers'][0]['image']=pinned[key]
+        current=stable_spec(before['spec'])
+        if current not in (stable_spec(staged['spec']),stable_spec(expected)):
+            raise ValueError('existing_job_changed_since_staging')
+        if current!=stable_spec(expected):
+            command('gcloud','run','jobs','update',name,'--region='+REGION,'--image='+pinned[key],'--quiet')
         after=job(name)
-        expected=copy.deepcopy(before['spec']);expected['template']['spec']['template']['spec']['containers'][0]['image']=pinned[key]
-        if after['spec']!=expected:raise ValueError('existing_job_settings_not_preserved')
+        if stable_spec(after['spec'])!=stable_spec(expected):raise ValueError('existing_job_settings_not_preserved')
     command('gcloud','run','jobs','update','tatemono-mansion-weekly','--region='+REGION,'--image='+pinned['mansion'],
         '--command=python','--args=-m,tatemono_map.cloud.mansion_weekly,--weekly,--commit,--verify-web',
         '--task-timeout=86400s','--max-retries=1','--tasks=1','--parallelism=1',
