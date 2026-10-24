@@ -76,6 +76,10 @@ def update(master,acquisition,work,run,baseline):
         old_aliases={r['alias_key']:dict(r) for r in c.execute('SELECT * FROM building_key_aliases')}
     totals=Counter();scope_results=[];changed={};affected=set();now=datetime.now(timezone.utc).strftime('%Y/%m/%d %H:%M:%S')
     for result in acquisition['results']:
+        if result['status']=='confirmed_zero':
+            # An old acquisition label for no advertisement rows is not a
+            # verified building-level zero. Retain its original receipt.
+            result={**result,'status':'success','zero_confirmation':'not_asserted_from_missing_rows'}
         kind=result['kind'];name=result['municipality']
         if result['status'] not in ('success','confirmed_zero'):
             scope_results.append({k:v for k,v in result.items() if k not in ('rows','pages')});continue
