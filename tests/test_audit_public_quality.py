@@ -1,5 +1,5 @@
 import unittest
-from audit_public_quality import AREA_AS_LAYOUT, public_audit
+from scripts.audit_public_quality import AREA_AS_LAYOUT, public_audit
 
 
 class AuditTests(unittest.TestCase):
