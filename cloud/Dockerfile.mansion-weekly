@@ -1,6 +1,8 @@
 # Keep the proven production PDF/parser environment digest pinned.
 FROM asia-northeast1-docker.pkg.dev/tatemono-map/tatemono-poc/realpro@sha256:93a63294f5e7aad3fc88f15a2c19d3466c780123ccf4273532bba012c4489986
 USER root
+COPY ingest_master_import.py /tmp/mansion-importer/ingest_master_import.py
+RUN python -c "import pathlib,shutil; import tatemono_map.building_registry.ingest_master_import as m; shutil.copyfile('/tmp/mansion-importer/ingest_master_import.py', pathlib.Path(m.__file__))"
 COPY mansion_*.py /tmp/mansion-patch/
 RUN python -c "import pathlib,shutil; import tatemono_map.cloud.storage as m; target=pathlib.Path(m.__file__).parent; [shutil.copyfile(p,target/p.name) for p in pathlib.Path('/tmp/mansion-patch').glob('*.py')]"
 COPY fetch_public.py /tmp/shared-cloud/fetch_public.py

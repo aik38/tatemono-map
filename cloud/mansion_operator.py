@@ -42,6 +42,7 @@ def stable_spec(spec):
 
 def stage(root,work,sha):
     context=work/'build';context.mkdir(parents=True,exist_ok=True)
+    shutil.copyfile(root/'src/tatemono_map/building_registry/ingest_master_import.py',context/'ingest_master_import.py')
     for p in (root/'src/tatemono_map/cloud').glob('mansion_*.py'):shutil.copyfile(p,context/p.name)
     for name,src in [('fetch_public.py','cloud/fetch_public.py'),('effective_rentals.py','normalize/effective_rentals.py'),('building_summaries.py','normalize/building_summaries.py')]:
         shutil.copyfile(root/'src/tatemono_map'/src,context/name)
