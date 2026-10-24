@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import signal
 import tempfile
 import time
 from pathlib import Path
@@ -13,7 +14,7 @@ from tatemono_map.cloud.storage import GCSStore
 from tatemono_map.cloud.run import new_run_id
 
 
-def wait_for_upstream(project,region,*,weekly,timeout=18000):
+def wait_for_upstream(project,region,*,weekly,timeout=64800):
     import google.auth
     from google.auth.transport.requests import AuthorizedSession
     credentials,_=google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
@@ -43,6 +44,14 @@ def execute(store,work,*,cycle,source_commit,acquire_only=False,commit=False,ver
     if integrated:
         if verify:integrated['web']=verify_web(integrated['head'])
         return integrated
+    latest,_=store.read_head()
+    if latest.get('report',{}).get('mansion_cycle')==cycle:
+        # Recover a committed CAS whose integration-receipt response was lost.
+        result={'status':'committed','run_id':latest['run_id'],'head':latest,
+            **{k:latest['report'][k] for k in ('counts_before','counts_after','row_counts','public_counts','successful_scopes','absent_scopes','failed_scopes')}}
+        save_json(store,work,prefix+'/integration.json',result)
+        if verify:result['web']=verify_web(latest)
+        return result
     run=new_run_id()
     receipt=read_json(store,prefix+'/acquisition.json')
     if receipt:
@@ -51,8 +60,15 @@ def execute(store,work,*,cycle,source_commit,acquire_only=False,commit=False,ver
     else:
         fetcher=Fetcher(work/'http',store,cycle)
         results,catalogs=collect(fetcher)
+        # Include all immutable receipts, including scopes resumed from a prior
+        # task attempt. No source page is refetched to rebuild the manifest.
+        originals=[]
+        for blob in store.bucket.list_blobs(prefix=prefix+'/http/'):
+            if blob.name.endswith('.json'):
+                generation=int(blob.generation)
+                originals.append(json.loads(blob.download_as_bytes(if_generation_match=generation)))
         acquisition={'cycle':cycle,'source_commit':source_commit,'areas':AREAS,'municipalities':len(MUNICIPALITIES),
-            'results':results,'catalogs':catalogs,'originals':fetcher.refs}
+            'results':results,'catalogs':catalogs,'originals':originals}
         result_ref=save_json(store,work,f'private-runs/{run}/mansion-acquisition.json',acquisition)
         receipt={'cycle':cycle,'run_id':run,'result_ref':result_ref}
         # Failed scopes are retryable using the successful HTTP/scope receipts.
@@ -76,11 +92,14 @@ def main():
     store=GCSStore(os.environ['TATEMONO_BUCKET'])
     wait_for_upstream(os.environ['GOOGLE_CLOUD_PROJECT'],os.environ.get('TATEMONO_REGION','asia-northeast1'),weekly=args.weekly)
     wait_for_shared_lease(store)
-    # Existing shared lease already has scoped IAM rights and covers the six-
-    # hour task lifetime. Never steal live Ulucks/RealPro collection ownership.
+    # Waiting happens outside the lease. A six-hour processing deadline stays
+    # below its seven-hour TTL even when upstream jobs needed a long wait.
+    def processing_timeout(signum,frame):raise TimeoutError('mansion_processing_deadline')
+    signal.signal(signal.SIGALRM,processing_timeout);signal.alarm(21600)
     with store.collection_lease('mansion-review:'+cycle),tempfile.TemporaryDirectory(prefix='mansion-') as directory:
         result=execute(store,Path(directory),cycle=cycle,source_commit=os.environ['TATEMONO_SOURCE_COMMIT'],
             acquire_only=args.acquire_only,commit=args.commit,verify=args.verify_web)
+    signal.alarm(0)
     summary={k:v for k,v in result.items() if k not in ('head','scopes')}
     print('MANSION_RESULT_JSON='+json.dumps(summary,ensure_ascii=False),flush=True)
 

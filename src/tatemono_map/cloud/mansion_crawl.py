@@ -104,7 +104,8 @@ def collect_scope(fetcher, kind, name, entry):
     if len(buildings)!=expected:raise ValueError('mansion_total_buildings_mismatch')
     # Provider listing IDs may appear under multiple building-name aliases.
     # Keep every observation for the canonical-stage duplicate/conflict check.
-    return {'municipality':name,'kind':kind,'city_id':city_id,'status':'success' if rows else 'confirmed_zero',
+    return {'municipality':name,'kind':kind,'city_id':city_id,'status':'success',
+        'zero_confirmation':'not_asserted_from_missing_rows',
         'buildings':len(buildings),'rows':rows,'pages':page_receipts,'parser_version':VERSION}
 
 

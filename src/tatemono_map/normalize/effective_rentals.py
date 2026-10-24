@@ -70,20 +70,12 @@ def effective_rentals(conn, diagnostics=None):
     for items in grouped.values():
         # Existing policy is building-wide, not a merge of individual fields.
         available = [ranks[r['source_kind']] for r in items if r['source_kind'] in ranks]
-        # Unranked legacy imports keep their existing combined-snapshot policy.
-        # Rank filtering applies when all rows have an explicit provider rank.
-        best = min(available) if available and len(available) == len(items) else None
+        # A ranked provider wins for the entire canonical building, even when
+        # legacy unranked rows coexist. Never add a lower provider's rooms or
+        # fill a winner's missing numeric terms from another provider.
+        best = min(available) if available else None
         winners=[r for r in items if best is None or ranks.get(r['source_kind']) == best]
         for row in winners:
-            room=room_identity(row.get('room_label'))
-            if best is not None and room and (row['rent_yen'] is None or row['area_sqm'] is None):
-                alternatives=[r for r in items if room_identity(r.get('room_label'))==room
-                    and ranks.get(r['source_kind'],best)>best and r['rent_yen'] is not None and r['area_sqm'] is not None
-                    and (row['rent_yen'] is None or row['rent_yen']==r['rent_yen'])
-                    and (row['area_sqm'] is None or row['area_sqm']==r['area_sqm'])]
-                if alternatives:
-                    row=min(alternatives,key=lambda r:(ranks[r['source_kind']],-(r.get('id') or 0)))
-                    metrics['exact_room_fallbacks']+=1
             selected.append(row)
     # Deduplicate only explicit, literally equivalent units. Never collapse
     # anonymous offers by rent, area or layout. Keep one complete source row.
