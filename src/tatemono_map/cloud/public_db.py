@@ -134,7 +134,11 @@ def export_public(master: Path, output: Path, *, baseline: Path | None = None) -
 
 
 def publication_merge_targets(database: Path) -> dict[str, str]:
-    """A stale alias cannot override two contradictory canonical identities."""
+    """Only consistent aliases or an explicitly audited merge can unify pages.
+
+    Maintenance removes merged rows before export, so historical alias keys
+    remain available internally without publishing old HTML redirects.
+    """
     from tatemono_map.normalize.effective_rentals import canonical_key
     from tatemono_map.util.text import normalize_text
     ids, _ = publication_ids(database)

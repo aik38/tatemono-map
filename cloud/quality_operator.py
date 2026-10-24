@@ -12,9 +12,9 @@ from pathlib import Path
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--read-existing');args=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--read-existing');parser.add_argument('--mode',choices=['audit','plan','commit'],default='audit');args=parser.parse_args()
     buf=io.BytesIO()
-    paths=['cloud/quality_audit.py']
+    paths=['cloud/quality_audit.py','cloud/quality_execute.py','src/tatemono_map/cloud/legacy_rent_evidence.py','src/tatemono_map/cloud/quality.py','src/tatemono_map/normalize/effective_rentals.py','src/tatemono_map/building_registry/merge.py']
     with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
         for p in paths:z.write(p,p)
     encoded=base64.b64encode(buf.getvalue()).decode()
@@ -24,8 +24,15 @@ os.environ['GCP_BUCKET']=os.environ['TATEMONO_BUCKET']
 with tempfile.TemporaryDirectory() as d:
  os.chdir(d)
  zipfile.ZipFile(io.BytesIO(base64.b64decode(PAYLOAD))).extractall(d)
- runpy.run_path('cloud/quality_audit.py',run_name='__main__')
-""".replace('PAYLOAD',repr(encoded))
+ import sys
+ import importlib
+ for package in ('tatemono_map','tatemono_map.cloud','tatemono_map.normalize','tatemono_map.building_registry'):
+  module=importlib.import_module(package)
+  module.__path__.insert(0,str(Path(d)/'src'/package.replace('.','/')))
+ os.environ['QUALITY_MODE']=__TASK_MODE__
+ os.environ['QUALITY_SOURCE_COMMIT']=__TASK_COMMIT__
+ runpy.run_path(TARGET,run_name='__main__')
+""".replace('PAYLOAD',repr(encoded)).replace('__TASK_MODE__',repr(args.mode)).replace('__TASK_COMMIT__',repr(os.environ['GITHUB_SHA'])).replace('TARGET',repr('cloud/quality_audit.py' if args.mode=='audit' else 'cloud/quality_execute.py'))
     base=['gcloud','--project',os.environ['GCP_PROJECT_ID'],'--quiet']
     def gc(args):
         r=subprocess.run(base+args,text=True,capture_output=True,timeout=1200)

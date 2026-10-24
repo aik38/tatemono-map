@@ -232,7 +232,7 @@ def match_building(conn: Any, normalized_name: str, normalized_address: str, *, 
             name_score = _score_name(normalized_name, matched[0][1] or "")
             if _has_series_suffix_conflict(normalized_name, matched[0][1] or "", strict=source_address_aliases):
                 return MatchResult(None, "name_suffix_conflict", [matched[0][0]], [round(name_score, 4)], variant)
-            if source_address_aliases and name_score < NAME_SIMILARITY_THRESHOLD:
+            if name_score < NAME_SIMILARITY_THRESHOLD:
                 return MatchResult(None, "address_name_low_confidence", [matched[0][0]], [round(name_score,4)], variant)
             if idx == 0:
                 return MatchResult(matched[0][0], "address_exact", [matched[0][0]], [round(name_score, 4)], variant)

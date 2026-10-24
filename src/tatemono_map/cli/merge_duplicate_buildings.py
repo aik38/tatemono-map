@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import csv
 import sqlite3
+from tatemono_map.building_registry.merge import same_identity, merge_confirmed, name_identity
+from tatemono_map.building_registry.normalization import normalize_address_for_matching
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
@@ -143,19 +145,9 @@ def _evaluate_component(component: list[BuildingRow]) -> tuple[bool, str, Buildi
         return False, "group_size_gt_2", None, None
 
     a, b = component
-    if (a.listings_cnt > 0 and b.listings_cnt == 0) or (b.listings_cnt > 0 and a.listings_cnt == 0):
+    if same_identity(a, b):
         keep, drop = _choose_keep(a, b)
-        return True, "listings_prefer_nonzero", keep, drop
-
-    if a.listings_cnt == 0 and b.listings_cnt == 0:
-        if (
-            a.canonical_address
-            and a.canonical_address == b.canonical_address
-            and _normalize_name(a.canonical_name) == _normalize_name(b.canonical_name)
-        ):
-            keep, drop = _choose_keep(a, b)
-            return True, "both_zero_identical_canonical", keep, drop
-
+        return True, "same_name_full_address", keep, drop
     return False, "ambiguous_conflict", None, None
 
 
@@ -184,73 +176,37 @@ def run(db_path: Path, review_dir: Path) -> int:
         planned_merges: list[tuple[BuildingRow, BuildingRow, str]] = []
 
         for component in components:
-            safe, reason, keep, drop = _evaluate_component(component)
-            ids = ",".join(r.building_id for r in component)
-            if safe and keep and drop:
-                planned_merges.append((keep, drop, reason))
-                merge_rows.append(
-                    {
-                        "keep_id": keep.building_id,
-                        "drop_id": drop.building_id,
-                        "reason": reason,
-                        "listings_cnt_keep": keep.listings_cnt,
-                        "listings_cnt_drop": drop.listings_cnt,
-                        "applied": 0,
-                    }
-                )
-            else:
-                candidate_rows.append(
-                    {
-                        "building_ids": ids,
-                        "reason": reason,
-                        "listings_cnts": ",".join(f"{r.building_id}:{r.listings_cnt}" for r in component),
-                        "canonical_addresses": ",".join(sorted({r.canonical_address for r in component if r.canonical_address})),
-                    }
-                )
+            buckets = defaultdict(list)
+            for row in component:
+                buckets[(name_identity(row.canonical_name), normalize_address_for_matching(row.canonical_address))].append(row)
+            processed = set()
+            for bucket in buckets.values():
+                if len(bucket) < 2:
+                    continue
+                keep = sorted(bucket, key=lambda r: (r.created_at or "9999", r.building_id))[0]
+                for drop in bucket:
+                    if drop.building_id == keep.building_id or not same_identity(keep, drop):
+                        continue
+                    planned_merges.append((keep, drop, "same_name_full_address"))
+                    processed.update((keep.building_id, drop.building_id))
+                    merge_rows.append({"keep_id":keep.building_id,"drop_id":drop.building_id,
+                        "reason":"same_name_full_address","listings_cnt_keep":keep.listings_cnt,
+                        "listings_cnt_drop":drop.listings_cnt,"applied":0})
+            if any(row.building_id not in processed for row in component):
+                candidate_rows.append({"building_ids":",".join(r.building_id for r in component),
+                    "reason":"ambiguous_conflict", "listings_cnts":",".join(f"{r.building_id}:{r.listings_cnt}" for r in component),
+                    "canonical_addresses":",".join(sorted({r.canonical_address for r in component}))})
 
-        if candidate_rows:
-            _write_csv(
-                merge_csv,
-                ["keep_id", "drop_id", "reason", "listings_cnt_keep", "listings_cnt_drop", "applied"],
-                merge_rows,
-            )
-            _write_csv(
-                candidate_csv,
-                ["building_ids", "reason", "listings_cnts", "canonical_addresses"],
-                candidate_rows,
-            )
-            print(f"[merge] duplicate_candidates_csv={candidate_csv}")
-            print(f"[merge] duplicate_candidates_count={len(candidate_rows)}")
-            print(f"[merge] duplicate_merge_csv={merge_csv}")
-            print("[merge] RESULT=NOOP_AMBIGUOUS")
-            return 0
-
-        has_summary = _table_exists(conn, "building_summaries") and "building_key" in _table_columns(conn, "building_summaries")
-        has_aliases = _table_exists(conn, "building_key_aliases")
-
+        _write_csv(candidate_csv,
+            ["building_ids", "reason", "listings_cnts", "canonical_addresses"], candidate_rows)
+        print(f"[merge] duplicate_candidates_csv={candidate_csv}")
+        print(f"[merge] duplicate_candidates_count={len(candidate_rows)}")
         with conn:
             for keep, drop, reason in planned_merges:
-                conn.execute(
-                    "UPDATE listings SET building_key=? WHERE building_key=?",
-                    (keep.building_id, drop.building_id),
-                )
-                if has_summary:
-                    conn.execute(
-                        "UPDATE building_summaries SET building_key=? WHERE building_key=?",
-                        (keep.building_id, drop.building_id),
-                    )
-                if has_aliases:
-                    conn.execute(
-                        """
-                        INSERT INTO building_key_aliases(alias_key, canonical_key, updated_at)
-                        VALUES (?, ?, CURRENT_TIMESTAMP)
-                        ON CONFLICT(alias_key) DO UPDATE SET
-                            canonical_key=excluded.canonical_key,
-                            updated_at=CURRENT_TIMESTAMP
-                        """,
-                        (drop.building_id, keep.building_id),
-                    )
-                conn.execute("DELETE FROM buildings WHERE building_id=?", (drop.building_id,))
+                merge_confirmed(conn, keep.building_id, drop.building_id, reason)
+        if planned_merges:
+            from tatemono_map.normalize.building_summaries import rebuild
+            rebuild(str(db_path))
 
         applied_rows = [dict(row, applied=1) for row in merge_rows]
         _write_csv(
