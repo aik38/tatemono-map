@@ -143,7 +143,7 @@ def _schema(c):
         acquired_at TEXT, PRIMARY KEY(scope_key,semantic_hash))''')
 
 
-def update_batch(master, inputs, work, run, baseline):
+def update_batch(master, inputs, work, run, baseline, *, public_preservation_proof=False):
     validate_master(master)
     with connect(master) as c:
         _schema(c)
@@ -314,7 +314,12 @@ def update_batch(master, inputs, work, run, baseline):
         for key,address in c.execute('SELECT building_id,canonical_address FROM buildings'):
             if key not in previous and area=='kitakyushu' and not municipality_of(address):raise ValueError('public_geography_leak')
     if sum(totals.values())!=parsed_total:raise ValueError('batch_accounting_failed')
-    if not proof and totals['accepted_new']+totals['accepted_existing']:raise ValueError('no_public_realpro_proof')
+    if not proof and totals['accepted_new']+totals['accepted_existing']:
+        if not public_preservation_proof:raise ValueError('no_public_realpro_proof')
+        # Automated Fukuoka collection can change only non-public municipalities.
+        # Reuse the existing public preservation proof; never widen public scope.
+        from tatemono_map.cloud.batch import public_proof
+        proof=public_proof(work/'public.sqlite3',set())
     return {'source':'realpro','integration_contract':'realpro-partial-v1','acquisition_status':'pdf_verified',
         'collection_mode':'supplied_pdf_batch','parsed_rows':parsed_total,'attached_rows':totals['accepted_new']+totals['accepted_existing'],
         'row_counts':dict(totals),'new_buildings':after['buildings']-before['buildings'],'counts_before':before,'counts_after':after,

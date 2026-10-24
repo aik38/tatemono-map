@@ -36,7 +36,7 @@ def test_duplicate_only_does_not_commit_or_change_head(monkeypatch, tmp_path):
     report = {'parsed_rows': 10, 'row_counts': {'duplicate': 10}, 'counts_before': {},
               'counts_after': {}, 'public_counts': {}, 'pdf_count': 2, 'pdf_pages': 3,
               'attached_rows': 0}
-    monkeypatch.setattr(realpro_batch, 'update_batch', lambda *a: dict(report))
+    monkeypatch.setattr(realpro_batch, 'update_batch', lambda *a, **kw: dict(report))
     monkeypatch.setattr(realpro_batch, 'preserve_ulucks_catalog', lambda *a: None)
     monkeypatch.setattr(realpro_weekly, 'save_json', lambda *a: {})
     def forbidden(*a, **kw): raise AssertionError('duplicate input must never commit a release')
@@ -46,3 +46,18 @@ def test_duplicate_only_does_not_commit_or_change_head(monkeypatch, tmp_path):
     result = integrate(Store(), [], tmp_path, 'run', 'commit', {}, 2)
     assert result['status'] == 'no_new_content'
     assert result['head'] is head
+
+
+def test_private_fukuoka_change_keeps_existing_public_scope(master, tmp_path):
+    from tests.cloud.test_realpro_batch import initialize, item
+    from tatemono_map.cloud.realpro_batch import update_batch
+    from tatemono_map.cloud.public_db import readonly
+    baseline = initialize(master, tmp_path)
+    data = [item([dict(building_name='福岡保存マンション', address='福岡市中央区天神9-8-7')])]
+    result = update_batch(master, data, tmp_path, 'private-only', baseline, public_preservation_proof=True)
+    assert result['attached_rows'] == 1
+    assert result['proof']
+    with readonly(tmp_path/'public.sqlite3') as c:
+        assert c.execute("SELECT COUNT(*) FROM buildings WHERE canonical_name='福岡保存マンション'").fetchone()[0] == 0
+    with readonly(master) as c:
+        assert c.execute("SELECT COUNT(*) FROM buildings WHERE canonical_name='福岡保存マンション'").fetchone()[0] == 1

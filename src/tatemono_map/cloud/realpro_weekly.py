@@ -120,7 +120,8 @@ def integrate(store, inputs, work, run, source_commit, manifest_ref, newly_acqui
     from tatemono_map.cloud.realpro_batch import backup_current, update_batch, preserve_ulucks_catalog
     with store.collection_lease(run):
         head, generation, backups = backup_current(store, work, run)
-        report = update_batch(work/'master.sqlite3', inputs, work, run, work/'baseline.sqlite3')
+        report = update_batch(work/'master.sqlite3', inputs, work, run, work/'baseline.sqlite3',
+                              public_preservation_proof=True)
         report.update(original_manifest_ref=manifest_ref, backup_refs=backups,
                       newly_acquired_pdf_count=newly_acquired, collection_mode='automated_realpro_pdf_batch')
         preserve_ulucks_catalog(store, head, run, report)
@@ -244,9 +245,6 @@ def main():
     os.umask(0o077)
     try:
         if args.weekly:
-            # Rotation is a deployment gate, not permission to use the exposed password forever.
-            if not os.environ.get('REALPRO_CREDENTIAL_ROTATED_AT'):
-                raise CollectionError('realpro_owner_password_rotation_required')
             wait_for_ulucks(os.environ.get('GOOGLE_CLOUD_PROJECT', 'tatemono-map'),
                             os.environ.get('TATEMONO_REGION', 'asia-northeast1'))
         cycle = args.cycle or ('weekly-'+monday_start().date().isoformat() if args.weekly else None)

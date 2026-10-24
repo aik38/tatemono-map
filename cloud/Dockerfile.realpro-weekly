@@ -1,7 +1,7 @@
 # Reuse the deployed main runtime, parser and quality fixes byte-for-byte.
 FROM asia-northeast1-docker.pkg.dev/tatemono-map/tatemono-poc/ulucks@sha256:8f5a7a3235e7b0d7662d496e66dc4c30ab2955044621e3848f66db4d90e5e740
 USER root
-COPY realpro.py realpro_login_check.py realpro_weekly.py /tmp/realpro-patch/
+COPY realpro.py realpro_login_check.py realpro_weekly.py realpro_batch.py /tmp/realpro-patch/
 RUN python -c "import pathlib,shutil; import tatemono_map.cloud.storage as m; target=pathlib.Path(m.__file__).parent; [shutil.copyfile(p,target/p.name) for p in pathlib.Path('/tmp/realpro-patch').glob('*.py')]"
 USER collector
 ENTRYPOINT ["python"]
