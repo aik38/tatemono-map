@@ -1,4 +1,5 @@
 """Run authorized maintenance with execution-only overrides on existing runtime."""
+import argparse
 import base64
 import io
 import json
@@ -11,6 +12,7 @@ from pathlib import Path
 
 
 def main():
+    parser=argparse.ArgumentParser();parser.add_argument('--read-existing');args=parser.parse_args()
     buf=io.BytesIO()
     paths=['cloud/quality_audit.py']
     with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as z:
@@ -30,19 +32,24 @@ with tempfile.TemporaryDirectory() as d:
         if r.returncode:raise RuntimeError('quality_operator_command_failed: '+r.stderr[-1600:])
         return r.stdout
     job=os.environ['GCP_JOB'];region=os.environ['GCP_REGION']
-    active=json.loads(gc(['run','jobs','executions','list','--job',job,'--region',region,'--format=json']))
-    if any(not x.get('status',{}).get('completionTime') for x in active):
-        raise RuntimeError('another_execution_active')
-    start=datetime.now(timezone.utc).isoformat()
-    assert '~' not in remote
-    result=json.loads(gc(['run','jobs','execute',job,'--region',region,'--args=^~^-c~'+remote,'--wait','--format=json']))
-    print('QUALITY_EXECUTION='+json.dumps({'name':result['metadata']['name']}),flush=True)
-    query='resource.type="cloud_run_job" AND resource.labels.job_name="'+job+'" AND timestamp>="'+start+'"'
+    if args.read_existing:
+        execution=args.read_existing
+    else:
+        active=json.loads(gc(['run','jobs','executions','list','--job',job,'--region',region,'--format=json']))
+        if any(not x.get('status',{}).get('completionTime') for x in active):
+            raise RuntimeError('another_execution_active')
+        assert '~' not in remote
+        result=json.loads(gc(['run','jobs','execute',job,'--region',region,'--args=^~^-c~'+remote,'--wait','--format=json']))
+        execution=result['metadata']['name']
+    print('QUALITY_EXECUTION='+json.dumps({'name':execution}),flush=True)
+    query='resource.type="cloud_run_job" AND resource.labels.job_name="'+job+'" AND labels."run.googleapis.com/execution_name"="'+execution+'"'
     for attempt in range(12):
         logs=json.loads(gc(['logging','read',query,'--limit=1000','--order=asc','--format=json']))
         lines=[x.get('textPayload','') for x in logs]
         safe=[line for line in lines if line.startswith(('QUALITY_AUDIT_CHUNK=','QUALITY_AUDIT_END='))]
-        if any(line.startswith('QUALITY_AUDIT_END=') for line in safe):
+        end=next((int(line.split('=')[1]) for line in safe if line.startswith('QUALITY_AUDIT_END=')),None)
+        indices={int(line.split('=',1)[1].split(':',1)[0]) for line in safe if line.startswith('QUALITY_AUDIT_CHUNK=')}
+        if end is not None and indices==set(range(end)):
             for line in safe:print(line,flush=True)
             return
         time.sleep(5)
