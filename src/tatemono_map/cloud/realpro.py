@@ -8,7 +8,7 @@ import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit, parse_qs
+from urllib.parse import urlsplit, parse_qs, urljoin
 
 from tatemono_map.cloud.collector import CollectionError
 from tatemono_map.ulucks_geography import municipality_of
@@ -50,18 +50,38 @@ def login(page, credentials):
     return finish_login(page)
 
 
+# Owner approval on 2026-10-24 applies only to the verified 2021-08-02 terms.
+# A changed text must be reviewed; never accept a different revision silently.
+APPROVED_TERMS_SHA256 = "fc622fe1bb3c3053a255c441ffd438edd9fa38dbce43afd3c975ca7e19bd6165"
+
+
+def accept_approved_terms(page):
+    box = page.locator('#term_contents_box')
+    if box.count() != 1:
+        raise CollectionError('realpro_terms_dom_changed')
+    content = re.sub(r'\s+', '', box.inner_text())
+    fingerprint = hashlib.sha256(content.encode()).hexdigest()
+    if fingerprint != APPROVED_TERMS_SHA256:
+        raise CollectionError('realpro_terms_changed_owner_review_required')
+    box.evaluate('(element) => { element.scrollTop = element.scrollHeight; }')
+    page.wait_for_timeout(200)
+    page.locator('#agree').click(timeout=10000)
+    page.wait_for_timeout(800)
+
+
 def finish_login(page):
-    """Treat consent as a distinct owner gate, never as rejected credentials."""
+    """Pass only known, owner-approved gates, then require the company list."""
     text = page.locator('body').inner_text()
     if 'ご利用に関する同意のお願い' in text or (
             'サービス利用規約' in text and 'に同意する' in text):
-        raise CollectionError('realpro_terms_consent_required')
-    start = page.get_by_text('「リアプロBB+仲介」を利用する',exact=True)
-    if start.count()==1 and start.is_visible():
+        accept_approved_terms(page)
+        text = page.locator('body').inner_text()
+    start = page.get_by_text('「リアプロBB+仲介」を利用する', exact=True)
+    if start.count() == 1 and start.is_visible():
         start.click()
         page.wait_for_load_state('domcontentloaded')
         page.wait_for_timeout(800)
-        text=page.locator('body').inner_text()
+        text = page.locator('body').inner_text()
         if 'ご利用に関する同意のお願い' in text:
             raise CollectionError('realpro_terms_consent_required')
     later = page.get_by_text('あとで連携する', exact=False)
@@ -70,7 +90,15 @@ def finish_login(page):
         page.get_by_text('連携画面をとじる', exact=False).click()
     if urlsplit(page.url).hostname != 'www.realnetpro.com' or urlsplit(page.url).path != '/main.php' or page.locator('input[type=password]:visible').count():
         raise CollectionError('realpro_login_not_confirmed')
-    page.get_by_role('link', name='管理会社一覧', exact=True).filter(visible=True).click()
+    company_link = page.get_by_role('link', name=re.compile(r'管理会社\s*一覧')).filter(visible=True)
+    if company_link.count() != 1:
+        raise CollectionError('realpro_company_link_ambiguous')
+    destination = urljoin(ORIGIN, company_link.get_attribute('href') or '')
+    target = urlsplit(destination)
+    if target.hostname != 'www.realnetpro.com' or target.path != '/main.php' or parse_qs(target.query) != {'method': ['company_list']}:
+        raise CollectionError('realpro_company_link_changed')
+    # Follow the observed link; a collapsed menu can keep it outside the viewport.
+    page.goto(destination, wait_until='domcontentloaded', timeout=30000)
     page.locator('#company_place').wait_for(state='attached', timeout=30000)
     return page
 
