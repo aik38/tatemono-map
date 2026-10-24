@@ -18,7 +18,6 @@ def audit(master):
     buildings = {r['building_id']: dict(r) for r in c.execute('SELECT * FROM buildings')}
     effective = effective_rentals(c)
     missing = [r for r in effective if r['rent_yen'] is None and r['area_sqm'] is None]
-    selected = {r['listing_key'] for r in missing}
     groups = defaultdict(list)
     for b in buildings.values():
         norm = normalize_building_input(b['canonical_name'] or '', b['canonical_address'] or '')
