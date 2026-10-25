@@ -1,49 +1,52 @@
-# spec（現行実装契約）
+# 現行システム仕様・データ契約
 
-2026-10-19 JST更新。対象は現在のUlucksクラウド経路と共有の建物・公開モデルです。[PLAN](../PLAN.md)、[データフロー](data_flow_and_sources_of_truth.md)、[Cloud](../cloud/README.md)を併読してください。
+更新: **2026年10月25日 JST**。ここを**採用・同定・公開に関する唯一の主要仕様書**とします。収集順序・保存先は[データフロー](data_flow_and_sources_of_truth.md)、手順は[runbook](runbook.md)。
 
-## 正式正本と派生物
+## 守るべき三原則
 
-- 本番正本はGCS `state/current.json` がgeneration・SHA-256付きで参照するSQLite正式正本。
-- `buildings`はcanonical建物、`listings`/`sale_listings`は募集と履歴、`building_key_aliases`/`building_sources`は同定・由来、`ingest_runs`/`current_ingest_snapshots`は実行と有効スナップショットを管理します。
-- `building_summaries`等の集約、公開専用SQLite、検索JSON・HTML・サイトマップは派生物です。公開DBから正本を復元・上書きしません。
-- PDF原本・解析結果・private保留記録はGCSのprivate領域に保管する実装です。SQLiteに構造化することは原本廃棄を意味しません。保存期間は未確認です。
+1. 既存canonical建物ID・名前・住所・URL・alias・募集履歴を壊さない。
+2. 名前や住所が似るだけで建物を統合せず、重複を増やさない。
+3. 住所不完全・同定不明・異常・競合は**private保留**し、正確でない情報を公開しない。
 
-## Canonical建物の保護
+## 正式正本とテーブル
 
-- 既存ID・canonical名・住所・URL・canonicalタグ・履歴を維持。通常取り込みで既存canonical値を自動上書きしません。
-- 建物を再構築・削除せず、募集0件でも公開対象建物ページを残します。
-- 正規化名・住所は照合材料であり、文字列一致だけで別canonical IDを確定・統合・検索除外しません。
-- aliasは同一建物への対応です。`publication_merge_targets`は明示的aliasと両者の整合する同一性を確認し、矛盾する古いaliasでページを統合しません。
+- GCS `state/current.json` がgenerationとSHA-256付きで示すmaster SQLiteだけを正式正本とする。
+- `buildings`: 恒久的canonical建物。`building_sources`/`building_key_aliases`: 由来・確かな同定。`listings`: 賃貸。`sale_listings`: 分譲販売。`raw_sources`: 非公開の観測原文。
+- `ingest_runs`/`current_ingest_snapshots`: 履歴・情報源別の有効な取得。`cloud_scope_bindings`/`cloud_baseline_ownership`: 対象範囲と確認済み旧明細所有範囲。
+- Mansion Reviewの`mansion_review_scopes`/`mansion_review_rows`/`mansion_review_building_bindings`と限定再判定台帳は元の証跡・採否を追跡する。元のsnapshotや採用済み履歴を一括置換しない。
+- `building_summaries`、公開専用SQLite、検索JSON、HTML、サイトマップは**派生物**。ローカルDB・CSV・git内の公開DBで正本を上書きしない。
 
-## 採用・保留・公開
+## 同定・新規追加・保留
 
-- 収集・解析・名寄せ・QC時点で精査し、既存マッチまたは高信頼auto-seedを正式採用します。
-- auto-seedは`ingest_master_import`の既存ガードに従います。曖昧・異常行はprivateに保留し、未解決値を確定公開しません。
-- 全明細保留となった未採用の仮登録を、正式採用建物と混同しません。raw・review等の証跡を保持します。
-- 正式採用建物は原則自動公開。明示的非公開条件は`COALESCE(hidden_from_public,0)<>0`です。
-- `publication_ids(master)`で正式正本の非hidden ID集合を決めます。過去の公開DBは既存ID欠落の防止用で、新規公開の許可リストではありません。
-- 正当で整合するcanonical aliasによるページ統合は`rendered_ids`に反映します。DB件数とページ件数が異なる場合は、その根拠を確認します。
-- 通常週次に人間の追加公開承認を挟みません。保留解決やcanonical修正は別の例外作業です。
+- 既存建物を優先し、証拠のある一意な一致だけ名寄せする。名前・住所の正規化は候補比較であり、それだけでIDの統合・公開除外を決めない。
+- 高信頼な新規建物だけauto-seed。既存canonicalの正式名・住所は通常取込で自動上書きしない。棟別表記（A/B棟、号棟、II等）を安易に潰さない。
+- Mansion Reviewに限り、`原町別院10-8`のように町名直後の数字から始まる**完全番地**の判定を修正済み。番地欠落、範囲表記、注記付き住所まで無条件採用しない。
+- Mansion Reviewに限り、`NestPiece`/`Nest Piece`のような**空白差だけ**を、住所完全一致・canonical一意・他候補や号棟に矛盾がない場合に限って許容。Ulucks・RealProの共通名寄せ規則は緩めない。
+- 限定改善の履歴値: 2026-10-25公開時に対象401行を再判定し281行採用・120行保留、新規117棟、追加重複0。これは**結果の記録**であり次週の採用下限ではない。
+- 異常・曖昧・未採用の行は原本・evidence・reviewをprivateに保存し、公開しない。失敗・未取得・利用不可を**正常0件にしない**。一部失敗時は成功範囲のみ採用し失敗範囲の旧currentを維持する。
 
-## 募集とソース
+## 賃貸と分譲・公開
 
-- 賃貸・分譲は同じcanonical建物に結び、`listings`と`sale_listings`等で別系統に保持します。
-- 賃貸基本優先順位はUlucks ＞ RealPro ＞ Mansion Review賃貸。Mansion Review分譲は独立ソースです。
-- `effective_rentals`は建物単位で最優先ソースを選択し、複数ソースの項目を任意に混ぜません。優先順位未定義のlegacy行が混在する場合は既存の合成snapshot方針を保つため、全行に一律の順位フィルターが掛かるとは限りません。
-- 集約は各ソースの有効なcurrent snapshotを合成します。全履歴を現在募集として合算しません。
-- Ulucksクラウドのscopeは`ulucks:<scope-hash>`。`listings.source_kind=ulucks`を維持し、会社・対象範囲を`cloud_scope_bindings`で管理します。
-- `cloud_baseline_ownership`や重複管理で確認された対象のみ旧明細と調整します。不明な旧明細・他社履歴・他ソースcurrentを一括削除しません。
-- 正常0件は取得画面・件数・証跡で確認した場合のみ。認証失敗、PDF欠落、未対応会社、一部取得失敗を正常0件へ置換しません。
-- 全社バッチは安全条件を満たす会社だけのpartial_successを正式保存し得ます。失敗会社の旧snapshotを保持し、失敗会社・利用不可会社・保留行を成功件数と区別します。
+- **賃貸優先順位は建物単位で Ulucks ＞ RealPro ＞ Mansion Review賃貸**。`effective_rentals` は優先ソースの有効snapshotだけを選び、別ソースの賃貸行を足し合わせない。順位未定義のlegacy入力の互換扱いは既存実装を維持する。
+- `sale_listings` の分譲販売は賃貸と独立。同じ建物が両方に属しても建物IDは一つ。販売掲載数を賃貸空室に加えない。
+- 高信頼で正式採用された建物は原則自動公開。`hidden_from_public`だけを明示的非公開の判定材料とする。過去の公開DBを新規公開のホワイトリストにしない。
+- 正当なaliasだけでページ統合する。募集0件でも建物ページを維持し、既存のURLを勝手に変更しない。
+- 公開用DBは`buildings`/`building_summaries`等の許可した表だけを生成し、号室・生募集明細・参照元URL・管理会社・private PDF・認証情報を公開しない。
 
-## リリース安全性と公開境界
+## 取込項目・互換契約
 
-- 正本変更前にバックアップし、generation指定で取得してSHA-256・DB整合性・件数・ID・履歴保持を検証します。
-- immutableなmaster/publicを保存してから、期待generationを条件とするCASで正式HEADを更新します。
-- collection leaseで収集・公開専用処理の同時実行を防ぎます。正式commitできない失敗runでHEADを切り替えません。
-- 公開DBは許可テーブルだけを新規コピーし、`listings`・`raw_sources`・PDF・privateレビュー・認証情報を含めません。
-- Pagesは公開専用DBの世代・SHA・件数を検証し、ID集合・集約値を照合します。公開後は実Webのmarker・JSON等を照合します。
-- 復旧は現在HEAD/世代と稼働中Jobを再確認し、後発の正常な成果を古いバックアップで巻き戻しません。
+- 公式のPDFバッチCSV（v1/16列、UTF-8 BOM）は次の順序を維持する:
+  `category,updated_at,building_name,room,address,rent_man,fee_man,layout,floor,area_sqm,age_years,structure,file,page,raw_block,evidence_id`
+- importerは15列（`page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id`）と旧14列（evidence_idなし）も互換受理。16列の`file`は由来追跡の補助。`rent_man`/`fee_man`は**万円**、内部賃料は円換算。列構造は実装の`MASTER_COLUMNS`/`FINAL_SCHEMA`を正とする。
+- `age_years`/`structure`が欠損しても取込を継続しNULLで保持。建物集約は欠損を除く最頻値を使い、同率時は`age_years`を中央値、`structure`を辞書順先頭とする既存互換ルールを保つ。建物属性由来の値は賃貸観測値がない場合のフォールバックとなる。
+- 比較用住所は都道府県プレフィックス差等を正規化するが、町丁目だけの住所を完全番地と誤認しない。位置情報は任意。空き予定の表示分類は既存実装と整合させ、原文の入居可能日を保持する。
+- 戸建行の除外・建物名と号室の分離・QC区分などPDFパーサーの既存規則を維持し、ローカル手動ルートは[専門資料](manual_pdf_ingest.md)として扱う。
 
-実装参照: [public_db.py](../src/tatemono_map/cloud/public_db.py)、[pipeline.py](../src/tatemono_map/cloud/pipeline.py)、[batch.py](../src/tatemono_map/cloud/batch.py)、[storage.py](../src/tatemono_map/cloud/storage.py)、[fetch_public.py](../src/tatemono_map/cloud/fetch_public.py)。本番確認手順は[runbook](runbook.md)に集約します。
+## リリース・復旧の非破壊条件
+
+- 更新前に正式master/publicの世代固定取得とバックアップ、SQLite integrity・SHA-256・ID・履歴・情報源別current・公開集約の比較を行う。
+- lease・HEAD generationの比較交換（CAS）により上書き競合を防止。後発の正常リリースや別Jobのleaseを壊さない。
+- Pages公開は世代・ハッシュ検証済み公開DBを使用し、公開marker・JSON・ID集合・集約値を実Webと比較する。
+- 例外修正は[修正台帳の専門資料](building_corrections_csv.md)を参照し、GCS正本への反映は別途バックアップ付きで実施する。
+
+**実装入口:** [取込](../src/tatemono_map/building_registry/ingest_master_import.py) / [Ulucks](../src/tatemono_map/cloud/batch.py) / [RealPro](../src/tatemono_map/cloud/realpro_weekly.py) / [Mansion Review](../src/tatemono_map/cloud/mansion_integrate.py) / [限定再判定](../src/tatemono_map/cloud/mansion_limited.py) / [有効賃貸](../src/tatemono_map/normalize/effective_rentals.py) / [公開DB](../src/tatemono_map/cloud/public_db.py)。

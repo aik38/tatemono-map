@@ -1,81 +1,86 @@
-# 本番Runbook（GCP中心）
+# 本番運用・監視・障害復旧Runbook
 
-2026-10-19 JST更新。[Cloud構成・実績](../cloud/README.md)、[仕様](spec.md)、[データフロー](data_flow_and_sources_of_truth.md)を前提とします。以下の確認は監視・障害対応用で、毎週人間が実行しないと収集や公開が進まない仕組みではありません。
+更新: **2026年10月25日 JST**。3情報源の週次実行と実Web照合を一本化した**唯一の主要運用手順書**です。実装仕様は[spec](spec.md)、保存先は[データフロー](data_flow_and_sources_of_truth.md)を参照。
 
-## 通常週次の観測
+> 本書は監視・障害対応用。**毎週人間が起動・承認しなければ更新できない設計ではありません。** Windows・Work・ローカルPDF/ZIP・手動CSVは通常の必須工程に含めません。
 
-1. Scheduler `tatemono-ulucks-weekly`の予定（月曜04:00 JST）と実際の起動結果を確認する。
-2. 既存Job `tatemono-collection-poc`の該当executionを確認し、終了・失敗・稼働中を区別する。稼働中に二重起動しない。
-3. GCS `state/current.json`のgeneration、run ID、source commit、QC、master/publicのobject・generation・SHA-256を記録する。
-4. 会社別の成功・失敗・利用不可、採用・保留・異常・重複件数を確認する。partial_successを全会社完全成功と読み替えない。
-5. 毎時23分のPages確認後、GCSの公開releaseと本番marker・JSONが一致することを確認する。
+## 週次起動（JST）
 
-Scheduler設定のENABLED、テスト成功、実際の定刻無人実行成功は別の証拠です。今回の文書整理では2026-10-19 04:00 JSTの実行前であり、定刻収集を成功済みとは記載しません。
+| 順 | Scheduler | Cloud Run Job | 定時 |
+| --- | --- | --- | --- |
+| 1 | `tatemono-ulucks-weekly` | `tatemono-collection-poc` | 月曜04:00 |
+| 2 | `tatemono-realpro-weekly` | `tatemono-realpro-weekly` | 月曜04:05 |
+| 3 | `tatemono-mansion-weekly` | `tatemono-mansion-weekly` | 月曜04:10 |
 
-## 読み取り専用の確認例
+RealProは当該週Ulucks実行の終了を待ち、Mansion ReviewはUlucks・RealPro両方の終了を待つ。**Job終了≠処理成功**。SchedulerのENABLED、テスト成功、Cloud Run配置成功、代表2社成功を全対象の週次成功と扱わない。
 
-認証済みCloud Shell等の作業checkoutで使用します。認証情報の表示・再登録や初期接続のやり直しは不要です。
+## 週次確認カード
+
+1. **Scheduler:** 当該月曜の起動履歴と設定、Job起動が実際にあったか。
+2. **Cloud Run:** 3Jobのexecution・開始/終了時刻・成功/失敗/再試行/稼働中。失敗・待機中を成功とみなさない。
+3. **対象と原本:** Ulucksの判定対象全社・北九州全域、RealProの取得可能全社、Mansion Reviewの35市区町村。PDF/HTMLの保存証跡、対象外/失敗/未処理の数を区別。
+4. **解析・採否:** 解析・正式採用・保留・異常・重複、source別currentと上位募集の保護を確認。partial_success≠全対象成功。
+5. **正式HEAD:** `state/current.json`の最新run ID・generation・master/public object世代とSHA・QCを照合。
+6. **Pages・実Web:** Pagesのrelease_check/build/deploy/verifyを確認し、公開marker・検索JSON・建物/賃貸/分譲の集計と一致するか検証。
+7. **異常と復旧:** 新しい正常なリリースを保護し、実行中Jobの二重起動と無用な再取得を避ける。
+
+2026-10-26の初回全対象・同一週・定刻の独立実証は、その日の**実際のexecutionと公開値**で判定する。予定があることだけで検証済みと記さない。
+
+## 読み取り専用のコマンド例
+
+GCP認証済みのCloud Shell等で利用。Secretの中身を出力しない。
 
 ```bash
-gcloud scheduler jobs describe tatemono-ulucks-weekly --project tatemono-map --location asia-northeast1 --format='json(state,schedule,timeZone,httpTarget.uri,lastAttemptTime,status)'
-gcloud run jobs executions list --job tatemono-collection-poc --project tatemono-map --region asia-northeast1 --limit=5
+gcloud scheduler jobs list --project tatemono-map --location asia-northeast1
+gcloud run jobs executions list --job tatemono-collection-poc --project tatemono-map --region asia-northeast1 --limit 5
+gcloud run jobs executions list --job tatemono-realpro-weekly --project tatemono-map --region asia-northeast1 --limit 5
+gcloud run jobs executions list --job tatemono-mansion-weekly --project tatemono-map --region asia-northeast1 --limit 5
 GCP_BUCKET=tatemono-map-poc-523194690131 python cloud/read_state.py
 ```
 
-詳細executionは上で得た実名を使い、`gcloud run jobs executions describe <execution-name> --project tatemono-map --region asia-northeast1`で確認します。Secret値を取得しません。`read_state.py`はGCS HEADを読むだけで収集・更新しません。診断結果の保存・共有はprivate原則です。
+必要なら該当実行名で`gcloud run jobs executions describe <execution-name> --project tatemono-map --region asia-northeast1`。未完了の実行があれば再起動しない。原本はmanifest/evidenceが指す**対象objectだけ**を世代・SHA固定で調査し、PDF/HTML・private review・ログイン情報をGitHub/Pagesへ公開しない。
 
-## HEAD・generation・SHA・公開の照合
-
-Cloudの読み取り権限を持つ環境で、公開専用DBとmarkerを検証用ディレクトリに取得できます。これはローカル検証ファイルの作成だけで、GCS HEAD/正本を変更しません。
+## 正本・実Webの照合
 
 ```bash
 python -m tatemono_map.cloud.fetch_public --bucket tatemono-map-poc-523194690131 --output work/verification/public.sqlite3 --marker work/verification/cloud_release.json
 python -m tatemono_map.cloud.verify_public --marker work/verification/cloud_release.json --production
 ```
 
-`fetch_public`はHEAD、収集証跡、generation固定ダウンロード、SHA-256、公開DB件数・整合性を検査します。`verify_public --production`は期待markerと実Webを照合します。処理中に新しいreleaseが公開された場合は「壊れた」と決めつけず、最新HEADと稼働中Pagesを読み直します。
+上記は**検証用ファイルを生成する読み取り専用の照合**。GCS正本やWebを更新しない。
 
-確認先:
+- [本番のリリース](https://www.tatemono-map.com/cloud_release.json) / [build_info](https://www.tatemono-map.com/build_info.json) / [公開検索JSON](https://www.tatemono-map.com/data/buildings.v2.min.json)
+- [Pages実行履歴](https://github.com/aik38/tatemono-map/actions/workflows/deploy_pages.yml)
+- [Cloud配置Workflow](../.github/workflows/cloud_deploy.yml) はmainの関連パス変更でテストが走るが、通常pushが常に収集・配置を起動するわけではない。
+- [PR CI](../.github/workflows/ci.yml) は回帰テスト・コンテナ合成確認。実収集・正本更新を証明しない。
+- Pagesはmain push、毎時23分、Cloud配置Workflowのmain成功、手動dispatch等で実行。変更なしのscheduleチェックはbuild/deployを省略し得る。
+- **テスト成功≠Job成功≠GCS HEAD更新≠Pages成功≠実Web一致**。コミットSHAと正式リリースのsource SHAが異なる場合も、それだけで不整合ではない。正式run ID・公開SHA・ID集合を比較する。
 
-- [本番release marker](https://www.tatemono-map.com/cloud_release.json)
-- [本番build情報](https://www.tatemono-map.com/build_info.json)
-- [本番検索JSON](https://www.tatemono-map.com/data/buildings.v2.min.json)
-- [Pages実行一覧](https://github.com/aik38/tatemono-map/actions/workflows/deploy_pages.yml)
+## エラー時の取り扱い
 
-実行の緑表示だけで判断せず、build/deployが実行されたか、変更なしでskipされたか、実Web照合ステップの結果を区別します。文書だけのmainコミットと、公開成果物の`git_sha`が異なること自体はデータ不整合ではありません。run ID・公開SHA・ID集合・集約値を基準にします。
-
-## PDF原本・解析・保留の追跡
-
-HEAD reportの`company_results`から該当会社の`result_ref`/`manifest_ref`を辿ります。公開専用releaseでは元の収集runの参照が継承されるため、現在release名の下にすべてのPDFがあるとは限りません。
-
-主な保存先は`private-runs/<collection-run>/companies/<company-id>/pdf/*.pdf`、`parsed-rows.json`、`review-rows.csv`、同run直下の`company-<id>-manifest.json`/`company-<id>-evidence.json`です。manifestにはPDFとevidenceのobject・generation・SHA-256等があります。
-
-必要なobjectだけを参照世代で読み、SHAを確認してprivate作業領域へ取得します。`GCSStore.download(ref, output)`がその既存実装です。バケット全体の再取得やreplay実行は単なる観測に不要です。PDF・raw・review・ログイン情報をGitHub/Pagesへコピーしません。原本数・保存期間・ライフサイクルは今回未確認です。
-
-## 失敗時の扱い
-
-| 症状 | 先に確認する内容 | 維持する状態 |
+| 状況 | 先にすること | 絶対にしないこと |
 | --- | --- | --- |
-| 会社の認証・取得失敗 | 該当会社のprivate evidence・失敗コード、既存execution | 失敗を0件化せず旧currentを保持 |
-| 行の保留・異常 | parsed/reviewと正式採用の件数内訳 | 未採用値を公開せず他の正常採用を維持 |
-| バッチQC/CAS失敗 | failure記録・現在HEAD generation・競合実行 | 正式commit前のHEADを保持 |
-| Pagesが更新されない | HEAD/marker差、release_check/build/deploy各結果 | 正本やJobを触らず原因を特定 |
-| 公開後照合失敗 | 期待marker・実Web・後発Pages実行 | 旧データへの即時巻戻しを避ける |
+| ログイン・PDF/HTML取得失敗 | 失敗した会社/地区のmanifest・receiptとCloud Runログを確認 | 失敗会社を正常0件扱い、他情報源の募集を削除 |
+| RealPro・Mansion Reviewの上流待機 | 当該週の先行execution実在・終了状態を確認 | 重複起動、上流未実行を終了扱い |
+| QC・名寄せの保留/異常 | 個別の原本・evidence・reviewと一意性を確認 | 保留を一括採用、根拠なく新規建物を追加 |
+| CAS競合・lease | 最新HEAD generationと稼働中Jobを再読取 | 他実行のlease消去、旧HEAD強制上書き |
+| Pages未反映 | HEAD/run marker差、release_check/build/deploy/verifyを確認 | 診断目的で全社再収集 |
+| 一部成功 | 成功範囲と失敗範囲を特定し旧currentを保持 | 全社完全成功と報告 |
 
-全社バッチは安全条件を満たす成功会社だけのpartial_successを正式保存する場合があります。「一社失敗なら全体のHEADは必ず不変」とは扱いません。正式commitできない失敗runはHEADを切り替えません。
+## バックアップとロールバック
 
-## 復旧の条件
+1. 更新対象の**最新**HEADとgeneration、実行中Job、既に進んだ後続リリースの有無を確認。
+2. master/publicの参照世代・SHA、GCS backup、SQLite integrityと建物ID・alias・履歴・source別current・公開集計を検証。
+3. 必要な対象だけ修復し、collection lease・期待generationのCASを守る。後発の正常更新を古い成果で上書きしない。
+4. 復旧後は最新HEADとPagesの公開marker・JSON・ID集合・集約値まで再検証。
+5. `python -m tatemono_map.cloud.republish` は収集しないが**GCSリリース/HEADを書き換える操作**。単なる調査のためには実行しない。replay・Scheduler resume・Cloud Run再配置も診断の一部にしない。
 
-1. 最新HEADとgeneration、master/public世代・SHA、稼働中execution、最新Pagesを再確認する。
-2. 復旧対象とバックアップの一致、後発の正常releaseがないことを確認する。古い引継ぎの値を現在値として使わない。
-3. 正本/公開DBのバックアップとSQLite integrity・件数・ID・alias・履歴保持を検証する。
-4. 書き込みが必要な復旧は対象・期待generationを固定し、collection leaseとCASを守る。新しい正常成果や別実行のleaseを上書き・削除しない。
-5. 復旧後は公開marker・JSON・ID集合・集約値まで確認する。
+## ドキュメント変更だけの場合
 
-`python -m tatemono_map.cloud.republish`は再収集なしの公開専用更新ですが、GCSリリース/HEADを書き換えるため、調査用コマンドではありません。[Cloud文書](../cloud/README.md#公開専用処理)を確認し、別の変更作業として扱います。replay、Cloud再配置、Scheduler resume、初期bootstrapも通常の確認手順に含めません。
+- 本番SQLite、GCS HEAD、Cloud Run、Scheduler、PDF/HTML収集、Pages公開コードを触らない。
+- `deploy_pages.yml`は通常main pushでもビルドを起動し、公開後のscheduler確認ステップを含む。無用な再ビルド・再収集を避けるため文書マージコミットを`[skip ci]`付きにする場合、PRテストや必須チェックを無効化せず、後続のschedule/workflow_runが独立に動くことを認識する。
+- 主要6文書はそれぞれの担当情報だけ更新し、技術資料・歴史資料は[文書索引](README.md)から参照する。
 
-## Windows・手動補助
+## 補助資料
 
-PowerShell、手動PDF/CSV、correction等の既存機能は残っています。[ローカル開発](local_development.md)、[手動PDF](manual_pdf_ingest.md)、[correction仕様](building_corrections_csv.md)と[旧Runbook全文](https://github.com/aik38/tatemono-map/blob/03be5e82c5dcc65f1d4960f0da421024cefa3e27/docs/runbook.md)を参照してください。
-
-これらのローカルDB・CSVはGCS正式正本に優先しません。ローカル公開DBをpushしただけでCloud有効時の本番データ更新が成立するとは扱いません。募集0件でも建物ID/URLを維持し、訂正は最新正本の安全な変更作業として切り分けます。
+ローカル・手動PDF・修正CSVは[専門資料](README.md#専門資料)を参照。GitHubにある旧手順を現在の本番正本に逆流させない。
