@@ -37,7 +37,9 @@
 
 - 公式のPDFバッチCSV（v1/16列、UTF-8 BOM）は次の順序を維持する:
   `category,updated_at,building_name,room,address,rent_man,fee_man,layout,floor,area_sqm,age_years,structure,file,page,raw_block,evidence_id`
-- importerは15列（`page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id`）と旧14列（evidence_idなし）も互換受理。16列の`file`は由来追跡の補助。`rent_man`/`fee_man`は**万円**、内部賃料は円換算。列構造は実装の`MASTER_COLUMNS`/`FINAL_SCHEMA`を正とする。
+- **現行の内部インポーター標準は22列**（`ingest_master_import.MASTER_COLUMNS`）。順序は `page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,availability_raw,built_raw,age_years,structure,built_year_month,built_age_years,availability_date,availability_flag_immediate,structure_raw,raw_block,evidence_id`。旧21列（末尾`evidence_id`なし）も受理する。
+- 従来のPDFバッチ`final.csv`（上記16列）および旧15列（`page,category,updated_at,building_name,room,address,rent_man,fee_man,floor,layout,area_sqm,age_years,structure,raw_block,evidence_id`）・旧14列（`evidence_id`なし）も**互換受理**する。16列の`file`は由来追跡の補助。
+- `rent_man`/`fee_man`は**万円**、内部賃料は円換算。形式と列順の最終判断はコードの`MASTER_COLUMNS`・`MASTER_COLUMNS_LEGACY`・`MASTER_COLUMNS_WITH_FILE`・`FINAL_SCHEMA`を正とする。
 - `age_years`/`structure`が欠損しても取込を継続しNULLで保持。建物集約は欠損を除く最頻値を使い、同率時は`age_years`を中央値、`structure`を辞書順先頭とする既存互換ルールを保つ。建物属性由来の値は賃貸観測値がない場合のフォールバックとなる。
 - 比較用住所は都道府県プレフィックス差等を正規化するが、町丁目だけの住所を完全番地と誤認しない。位置情報は任意。空き予定の表示分類は既存実装と整合させ、原文の入居可能日を保持する。
 - 戸建行の除外・建物名と号室の分離・QC区分などPDFパーサーの既存規則を維持し、ローカル手動ルートは[専門資料](manual_pdf_ingest.md)として扱う。
