@@ -1,40 +1,41 @@
-# 旧文書の履歴・復元索引
+# 建物マップ — 過去文書・復元索引
 
-## 保存目的
+**現行の主要仕様は [README](../../README.md) と [docs索引](../README.md) を参照してください。** このフォルダは記録の保全先であり、旧操作手順を現行の本番正本へ実行する目的ではありません。
 
-Windows中心の手動運用、会社8・小倉北区限定PoC、初回クラウド移行、Work A/Bの判断経緯を失わず、現行仕様と区別して参照できるようにします。旧資料は現在の本番手順として実行しません。
+## 2026年10月25日 — 主要6文書への整理前の完全保存
 
-## 保全済みの全体バックアップ
+- **固定SHA:** `cb5dbe2d20132bce3391908298145701f554192a`
+- **保存ブランチ:** [archive/docs-before-consolidation-20261025](https://github.com/aik38/tatemono-map/tree/archive/docs-before-consolidation-20261025)
+- **固定コミット全体:** [整理前のリポジトリ](https://github.com/aik38/tatemono-map/tree/cb5dbe2d20132bce3391908298145701f554192a)
+- この時点で存在した**README・PLAN・cloud/README・docs全体（整理前の主要13ファイルを含む）をGit履歴として一式保存**しています。
+- **ブランチを移動せず固定SHAを復元根拠とすること。** 本番SQLite/GCS HEADのバックアップではなく、GitHub文書とコードの時点スナップショットです。
 
-- ブランチ: [`backup/docs-pre-cloud-alignment-20261019`](https://github.com/aik38/tatemono-map/tree/backup/docs-pre-cloud-alignment-20261019)
-- 固定SHA: `03be5e82c5dcc65f1d4960f0da421024cefa3e27`
-- [固定コミット全体](https://github.com/aik38/tatemono-map/tree/03be5e82c5dcc65f1d4960f0da421024cefa3e27)
-
-2026-10-19 JSTの作業開始時にブランチの参照先と固定SHAの一致を読み取り確認しました。ブランチの変更・削除・上書きは行いません。mainへ全文を大量複製せず、Git履歴を正確な復元元にします。
-
-| 旧全文 | 固定版リンク |
+| 旧全文の参照 | 固定版 |
 | --- | --- |
-| README | [README.md](https://github.com/aik38/tatemono-map/blob/03be5e82c5dcc65f1d4960f0da421024cefa3e27/README.md) |
-| 方針 | [PLAN.md](https://github.com/aik38/tatemono-map/blob/03be5e82c5dcc65f1d4960f0da421024cefa3e27/PLAN.md) |
-| Docs一式 | [docs/](https://github.com/aik38/tatemono-map/tree/03be5e82c5dcc65f1d4960f0da421024cefa3e27/docs) |
-| 旧Runbook | [runbook.md](https://github.com/aik38/tatemono-map/blob/03be5e82c5dcc65f1d4960f0da421024cefa3e27/docs/runbook.md) |
-| 初回移行・PoC | [cloud/README.md](https://github.com/aik38/tatemono-map/blob/03be5e82c5dcc65f1d4960f0da421024cefa3e27/cloud/README.md) |
+| README | [README.md](https://github.com/aik38/tatemono-map/blob/cb5dbe2d20132bce3391908298145701f554192a/README.md) |
+| PLAN | [PLAN.md](https://github.com/aik38/tatemono-map/blob/cb5dbe2d20132bce3391908298145701f554192a/PLAN.md) |
+| Cloud運用・実績 | [cloud/README.md](https://github.com/aik38/tatemono-map/blob/cb5dbe2d20132bce3391908298145701f554192a/cloud/README.md) |
+| spec | [docs/spec.md](https://github.com/aik38/tatemono-map/blob/cb5dbe2d20132bce3391908298145701f554192a/docs/spec.md) |
+| データフロー | [docs/data_flow_and_sources_of_truth.md](https://github.com/aik38/tatemono-map/blob/cb5dbe2d20132bce3391908298145701f554192a/docs/data_flow_and_sources_of_truth.md) |
+| Runbook | [docs/runbook.md](https://github.com/aik38/tatemono-map/blob/cb5dbe2d20132bce3391908298145701f554192a/docs/runbook.md) |
+| 旧データ契約 | [docs/data_contract.md](https://github.com/aik38/tatemono-map/blob/cb5dbe2d20132bce3391908298145701f554192a/docs/data_contract.md) |
+| 旧WBS | [docs/wbs.md](https://github.com/aik38/tatemono-map/blob/cb5dbe2d20132bce3391908298145701f554192a/docs/wbs.md) |
+| 旧週次確認カード | [docs/ops_weekly_checklist_a4.md](https://github.com/aik38/tatemono-map/blob/cb5dbe2d20132bce3391908298145701f554192a/docs/ops_weekly_checklist_a4.md) |
+| 旧CI説明 | [docs/ops_ci_testing.md](https://github.com/aik38/tatemono-map/blob/cb5dbe2d20132bce3391908298145701f554192a/docs/ops_ci_testing.md) |
+| Docs一式 | [docsディレクトリ](https://github.com/aik38/tatemono-map/tree/cb5dbe2d20132bce3391908298145701f554192a/docs) |
 
-特定ファイルの読み出し例（復元表示のみ。本番へ書き戻さない）:
+表示・復元例（まず読み取り専用）:
 
 ```bash
-git show 03be5e82c5dcc65f1d4960f0da421024cefa3e27:README.md
-git show 03be5e82c5dcc65f1d4960f0da421024cefa3e27:docs/runbook.md
+git show cb5dbe2d20132bce3391908298145701f554192a:README.md
+git show cb5dbe2d20132bce3391908298145701f554192a:docs/data_contract.md
+git show cb5dbe2d20132bce3391908298145701f554192a:docs/wbs.md
 ```
 
-## 移行の要点と現在の参照先
+## 2026年10月19日 — 以前のCloud整理前の完全保存
 
-現在はScheduler → Cloud Run → private PDF保存 → 解析・精査 → GCS SQLite正式正本 → 公開専用DB → Pagesです。旧ローカルDB/CSV/ZIPを本番基準にはせず、Windowsは開発・手動補助です。
+- ブランチ: [backup/docs-pre-cloud-alignment-20261019](https://github.com/aik38/tatemono-map/tree/backup/docs-pre-cloud-alignment-20261019)
+- 固定SHA: `03be5e82c5dcc65f1d4960f0da421024cefa3e27`
+- [README全文](https://github.com/aik38/tatemono-map/blob/03be5e82c5dcc65f1d4960f0da421024cefa3e27/README.md) / [旧Docs全体](https://github.com/aik38/tatemono-map/tree/03be5e82c5dcc65f1d4960f0da421024cefa3e27/docs)
 
-Work Bで正式採用の非hidden建物を原則自動公開し、旧公開ID制限を廃止しました。曖昧・異常な未採用行は引き続きprivate保留です。「公開待ち」と「未採用」を混同しません。
-
-- [現行README](../../README.md) / [文書索引](../README.md) / [現行Cloud文書](../../cloud/README.md)
-- [Work A原記録と追記](../../cloud/HANDOFF_ULUCKS_FULLAREA.md)
-- [Work B原記録と追記](../../cloud/HANDOFF_WORK_B_PUBLICATION.md)
-
-引継ぎ中の「未完了」や当時の「公開しない」制約は当時の記録で、後続実績・現行仕様は追記と現行文書で確認します。日付付きの検証記録はその時点の証拠であり、現在状態の断定には使用しません。
+旧Windows手動運用・会社8/小倉北区PoC・過去Work引継ぎは当時の事実として保持します。旧版の「未実装」「未公開」「公開ID制限」を現在の仕様へ戻しません。古いローカルSQLiteを現在のGCS正式正本へ上書きしません。

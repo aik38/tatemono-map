@@ -1,6 +1,6 @@
 # Manual PDF(CSV) ingest runbook
 
-本書は旧手動ルート「保存PDF → CSV化 → ローカルDB → dist」の技術参照・手動補助です。2026-10-19 JST現在のUlucks通常週次は[Cloud経路](../cloud/README.md)で自動取得・解析・公開します。ローカルDB/CSVはGCS正式正本に優先せず、この手順だけで本番正本更新は成立しません。
+本書は旧手動ルート「保存PDF → CSV化 → ローカルDB → dist」の技術参照・手動補助です。2026-10-25 JST現在、3情報源の通常週次は[Cloud経路](data_flow_and_sources_of_truth.md)で自動取得・解析・公開する構成です。ローカルDB/CSVはGCS正式正本に優先せず、この手順だけで本番正本更新は成立しません。
 
 ## 1. 手動補助ルート（PDF→CSV→ローカルDB→dist）
 

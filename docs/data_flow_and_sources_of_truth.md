@@ -1,68 +1,71 @@
-# データフローと正本
+# 3情報源のクラウド構成とデータ正本
 
-2026-10-19 JST更新。本番の入口はGCS `state/current.json`です。ローカルパスの有無でクラウドの通常週次処理は変わりません。
+更新: **2026年10月25日 JST**。ここは**システム構成・保存先の唯一の主要説明**です。採否の条件は[spec](spec.md)、運用コマンドは[runbook](runbook.md)に分離します。
 
-## 原本から公開まで
-
-| 段階 | 保存先・実体 | 意味と取り扱い |
-| --- | --- | --- |
-| 取得原本 | private GCSのPDF・manifest・evidence | 取得時の証拠。解析しても原本を保存する実装 |
-| 解析・構造化 | `parsed-rows.json`、作業中の`master_import.csv` | PDFから抽出した建物名・住所・募集条件。全行が正式採用されるわけではない |
-| 精査・内部保留 | `review-rows.csv`、private診断、正本内raw履歴等 | 曖昧・異常・未採用の記録。Webへ流さない |
-| 正式採用と履歴 | HEADの`master`参照が指すSQLite | canonical、募集、alias、由来、run、source別currentを保持 |
-| 公開派生DB | HEADの`public`参照が指すSQLite | 非hidden正式採用建物と安全な集約・aliasだけを生成 |
-| 配信成果物 | 検索JSON・HTML・サイトマップ・release marker | Pagesが公開DBから生成し、本番Webで検証 |
-
-通常経路は **Scheduler → Cloud Run fresh収集 → 原本保存 → 解析・名寄せ・QC → 正本/公開DB保存・HEAD CAS更新 → Pagesリリース確認 → ビルド・デプロイ・実Web照合** です。WindowsでPDFやZIPを置く工程は必須ではありません。
-
-## GCS上の対応
+## 通常の完全クラウド経路
 
 ```text
-state/current.json
-masters/<release-run>.sqlite3
-public/releases/<release-run>/public.sqlite3
-backups/<collection-run>.sqlite3
-private-runs/<collection-run>/
-  companies/<company-id>/
-    pdf/000.pdf
-    pdf/001.pdf
-    parsed-rows.json
-    review-rows.csv
-  company-<company-id>-manifest.json
-  company-<company-id>-evidence.json
-  company-<company-id>-result.json
+月曜04:00 Ulucks Cloud Scheduler ─→ tatemono-collection-poc
+                                         │ 対象全社・北九州全域PDF
+月曜04:05 RealPro Scheduler ───────→ tatemono-realpro-weekly
+                                         │ Ulucks終了待ち・福岡県の対象管理会社PDF
+月曜04:10 Mansion Review Scheduler → tatemono-mansion-weekly
+                                         │ Ulucks/RealPro終了待ち・35市区町村の賃貸/分譲
+                                         ▼
+                       private GCS（原本/解析/証拠/保留）
+                                         ▼
+                        品質判定 → canonical名寄せ
+                                         ▼
+                      正式SQLite（GCS master）＋履歴
+                                         ▼
+                公開専用SQLite → GCS release / HEAD CAS
+                                         ▼
+                  GitHub Actions（releaseチェック/ビルド）
+                                         ▼
+                       GitHub Pages → 実Web照合
 ```
 
-これは主な全社バッチの構造です。正常0件・失敗・処理段階により存在しないファイルがあります。旧単社runでは`private-runs/<run>/pdf/`等も使用します。公開専用releaseでは取得runとrelease-runが異なり、元の参照先をmanifestや継承証跡で辿ります。
+Schedulerは**起動予定時刻**であり、3Jobをその時刻から同時収集する指示ではありません。RealProは当該週のUlucks実行終了待ち、Mansion Reviewは当該週のUlucks・RealPro実行終了待ち。完了済み失敗のJobがあっても後続が動く実装では、実行状態と結果を必ず区別する。missing/実行中/照会不可は勝手に成功扱いしない。
 
-PDF原本は証拠として、解析済み数値・文字列はSQLite等の構造化データとして、それぞれ保持します。manifestにPDFとevidenceのobject・generation・SHA-256、会社・対象設定・期待件数を記録します。`replay.py`は対象範囲・取得時刻・件数・参照先・SHA等を検証して保存済みPDFを読み戻す復旧用処理です。通常週次はfresh収集であり、replayを毎回の必須手順にはしません。
+- GCP project: `tatemono-map` / region: `asia-northeast1` / timezone: `Asia/Tokyo`
+- GCS bucket: `tatemono-map-poc-523194690131`
+- Scheduler: `tatemono-ulucks-weekly`, `tatemono-realpro-weekly`, `tatemono-mansion-weekly`
+- Ulucksは管理会社のfresh判定とPDF取得。RealProは新規ログイン・会社カタログ・対象地域を選んでPDF取得。Mansion Reviewは35市区町村の取得原本をprivate保存し、賃貸・分譲を別系統で取り込む。
+- 3系統の実装・週次起動設定は完了。**2026-10-26定刻実行による全対象の独立運用実証は別途確認する。** 会社2社の代表実証と全社実証を混同しない。
+- Windows PC、Chrome、ChatGPT Work、手動PDF/ZIP・ローカルSQLiteは通常の経路に含まれない。
 
-原本PDF総数、バケットのライフサイクル、実保存期間は今回未確認です。「永久保存」とは記載しません。private原本や解析行・認証情報をPagesへ公開しません。
+## GCSの役割
 
-## SQLiteの役割
-
-| テーブル等 | 役割 |
+| 実体 | 保存先・役割 |
 | --- | --- |
-| `buildings` | 恒久的canonical建物。既存ID・正式名・住所を保護 |
-| `building_key_aliases` / `building_sources` | alias解決、入力証拠と建物の対応 |
-| `listings` / `sale_listings` | 賃貸・分譲の別系統の募集と履歴 |
-| `ingest_runs` / `current_ingest_snapshots` | 実行記録とソース別の現在有効run |
-| `cloud_scope_bindings` / `cloud_baseline_ownership` | クラウド対象範囲と確認済み旧明細所有範囲 |
-| `raw_sources` | 入力原文等のprivate履歴。PDFファイル自体の代替ではない |
-| `building_summaries`等 | 有効snapshotを合成した公開向け集約（再生成可能） |
+| **唯一の本番HEAD** | `state/current.json`: 正式master/public・generation・SHA-256・リリースとQCを指す |
+| **正式master** | `masters/<run>.sqlite3`: canonical、賃貸・分譲、履歴、alias、ソース別current |
+| **公開DB** | `public/releases/<run>/public.sqlite3`: 許可された建物と集約だけ |
+| Ulucks原本 | `private-runs/<run>/companies/<id>/pdf/*.pdf` および歴史的な単社path |
+| RealPro原本と再開receipt | `private-inputs/realpro/cycles/<cycle>/` と `private-inputs/realpro/originals/<sha256>/` |
+| Mansion Review原本と再開receipt | `private-inputs/mansion-review/cycles/<cycle>/` と `private-runs/<run>/` の取得証跡 |
+| バックアップ・作業監査 | `backups/<run>.sqlite3`、各`private-runs/<run>/`、必要に応じて専用`deployment-backups/` |
+| 公開ページ | GitHub Pagesの静的HTML・JSON・サイトマップ・`cloud_release.json` |
 
-`listings`を単なる一時派生物として廃棄しません。履歴を保持し、公開集約はsource別currentを使用します。Ulucksのscopeは`ulucks:<scope-hash>`で、旧取り込みrunには`master_import`等もあります。すべてのsource名を`master_import`へ固定しません。
+原本は保存後も解析値と別に追跡できる設計です。ただし現存原本総数・バケットのライフサイクル・永久保存期間は未確認のため、無期限保管を保証しません。ファイルの世代とSHA-256で保存・参照を確認します。
 
-## 採用と公開の境界
+## source別の履歴と正式採用
 
-高信頼な既存マッチ・新規auto-seedは正式採用、曖昧・異常行はprivate保留です。正式採用された非hidden建物を原則自動公開し、過去の公開DBを許可リストにしません。旧公開DBは既存IDの欠落検出用です。
+- `buildings`は1建物1canonical IDの恒久資産。`building_sources`/`building_key_aliases`はその由来と同定。
+- `listings`は賃貸、`sale_listings`は分譲。`current_ingest_snapshots`はsource/scopeごとの有効取得を選択し、古い履歴を現在募集として数えない。
+- `mansion_review_rows`・`mansion_review_scopes`・限定再判定記録がMansion Reviewの原行と採否を保つ。保留行をまとめて公開に流さない。
+- 生入力・review・PDFなどprivateな表/原本を公開DBへ転送しない。表示に必要な建物概要だけを生成する。
 
-検索・ページの統合は整合する明示的canonical aliasに限定します。名称・住所一致だけで別IDを消しません。募集0件でも建物は残し、失敗したソースのsnapshotを正常0件として置き換えません。
+## 反映・公開・復旧の境界
 
-## ローカルファイルと例外修正
+1. 取得→解析→QC→既存canonicalへの紐付け／安全な新規追加。
+2. 最新正式HEADから**世代固定**でmasterを取得し、更新前のバックアップと整合性を検証。
+3. master/publicの不変オブジェクトを保存し、collection leaseとgeneration条件付きCASでHEADを安全に切り替える。
+4. [Pages Workflow](../.github/workflows/deploy_pages.yml) がmain push・毎時23分の確認・Cloud配置成功・手動dispatchを入口に、公開DBの世代とハッシュを検証し、ページを生成して実Webのrelease markerを照合。
+5. 定時チェックでHEADと公開Webに差がなければ重いビルドを省略。文書だけのmain pushでも通常はPages buildの契機になるため、文書整理時は無関係な再配置・再収集を避ける。
 
-`data/tatemono_map.sqlite3`は開発・旧手動運用で使うパスで、クラウド本番の所在を意味しません。`data/canonical/buildings_master.csv`等のCSVは初回投入や手動補助入力であり、運用中のGCS正本に優先しません。
+新規正式採用の非hidden建物は原則自動公開し、古い公開DBは欠落比較の材料であって新規公開の許可リストではありません。後発の新しい正常HEADが存在する場合は古い成果で巻き戻さない。詳しくは[runbook](runbook.md)。
 
-`data/public/public.sqlite3`はPages取得先または開発用公開スナップショット、`dist/`は配信生成物です。直接編集して本番修正としません。建物修正は[correction仕様](building_corrections_csv.md)の記録・dry-runを参考に、最新GCS正本・バックアップ・世代一致を前提とする別作業で行います。古いローカルDBのアップロードで代用しません。
+## ローカルファイルの位置付け
 
-詳細: [spec](spec.md)、[データ契約](data_contract.md)、[本番Runbook](runbook.md)、[履歴索引](archive/README.md)。
+`data/tatemono_map.sqlite3`・`data/canonical/buildings_master.csv`は開発・過去移行・例外補助用。`data/public/public.sqlite3`や`dist/`は公開派生物。ローカルファイルを本番正本扱いせず、通常週次に同期・PC起動を要求しない。
