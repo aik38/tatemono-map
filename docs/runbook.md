@@ -21,7 +21,7 @@ RealProは当該週Ulucks実行の終了を待ち、Mansion ReviewはUlucks・Re
 3. **対象と原本:** Ulucksの判定対象全社・北九州全域、RealProの取得可能全社、Mansion Reviewの35市区町村。PDF/HTMLの保存証跡、対象外/失敗/未処理の数を区別。
 4. **解析・採否:** 解析・正式採用・保留・異常・重複、source別currentと上位募集の保護を確認。partial_success≠全対象成功。
 5. **正式HEAD:** `state/current.json`の最新run ID・generation・master/public object世代とSHA・QCを照合。
-6. **Pages・実Web:** Pagesのrelease_check/build/deploy/verifyを確認し、公開marker・検索JSON・建物/賃貸/分譲の集計と一致するか検証。
+6. **Pages・実Web:** Pagesのrelease_check/build/deploy/verifyを確認し、公開marker・検索JSONの建物/賃貸集計と一致するか検証。**分譲件数は別途**公開SQLiteの`building_summaries.sale_listing_count`集計とWeb表示を比較する。標準のrelease markerや`verify_public`が分譲件数まで検証するとは扱わない。
 7. **異常と復旧:** 新しい正常なリリースを保護し、実行中Jobの二重起動と無用な再取得を避ける。
 
 2026-10-26の初回全対象・同一週・定刻の独立実証は、その日の**実際のexecutionと公開値**で判定する。予定があることだけで検証済みと記さない。
