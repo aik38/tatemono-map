@@ -68,3 +68,10 @@ def test_new_private_quarantine_is_committed_once_without_adoption(monkeypatch,t
     result=w.integrate(store,[dict(metadata={'sha256':'a'*64},errors=['quality'])],tmp_path,'new','b'*40,{},0)
     assert bool(commits)==(not already_recorded)
     assert result['status']==('no_new_content' if already_recorded else 'committed')
+
+def test_leopalace_number_width_alias_is_specific_to_verified_company():
+    match=w.pdf_company_title_matches
+    assert match('45020','レオパレスセンター福岡第1','レオパレスセンター福岡第１')
+    assert not match('45056','レオパレスセンター福岡第1','レオパレスセンター福岡第１')
+    assert not match('45020','レオパレスセンター福岡第2','レオパレスセンター福岡第１')
+    assert not match('45020','レオパレスセンター小倉第1','レオパレスセンター福岡第１')

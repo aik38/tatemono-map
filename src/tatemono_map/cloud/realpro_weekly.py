@@ -225,11 +225,13 @@ def pdf_company_title_matches(company_id, actual, expected):
     actual, expected = company_title(actual), company_title(expected)
     if actual == expected:
         return True
-    # 37100: the verified company-area response uses full-width APAMAN,
-    # while its current-cycle PDF header uses ASCII. Limit this equivalence
-    # to the observed ID and complete names; do not normalize other companies.
-    return (company_id == '37100' and actual == 'APAMAN株式会社'
-            and expected == 'ＡＰＡＭＡＮ株式会社')
+    # Limit PDF header width differences to the observed company IDs and
+    # complete names. Never normalize another company or branch into a match.
+    observed = {
+        '37100': ('APAMAN株式会社', 'ＡＰＡＭＡＮ株式会社'),
+        '45020': ('レオパレスセンター福岡第1', 'レオパレスセンター福岡第１'),
+    }
+    return observed.get(company_id) == (actual, expected)
 
 
 def run_bounded(command, timeout):
