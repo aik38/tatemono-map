@@ -116,3 +116,52 @@ def test_verified_zero_is_reused_without_pdf_or_deletion(monkeypatch,tmp_path):
     head={'run_id':'existing'}
     result=w.execute(N(read_head=lambda:(head,7)),tmp_path,cycle='same-cycle',source_commit='a'*40,commit=True)
     assert result['zero_companies']==1 and result['head']==head and result['status']=='no_new_content'
+
+
+def test_apaman_pdf_width_equivalence_is_bound_to_verified_id_and_full_names():
+    from tatemono_map.cloud.realpro_weekly import pdf_company_title_matches as match
+    assert match('37100','APAMAN 株式会社','ＡＰＡＭＡＮ株式会社')
+    assert not match('49945','APAMAN 株式会社','ＡＰＡＭＡＮ株式会社')
+    assert not match('37100','APAMAN株式会社 他営業所','ＡＰＡＭＡＮ株式会社')
+    assert not match('37100','APAMAN株式会社','ＡＰＡＭＡＮ株式会社 他営業所')
+    assert not match('37100','apaman株式会社','ＡＰＡＭＡＮ株式会社')
+    assert match('20322','株式会社X(支店)','株式会社X（支店）')
+
+
+@pytest.mark.parametrize('attachment', [True, False])
+def test_pdf_response_does_not_wait_on_unfinished_attachment(monkeypatch,tmp_path,attachment):
+    from tatemono_map.cloud import realpro
+    class Events:
+        def __init__(self):self.handlers={}
+        def on(self,event,handler):self.handlers[event]=handler
+        def remove_listener(self,event,handler):assert self.handlers.pop(event) is handler
+    context=Events()
+    payload=b'%PDF-'+b'x'*2000
+    observed=[]
+    class Response:
+        url=realpro.ORIGIN+'/common/pdf_list.php'
+        status=200
+        def __init__(self):self.request=N(method='POST')
+        def finished(self):observed.append('blocked_finished');raise AssertionError('download must not wait for finished')
+        def body(self):
+            assert 'requestfinished' in observed
+            return payload
+    response=Response()
+    class Download:
+        def save_as(self,path):path.write_bytes(payload)
+    class Button:
+        def click(self):
+            context.handlers['response'](response)
+            if not attachment:
+                observed.append('requestfinished')
+                context.handlers['requestfinished'](N(url=response.url,method='POST',response=lambda:response))
+    class Page(Events):
+        def locator(self,selector):return Button()
+        def wait_for_timeout(self,ms):
+            if attachment:self.handlers['download'](Download())
+    page=Page();context.pages=[page]
+    monkeypatch.setattr(realpro,'room_count',lambda path:(1,1))
+    path,evidence=realpro.acquire(page,context,tmp_path,'50542')
+    assert path.read_bytes()==payload and evidence['expected_rows']==1
+    assert 'blocked_finished' not in observed
+    assert not context.handlers and not page.handlers

@@ -278,10 +278,20 @@ def acquire(page, context, root, company_id, *, on_download=None):
         try:
             if response.status != 200:
                 failures.append('realpro_pdf_http_failed'); return
-            responses.append(response)
         except Exception:
             failures.append('realpro_pdf_response_read_failed')
+    def receive_finished(request):
+        parsed = urlsplit(request.url)
+        if (parsed.hostname != 'www.realnetpro.com' or parsed.path != '/common/pdf_list.php'
+                or request.method != 'POST'):
+            return
+        # Attachment responses may never emit requestfinished. Their download
+        # event is independent: never block it by waiting on response.finished().
+        response = request.response()
+        if response is not None and response.status == 200:
+            responses.append(response)
     context.on('response', receive)
+    context.on('requestfinished', receive_finished)
     page.on('download', receive_download)
     context.on('page', register_download)
     try:
@@ -293,7 +303,6 @@ def acquire(page, context, root, company_id, *, on_download=None):
             if responses:
                 try:
                     response = responses.pop(0)
-                    response.finished()
                     path.write_bytes(response.body()); break
                 except Exception:
                     pass  # Attachment responses may instead become downloads.
@@ -310,6 +319,7 @@ def acquire(page, context, root, company_id, *, on_download=None):
             'acquired_at':datetime.now(timezone.utc).isoformat()}
     finally:
         context.remove_listener('response', receive)
+        context.remove_listener('requestfinished', receive_finished)
         context.remove_listener('page', register_download)
         page.remove_listener('download', receive_download)
         for popup in context.pages:
