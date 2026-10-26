@@ -135,40 +135,82 @@ def login_bb(page, credentials, route):
     return finish_login(page)
 
 
+def _entries(value):
+    return list(value.values()) if isinstance(value, dict) else list(value)
+
+
 def choose(page, company_id, label):
     if not re.fullmatch(r'\d+', company_id):
         raise CollectionError('realpro_company_id_invalid')
     link = page.locator('.company_box a[id="' + company_id + '"]')
     if link.count() != 1 or re.sub(r'\s+', '', link.inner_text()) != re.sub(r'\s+', '', label):
         raise CollectionError('realpro_company_identity_changed')
-    link.click()
+    def selected_response(response):
+        url = urlsplit(response.url)
+        return (url.hostname == 'www.realnetpro.com' and url.path == '/ajax/get_list_area.php'
+                and parse_qs(url.query).get('id') == [company_id]
+                and response.request.method == 'GET')
+    # The site's handler is on the enclosing company box, including empty links.
+    with page.expect_response(selected_response, timeout=45000) as pending:
+        link.locator('..').click(timeout=15000)
+    response = pending.value
+    if response.status != 200:
+        raise CollectionError('realpro_company_area_http_failed')
+    raw = response.text().strip()
     deadline = time.monotonic() + 30
+    if raw == 'false':
+        while time.monotonic() < deadline:
+            if page.locator('#select_city').inner_text().strip() == '公開中の物件がありません':
+                raise CollectionError('realpro_no_published_properties')
+            page.wait_for_timeout(100)
+        raise CollectionError('realpro_empty_company_not_confirmed')
+    data = json.loads(raw)
+    title = data.get('company_name', '').strip()
+    if not title:
+        raise CollectionError('realpro_company_area_name_missing')
+    expected, towns = {}, set()
+    for pref in _entries(data['pref']):
+        for city in _entries(pref['city']):
+            code = str(city['city_code'])
+            if not re.fullmatch(r'\d{5}', code) or code in expected:
+                raise CollectionError('realpro_company_area_codes_invalid')
+            expected[code] = str(city['city_name']).strip()
+            for town in _entries(city['town']):
+                t = str(town['town_code'])
+                if not re.fullmatch(r'\d{8}', t) or t[:5] != code:
+                    raise CollectionError('realpro_company_area_towns_invalid')
+                if code.startswith('40'): towns.add(t)
     while time.monotonic() < deadline:
-        selected_company = page.locator('#company_search input[name=company_id]')
-        if selected_company.count() == 1 and selected_company.input_value() == company_id:
+        state = page.locator('#company_search').evaluate("""el=>({
+            id:el.querySelector('input[name=company_id]')?.value,
+            title:el.querySelector('.company_room_m')?.textContent.trim(),
+            areaTitle:el.querySelector('#company_name')?.textContent.trim(),
+            cities:Array.from(el.querySelectorAll('#select_city input.city_check')).map(e=>({value:e.value,label:e.parentElement.textContent.trim()})),
+            towns:Array.from(el.querySelectorAll('#select_city input[name="town_code[]"]')).map(e=>e.value)
+        })""")
+        actual = {r['value']:r['label'] for r in state['cities']}
+        if (state.get('id') == company_id and state.get('title') == title
+                and state.get('areaTitle') == title and actual == expected
+                and {t for t in state['towns'] if t.startswith('40')} == towns):
             break
         page.wait_for_timeout(100)
     else:
-        raise CollectionError('realpro_selected_company_mismatch')
-    regions = page.locator('input.city_check').evaluate_all(
-        'els=>els.map(e=>({value:e.value,label:e.parentElement.textContent.trim()}))')
-    # Actual company panels include other prefectures (e.g. Apaman: Yamaguchi).
-    # JIS municipality codes, rather than the public site's narrower geography,
-    # define the acquisition boundary. Public scope stays with the importer.
+        raise CollectionError('realpro_selected_company_area_mismatch')
+    regions = state['cities']
     wanted = [r for r in regions if re.fullmatch(r'40\d{3}', r['value'])]
-    if not wanted:
-        return []
+    if not wanted: return []
     for region in regions:
-        page.locator('input.city_check[value="' + region['value'] + '"]').set_checked(region in wanted)
-    # The city controls also select the source's child town-code controls.
-    selected = page.locator('input.city_check:checked').evaluate_all('els=>els.map(e=>e.value)')
+        page.locator('#select_city input.city_check[value="' + region['value'] + '"]').set_checked(region in wanted)
+    selected = page.locator('#select_city input.city_check:checked').evaluate_all('els=>els.map(e=>e.value)')
+    selected_towns = page.locator('#select_city input[name="town_code[]"]:checked').evaluate_all('els=>els.map(e=>e.value)')
     if sorted(selected) != sorted(r['value'] for r in wanted):
         raise CollectionError('realpro_region_selection_mismatch')
-    company = page.locator('#company_search input[name=company_id]').input_value()
-    if company != company_id:
+    if not towns or set(selected_towns) != towns:
+        raise CollectionError('realpro_selected_towns_mismatch')
+    if (page.locator('#company_search input[name=company_id]').input_value() != company_id
+            or page.locator('#company_search .company_room_m').inner_text().strip() != title
+            or page.locator('#company_name').inner_text().strip() != title):
         raise CollectionError('realpro_selected_company_mismatch')
-    if page.locator('#company_search input[name="town_code[]"]:checked').count() == 0:
-        raise CollectionError('realpro_selected_towns_empty')
     return wanted
 
 
@@ -195,7 +237,7 @@ def discover(page):
         raise CollectionError('realpro_company_catalog_changed')
     if len({c['company_id'] for c in companies}) != len(companies):
         raise CollectionError('realpro_duplicate_company_id')
-    return [dict(c, availability='available' if c['company_label'] else 'unavailable_empty_link') for c in companies]
+    return [dict(c, availability='available') for c in companies]
 
 
 def room_count(path):
@@ -297,3 +339,4 @@ def collect(config, credentials, root):
             return pdf, evidence
         finally:
             browser.close()
+
