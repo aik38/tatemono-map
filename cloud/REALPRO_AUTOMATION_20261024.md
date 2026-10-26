@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-- `tatemono_map.cloud.realpro`: verified RNP login (approved terms fingerprint only), fresh Fukuoka company catalog, company ID checks, municipality/town selection and PDF acquisition.
+- `tatemono_map.cloud.realpro`: verified RNP login (approved terms fingerprint only), fresh Fukuoka company catalog, company-specific area-response and detail-title checks, municipality/town selection and PDF acquisition.
 - `tatemono_map.cloud.realpro_weekly`: private company receipts, retry/resume, Ulucks completion gate, and connection to the production `realpro_batch` parser/import/QC/release functions.
 - `tatemono_map.cloud.realpro_login_check`: login-only diagnostics; does not collect PDFs or open the official SQLite.
 - Latest owner instruction: use the existing Secret Manager credential; no password change or password rotation gate.
@@ -19,7 +19,7 @@ The RealPro Scheduler launches the job at Monday 04:05 JST. This is a wake-up ti
 
 A RealPro-only seven-hour acquisition lease prevents concurrent collectors without taking Ulucks' shared collection lease. The runtime task timeout is six hours. Integration separately takes the existing shared collection lease, reads the latest HEAD, verifies/backups master and public, and uses the existing HEAD generation CAS. A concurrent winner is never overwritten. Immutable cycle/company receipts prevent repeated downloads on task retry. Failed companies retain their prior SQLite snapshot; no failed request is classified as zero rooms or ended availability.
 
-Before starting acquisition the weekly entry also waits for any live canonical-store lease to finish, without deleting or stealing it. The normal Job has one task retry; successful PDF receipts and completed cycle integration are reused by that retry.
+Before starting acquisition the weekly entry also waits for any live canonical-store lease to finish, without deleting or stealing it. The RealPro Job uses bounded managed task retries. A task records deferred companies before its time budget runs out; the next attempt uses the same cycle and reuses verified PDF/zero-company receipts. Company processes have a 15-minute timeout and one transient retry. A failed or deferred company never authorizes deletion.
 
 ## Representative proof and resume
 
@@ -34,7 +34,7 @@ Private evidence:
 - `private-inputs/realpro/cycles/<cycle>/companies/<id>/download.json`: verified-format raw PDF reference, selection, hash and acquisition time, saved before PDF accounting.
 - `.../acquisition.json`: PDF page/room verification completed.
 - `private-inputs/realpro/originals/<sha256>/realpro-<id>.pdf`: original bytes.
-- `private-runs/<run>/realpro-company-catalog.json`: all observed company IDs, including empty/unavailable links.
+- `private-runs/<run>/realpro-company-catalog.json`: all observed company IDs, including blank list labels. Every ID is selectable through its enclosing company box.
 - `private-runs/<run>/companies/<id>/parsed.json` and `result.json`: parse evidence and outcome; source exceptions are never logged verbatim.
 - `private-runs/<run>/realpro-acquisition-manifest.json`, `realpro-report.json`, `realpro-final-result.json`.
 - `private-inputs/realpro/cycles/<cycle>/integration.json`: completed integration receipt. Duplicate-only input does not create a release. Production Web is checked against the exact release ID and public SHA using the existing Pages path.
@@ -73,3 +73,4 @@ Original SHA-256:
 - `22452`: `941cf69d63b04f0de96bd5007db105bb26cc3728f8fe3e2ff877232e937e8559`
 
 Two earlier executions stopped before PDF export because the legacy download handler used a builtin `list.append`, which Playwright cannot wrap. Stable function handlers fix that incompatibility; a regression test invokes the real Playwright handler wrapper. Those stopped attempts did not download PDFs or update HEAD. Successful originals and integration receipts are retained in the cycle above; never rerun the source acquisition to verify them.
+

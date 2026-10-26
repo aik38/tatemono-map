@@ -74,3 +74,45 @@ def test_malformed_id_is_rejected_without_selecting_company():
     with pytest.raises(CollectionError,match='realpro_company_id_invalid'):
         r.choose(page,'37100;other','')
     assert not page.clicked
+
+
+def execution_fixture(monkeypatch):
+    from contextlib import nullcontext
+    from tatemono_map.cloud import realpro_weekly as w
+    import playwright.sync_api
+    page=object()
+    browser=N(new_context=lambda **kw:N(new_page=lambda:page,storage_state=lambda:{}),close=lambda:None)
+    monkeypatch.setattr(playwright.sync_api,'sync_playwright',lambda:nullcontext(N(chromium=N(launch=lambda **kw:browser))))
+    monkeypatch.setenv('REALPRO_LOGIN_SECRET','test')
+    monkeypatch.setattr(w,'secret_json',lambda *a:{})
+    monkeypatch.setattr(w,'login',lambda p,creds:p)
+    monkeypatch.setattr(w,'discover',lambda p:[dict(company_id='37100',company_label='',availability='available')])
+    monkeypatch.setattr(w,'new_run_id',lambda:'20261026T160000Z-111111111111')
+    return w
+
+
+def test_time_budget_saves_deferred_manifest_without_starting_company(monkeypatch,tmp_path):
+    w=execution_fixture(monkeypatch)
+    monkeypatch.setattr(w,'read_json',lambda *a:None)
+    monkeypatch.setattr(w.time,'monotonic',lambda:0)
+    saved=[]
+    monkeypatch.setattr(w,'save_json',lambda store,work,name,data:saved.append((name,data)) or {})
+    def forbidden(*a,**kw):raise AssertionError('company should be deferred')
+    monkeypatch.setattr(w,'isolated_company',forbidden)
+    result=w.execute(object(),tmp_path,cycle='new-cycle',source_commit='a'*40,commit=True,deadline=100)
+    assert result['status']=='continuation_required' and result['deferred_companies']==1
+    assert any('acquisition-manifest.json' in name for name,data in saved)
+    assert not any(name.endswith('/integration.json') for name,data in saved)
+
+
+def test_verified_zero_is_reused_without_pdf_or_deletion(monkeypatch,tmp_path):
+    w=execution_fixture(monkeypatch)
+    empty=dict(company_id='37100',status='verified_empty')
+    monkeypatch.setattr(w,'read_json',lambda store,name:dict(empty) if name.endswith('/result.json') else None)
+    monkeypatch.setattr(w,'save_json',lambda *a:{})
+    def forbidden(*a,**kw):raise AssertionError('verified zero should not reacquire or integrate')
+    monkeypatch.setattr(w,'isolated_company',forbidden)
+    monkeypatch.setattr(w,'integrate',forbidden)
+    head={'run_id':'existing'}
+    result=w.execute(N(read_head=lambda:(head,7)),tmp_path,cycle='same-cycle',source_commit='a'*40,commit=True)
+    assert result['zero_companies']==1 and result['head']==head and result['status']=='no_new_content'

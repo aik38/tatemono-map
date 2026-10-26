@@ -418,7 +418,7 @@ def execute(store, work, *, companies=None, cycle, source_commit, commit=False, 
             'parsed_rows': result.get('parsed_rows')}, ensure_ascii=False), flush=True)
     del session
     manifest = {'run_id': run, 'cycle': cycle, 'catalog_count': len(catalog),
-                'named_companies': sum(c['availability']=='available' for c in catalog),
+                'named_companies': sum(bool(c['company_label']) for c in catalog),
                 'representative_ids': sorted(companies) if companies else None,
                 'companies': results, 'newly_acquired_pdf_count': newly_acquired,
                 'failed_companies': sum(r['status']=='failed' for r in results),
