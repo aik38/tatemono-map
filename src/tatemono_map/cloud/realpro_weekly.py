@@ -142,6 +142,7 @@ def acquisition_lease(store, owner):
                 token = data.get('nextPageToken')
                 if not token: break
             stamp = datetime.strptime(old['owner'][:16], '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
+            if blob.updated is None or abs((blob.updated-stamp).total_seconds()) > 120: return False
             candidates = []
             for entry in executions:
                 name = entry['name'].rsplit('/', 1)[-1]

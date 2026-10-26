@@ -147,3 +147,42 @@ def test_saved_pdf_bypasses_provider_and_reuses_cache(monkeypatch,tmp_path):
     result=w.company_worker(dict(work=str(tmp_path),company={'company_id':'20322'},prefix='cycle',run='run',session={}))
     assert result['status']=='pdf_verified' and result['reused_acquisition']
     assert all(not name.endswith('result.json') for name in saved)
+
+@pytest.mark.parametrize('live,stamp_matches,allowed',[(False,True,True),(True,True,False),(False,False,False)])
+def test_legacy_lock_requires_terminal_execution_and_generation_time(monkeypatch,live,stamp_matches,allowed):
+    from types import SimpleNamespace as N
+    from datetime import datetime,timezone
+    import google.auth
+    import google.auth.transport.requests
+    monkeypatch.setenv('CLOUD_RUN_EXECUTION','tatemono-realpro-weekly-current')
+    monkeypatch.setattr(w.time,'time',lambda:2000000000)
+    monkeypatch.setattr(google.auth,'default',lambda **kw:(object(),None))
+    old={'name':'jobs/x/executions/tatemono-realpro-weekly-old','createTime':'2026-10-25T19:05:00Z'}
+    if not live:old['completionTime']='2026-10-26T01:05:39Z'
+    class Session:
+        def __init__(self,*a):pass
+        def get(self,*a,**kw):return N(status_code=200,json=lambda:{'executions':[old]})
+        def close(self):pass
+    monkeypatch.setattr(google.auth.transport.requests,'AuthorizedSession',Session)
+    blob=Blob(dict(owner='20261025T200421Z-3f929399318f',expires_at=1792983861))
+    blob.updated=datetime(2026,10,25,20 if stamp_matches else 21,4,21,tzinfo=timezone.utc)
+    store=N(bucket=N(blob=lambda name:blob))
+    if allowed:
+        with w.acquisition_lease(store,'new'):pass
+        assert blob.writes==[0,7]
+    else:
+        with pytest.raises(CollectionError,match='already_running'):
+            with w.acquisition_lease(store,'new'):pass
+        assert blob.writes==[0]
+
+def test_generation_race_never_releases_other_owner(monkeypatch):
+    from types import SimpleNamespace as N
+    from google.api_core.exceptions import PreconditionFailed
+    monkeypatch.setenv('CLOUD_RUN_EXECUTION','tatemono-realpro-weekly-test')
+    monkeypatch.setenv('CLOUD_RUN_TASK_INDEX','0');monkeypatch.setenv('CLOUD_RUN_TASK_ATTEMPT','1')
+    class Racing(Blob):
+        def upload_from_string(self,payload,**kw):raise PreconditionFailed('race')
+    blob=Racing(dict(execution='tatemono-realpro-weekly-test',task='0',attempt='0'))
+    with pytest.raises(PreconditionFailed):
+        with w.acquisition_lease(N(bucket=N(blob=lambda name:blob)),'new'):pass
+    assert blob.deletes==[]
