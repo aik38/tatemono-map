@@ -1,8 +1,9 @@
 # Patch only RealPro weekly collection over the observed production runtime.
 FROM asia-northeast1-docker.pkg.dev/tatemono-map/tatemono-poc/realpro@sha256:f45cd4096d21660aca66ea5b13f8d181dc76edec5b12119317418ca3761f70c6
 USER root
-COPY realpro_weekly.py /tmp/realpro-weekly-patch.py
-RUN python -c "import pathlib,shutil,hashlib; import tatemono_map.cloud.storage as m; target=pathlib.Path(m.__file__).parent; root=target.parent; before={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*.py')}; shutil.copyfile('/tmp/realpro-weekly-patch.py',target/'realpro_weekly.py'); after={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*.py')}; assert [p for p in before if before[p]!=after[p]]==[str(target/'realpro_weekly.py')]"
+COPY realpro.py realpro_weekly.py /tmp/realpro-patch/
+RUN python -c "import pathlib,shutil,hashlib; import tatemono_map.cloud.storage as m; target=pathlib.Path(m.__file__).parent; root=target.parent; before={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*.py')}; [shutil.copyfile(p,target/p.name) for p in pathlib.Path('/tmp/realpro-patch').glob('*.py')]; after={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in root.rglob('*.py')}; assert {p for p in before if before[p]!=after[p]}=={str(target/n) for n in ('realpro.py','realpro_weekly.py')}; assert all(hashlib.sha256((target/n).read_bytes()).digest()==hashlib.sha256((pathlib.Path('/tmp/realpro-patch')/n).read_bytes()).digest() for n in ('realpro.py','realpro_weekly.py'))"
 USER collector
 ENTRYPOINT ["python"]
 CMD ["-m", "tatemono_map.cloud.realpro_weekly"]
+

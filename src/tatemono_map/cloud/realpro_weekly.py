@@ -322,7 +322,7 @@ def company_worker(config):
             except Exception as exc:
                 # Never print provider exception strings: they may contain session URLs.
                 code = str(exc) if isinstance(exc, CollectionError) and re.fullmatch(r'[a-z0-9_]+', str(exc)) else type(exc).__name__
-                result.update(status='failed', failure_code=code)
+                result.update(status='verified_empty' if code == 'realpro_no_published_properties' else 'failed', failure_code=code)
                 result['failure_location'] = [dict(file=Path(f.filename).name, line=f.lineno, function=f.name)
                                               for f in traceback.extract_tb(exc.__traceback__)[-4:]]
 
@@ -353,7 +353,8 @@ def isolated_company(config, *, timeout=900):
             failures.append(result['failure_code'])
             # Parsing/identity failures are deterministic and must not redownload.
             if result['failure_code'] not in ('TimeoutError', 'Error', 'realpro_pdf_not_received',
-                    'realpro_pdf_http_failed', 'realpro_pdf_response_read_failed'):
+                    'realpro_pdf_http_failed', 'realpro_pdf_response_read_failed',
+                    'realpro_company_area_http_failed', 'realpro_selected_company_area_mismatch'):
                 return result
         except CollectionError as exc:
             failures.append(str(exc))
@@ -361,7 +362,7 @@ def isolated_company(config, *, timeout=900):
             'failure_code': failures[-1], 'attempt_failures': failures}
 
 
-def execute(store, work, *, companies=None, cycle, source_commit, commit=False, verify=False, resume_run=None):
+def execute(store, work, *, companies=None, cycle, source_commit, commit=False, verify=False, resume_run=None, deadline=None):
     from playwright.sync_api import sync_playwright
     from tatemono_map.cloud.realpro_batch import parse_pdf
     run = new_run_id()
@@ -387,22 +388,30 @@ def execute(store, work, *, companies=None, cycle, source_commit, commit=False, 
             save_json(store, work, f'private-runs/{run}/realpro-company-catalog.json', catalog)
             session = context.storage_state()
         finally: browser.close()
+    budget_exhausted = False
     for company in catalog:
         cid = company['company_id']
         result = {**company, 'status': 'unprocessed'}
         if companies and cid not in companies:
             result['status'] = 'not_in_representative_run'
-        elif company['availability'] != 'available':
-            result['status'] = 'unavailable_empty_link'
+        elif budget_exhausted or (deadline is not None and time.monotonic() + 1900 > deadline):
+            budget_exhausted = True
+            result['status'] = 'deferred_time_budget'
         else:
             had_pdf = read_json(store, prefix + f'/companies/{cid}/download.json') is not None
             child_work = work/'companies'/cid
-            result = isolated_company(dict(work=str(child_work), company=company, prefix=prefix, run=run, session=session, resume_run=resume_run))
+            completed = read_json(store, prefix + f'/companies/{cid}/result.json')
+            if completed and completed.get('status') in ('verified_empty', 'outside_fukuoka_or_no_available_regions'):
+                result = completed
+            else:
+                result = isolated_company(dict(work=str(child_work), company=company, prefix=prefix, run=run, session=session, resume_run=resume_run))
             if result['status'] == 'pdf_verified':
                 inputs.append(json.loads((child_work/'verified-item.json').read_text()))
             result['newly_acquired'] = not had_pdf and read_json(store, prefix + f'/companies/{cid}/download.json') is not None
             newly_acquired += int(result['newly_acquired'])
         results.append(result)
+        if result['status'] in ('verified_empty', 'outside_fukuoka_or_no_available_regions'):
+            save_json(store, work, prefix + f'/companies/{cid}/result.json', result)
         save_json(store, work, f'private-runs/{run}/companies/{cid}/result.json', result)
         print(json.dumps({'stage': 'realpro_company', 'company_id': cid, 'status': result['status'],
             'attempts': result.get('attempts'), 'failure_code': result.get('failure_code'),
@@ -412,17 +421,29 @@ def execute(store, work, *, companies=None, cycle, source_commit, commit=False, 
                 'named_companies': sum(c['availability']=='available' for c in catalog),
                 'representative_ids': sorted(companies) if companies else None,
                 'companies': results, 'newly_acquired_pdf_count': newly_acquired,
-                'failed_companies': sum(r['status']=='failed' for r in results)}
+                'failed_companies': sum(r['status']=='failed' for r in results),
+                'deferred_companies': sum(r['status']=='deferred_time_budget' for r in results),
+                'zero_companies': sum(r['status']=='verified_empty' for r in results)}
     manifest_ref = save_json(store, work, f'private-runs/{run}/realpro-acquisition-manifest.json', manifest)
-    if not inputs: raise CollectionError('realpro_no_verified_pdf_inputs')
+    if not inputs:
+        if manifest['deferred_companies']:
+            return {**manifest, 'status': 'continuation_required'}
+        if manifest['failed_companies']:
+            raise CollectionError('realpro_no_verified_pdf_inputs')
+        head, _ = store.read_head()
+        result = {**manifest, 'status': 'no_new_content', 'head': head}
+        if commit: save_json(store, work, prefix+'/integration.json', result)
+        if verify: result['web'] = verify_web(head)
+        return result
     if not commit:
         return {**manifest, 'status': 'acquired_verified'}
     result = integrate(store, inputs, work, run, source_commit, manifest_ref, newly_acquired)
     result.update(acquisition_run_id=run, cycle=cycle, catalog_count=len(catalog),
                   named_companies=manifest['named_companies'], failed_companies=manifest['failed_companies'],
+                  deferred_companies=manifest['deferred_companies'], zero_companies=manifest['zero_companies'],
                   newly_acquired_pdf_count=newly_acquired, manifest_ref=manifest_ref)
     # Partial runs remain retryable: saved successful acquisitions are reused.
-    if not result['failed_companies']:
+    if not result['failed_companies'] and not result['deferred_companies']:
         save_json(store, work, prefix+'/integration.json', result)
     if verify: result['web'] = verify_web(result['head'])
     save_json(store, work, f'private-runs/{run}/realpro-final-result.json', result)
@@ -440,6 +461,7 @@ def main():
     parser.add_argument('--verify-web', action='store_true')
     args = parser.parse_args()
     os.umask(0o077)
+    deadline = time.monotonic() + 20000
     try:
         if args.weekly:
             wait_for_ulucks(os.environ.get('GOOGLE_CLOUD_PROJECT', 'tatemono-map'),
@@ -456,11 +478,12 @@ def main():
         with acquisition_lease(store, new_run_id()), tempfile.TemporaryDirectory(prefix='realpro-weekly-') as directory:
             if args.weekly: wait_for_shared_lease(store)
             result = execute(store, Path(directory), companies=companies, cycle=cycle,
-                             source_commit=os.environ['TATEMONO_SOURCE_COMMIT'], commit=args.commit, verify=args.verify_web, resume_run=args.resume_run)
+                             source_commit=os.environ['TATEMONO_SOURCE_COMMIT'], commit=args.commit, verify=args.verify_web,
+                             resume_run=args.resume_run, deadline=deadline)
         safe = {k: v for k, v in result.items() if k not in ('head', 'companies')}
         safe['release_id'] = result.get('head', {}).get('run_id')
         print('REALPRO_WEEKLY_RESULT='+json.dumps(safe, ensure_ascii=False), flush=True)
-        return 1 if result.get('failed_companies') else 0
+        return 1 if result.get('failed_companies') or result.get('deferred_companies') else 0
     except CollectionError as exc:
         print(json.dumps({'status': 'failed', 'code': str(exc)}), flush=True)
         return 1
@@ -484,3 +507,4 @@ if __name__ == '__main__':
         Path(config['work'], 'worker-result.json').write_text(json.dumps(result, ensure_ascii=False))
     else:
         raise SystemExit(main())
+
