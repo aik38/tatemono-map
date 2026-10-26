@@ -116,3 +116,13 @@ def test_verified_zero_is_reused_without_pdf_or_deletion(monkeypatch,tmp_path):
     head={'run_id':'existing'}
     result=w.execute(N(read_head=lambda:(head,7)),tmp_path,cycle='same-cycle',source_commit='a'*40,commit=True)
     assert result['zero_companies']==1 and result['head']==head and result['status']=='no_new_content'
+
+
+def test_apaman_pdf_width_equivalence_is_bound_to_verified_id_and_full_names():
+    from tatemono_map.cloud.realpro_weekly import pdf_company_title_matches as match
+    assert match('37100','APAMAN 株式会社','ＡＰＡＭＡＮ株式会社')
+    assert not match('49945','APAMAN 株式会社','ＡＰＡＭＡＮ株式会社')
+    assert not match('37100','APAMAN株式会社 他営業所','ＡＰＡＭＡＮ株式会社')
+    assert not match('37100','APAMAN株式会社','ＡＰＡＭＡＮ株式会社 他営業所')
+    assert not match('37100','apaman株式会社','ＡＰＡＭＡＮ株式会社')
+    assert match('20322','株式会社X(支店)','株式会社X（支店）')

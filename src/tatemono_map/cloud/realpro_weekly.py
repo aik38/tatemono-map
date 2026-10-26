@@ -208,6 +208,17 @@ def company_title(value):
     return re.sub(r'\s+', '', value.translate(str.maketrans({'（': '(', '）': ')'})))
 
 
+def pdf_company_title_matches(company_id, actual, expected):
+    actual, expected = company_title(actual), company_title(expected)
+    if actual == expected:
+        return True
+    # 37100: the verified company-area response uses full-width APAMAN,
+    # while its current-cycle PDF header uses ASCII. Limit this equivalence
+    # to the observed ID and complete names; do not normalize other companies.
+    return (company_id == '37100' and actual == 'APAMAN株式会社'
+            and expected == 'ＡＰＡＭＡＮ株式会社')
+
+
 def run_bounded(command, timeout):
     proc = subprocess.Popen(command, start_new_session=True)
     try:
@@ -310,7 +321,7 @@ def company_worker(config):
                 analysis_path = work/'parsed'/(item['metadata']['sha256']+'.json')
                 analysis_ref = store.upload_verified(analysis_path,
                     f'private-runs/{run}/companies/{cid}/parsed.json')
-                if company_title(item['metadata']['company']) != company_title(receipt['company_title']):
+                if not pdf_company_title_matches(cid, item['metadata']['company'], receipt['company_title']):
                     raise CollectionError('realpro_pdf_company_title_mismatch')
                 if len(item['rows']) != receipt['evidence']['expected_rows'] or item['errors']:
                     raise CollectionError('realpro_pdf_source_accounting_failed')
