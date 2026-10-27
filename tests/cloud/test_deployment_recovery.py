@@ -49,7 +49,7 @@ def recovery(tmp_path, monkeypatch, master):
         if argv[:3]==('run','jobs','describe'):
             if '--format=export' in argv:return 'private: unchanged'
             return json.dumps({'apiVersion':'run.googleapis.com/v1','kind':'Job','metadata':{'name':'job'},'spec':{'template':{'spec':{'template':{'spec':{'containers':[{'image':'approved-image'}]}}}}}})
-        if argv[:3]==('scheduler','jobs','describe'):return json.dumps({'state':'PAUSED','schedule':'0 4 * * 1','timeZone':'Asia/Tokyo'})
+        if argv[:3]==('scheduler','jobs','describe'):return json.dumps({'state':'PAUSED','schedule':'0 14 * * 4','timeZone':'Asia/Tokyo'})
         if argv[:3]==('storage','buckets','get-iam-policy'):
             return json.dumps({'bindings':[{'role':'roles/storage.objectCreator','members':['serviceAccount:tm-github-deploy@tatemono-map.iam.gserviceaccount.com'],'condition':{'expression':f"resource.name.startsWith('projects/_/buckets/{config['bucket']}/objects/deployment-backups/')"}}]})
         if argv[:2]==('logging','read'):return '[]'

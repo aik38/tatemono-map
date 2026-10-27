@@ -1,29 +1,29 @@
 from datetime import datetime, timezone
 
-from tatemono_map.cloud.realpro_weekly import monday_start, upstream_status, integrate
+from tatemono_map.cloud.realpro_weekly import weekly_start, upstream_status, integrate
 
 
-def test_week_boundary_is_monday_four_jst():
-    date = datetime(2026, 10, 25, 19, 5, tzinfo=timezone.utc)
-    assert monday_start(date).isoformat() == '2026-10-26T04:00:00+09:00'
+def test_week_boundary_is_thursday_fourteen_jst():
+    date = datetime(2026, 10, 29, 5, 5, tzinfo=timezone.utc)
+    assert weekly_start(date).isoformat() == '2026-10-29T14:00:00+09:00'
 
 
 def test_failed_ulucks_is_finished_and_does_not_block_realpro():
-    since = monday_start(datetime(2026, 10, 26, 0, tzinfo=timezone.utc))
-    execution = {'createTime': '2026-10-25T19:00:00Z', 'completionTime': '2026-10-25T20:15:00Z',
+    since = weekly_start(datetime(2026, 10, 29, 6, tzinfo=timezone.utc))
+    execution = {'createTime': '2026-10-29T05:00:00Z', 'completionTime': '2026-10-29T06:15:00Z',
                  'conditions': [{'type': 'Completed', 'state': 'CONDITION_FAILED'}]}
     assert upstream_status([execution], since) == 'finished'
 
 
 def test_an_older_live_execution_blocks_even_after_a_newer_execution_finished():
-    since = monday_start(datetime(2026, 10, 26, 0, tzinfo=timezone.utc))
-    executions = [{'createTime': '2026-10-25T18:58:00Z'},
-                  {'createTime': '2026-10-25T19:00:00Z', 'completionTime': '2026-10-25T20:00:00Z'}]
+    since = weekly_start(datetime(2026, 10, 29, 6, tzinfo=timezone.utc))
+    executions = [{'createTime': '2026-10-29T04:58:00Z'},
+                  {'createTime': '2026-10-29T05:00:00Z', 'completionTime': '2026-10-29T06:00:00Z'}]
     assert upstream_status(executions, since) == 'running'
 
 
 def test_last_week_success_is_not_this_weeks_execution():
-    since = monday_start(datetime(2026, 10, 26, 0, tzinfo=timezone.utc))
+    since = weekly_start(datetime(2026, 10, 29, 6, tzinfo=timezone.utc))
     execution = {'createTime': '2026-10-18T19:00:00Z', 'completionTime': '2026-10-18T21:40:00Z'}
     assert upstream_status([execution], since) == 'not_started'
 

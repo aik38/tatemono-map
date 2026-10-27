@@ -5,11 +5,11 @@
 ## 通常の完全クラウド経路
 
 ```text
-月曜04:00 Ulucks Cloud Scheduler ─→ tatemono-collection-poc
+木曜14:00 Ulucks Cloud Scheduler ─→ tatemono-collection-poc
                                          │ 対象全社・北九州全域PDF
-月曜04:05 RealPro Scheduler ───────→ tatemono-realpro-weekly
+木曜14:05 RealPro Scheduler ───────→ tatemono-realpro-weekly
                                          │ Ulucks終了待ち・福岡県の対象管理会社PDF
-月曜04:10 Mansion Review Scheduler → tatemono-mansion-weekly
+木曜14:10 Mansion Review Scheduler → tatemono-mansion-weekly
                                          │ Ulucks/RealPro終了待ち・35市区町村の賃貸/分譲
                                          ▼
                        private GCS（原本/解析/証拠/保留）

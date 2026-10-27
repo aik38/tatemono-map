@@ -1,7 +1,7 @@
 """RealPro acquisition adapter into the unchanged, production PDF batch importer.
 
 The normal entry point requires a finished Ulucks execution for this week's
-Monday 04:00 JST. Company receipts are private and survive task retries; failure
+Thursday 14:00 JST. Company receipts are private and survive task retries; failure
 never means an empty snapshot. Only integration takes the shared HEAD lease.
 """
 from __future__ import annotations
@@ -28,9 +28,12 @@ from tatemono_map.cloud.run import new_run_id, secret_json
 from tatemono_map.cloud.storage import GCSStore, commit_release, validate_head
 
 
-def monday_start(now=None):
+def weekly_start(now=None):
+    """Most recent Thursday 14:00 JST, including the exact boundary."""
     current = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo('Asia/Tokyo'))
-    return (current - timedelta(days=current.weekday())).replace(hour=4, minute=0, second=0, microsecond=0)
+    start = (current - timedelta(days=(current.weekday() - 3) % 7)).replace(
+        hour=14, minute=0, second=0, microsecond=0)
+    return start if current >= start else start - timedelta(days=7)
 
 
 def upstream_status(executions, since):
@@ -47,7 +50,7 @@ def wait_for_ulucks(project, region, *, timeout=18000):
     credentials, _ = google.auth.default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
     session = AuthorizedSession(credentials)
     url = f'https://run.googleapis.com/v2/projects/{project}/locations/{region}/jobs/tatemono-collection-poc/executions'
-    since = monday_start()
+    since = weekly_start()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         executions = []
@@ -500,7 +503,7 @@ def main():
         if args.weekly:
             wait_for_ulucks(os.environ.get('GOOGLE_CLOUD_PROJECT', 'tatemono-map'),
                             os.environ.get('TATEMONO_REGION', 'asia-northeast1'))
-        cycle = args.cycle or ('weekly-'+monday_start().date().isoformat() if args.weekly else None)
+        cycle = args.cycle or ('weekly-'+weekly_start().date().isoformat() if args.weekly else None)
         if not cycle or not re.fullmatch(r'[A-Za-z0-9_-]{1,80}', cycle):
             raise CollectionError('realpro_cycle_required_or_invalid')
         if args.resume_run and not re.fullmatch(r'[0-9]{8}T[0-9]{6}Z-[0-9a-f]{12}', args.resume_run):

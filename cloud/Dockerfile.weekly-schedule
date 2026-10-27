@@ -1,0 +1,10 @@
+# BASE_IMAGE must be the freshly inspected digest of this same production Job.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG BASE_USER=collector
+USER root
+COPY patch_weekly_schedule.py /tmp/patch_weekly_schedule.py
+COPY realpro_weekly.py /tmp/weekly-reference.py
+RUN python /tmp/patch_weekly_schedule.py && rm /tmp/patch_weekly_schedule.py /tmp/weekly-reference.py
+USER ${BASE_USER}
+
