@@ -190,14 +190,27 @@ def integrate(store, inputs, work, run, source_commit, manifest_ref, newly_acqui
     from tatemono_map.cloud.realpro_batch import backup_current, update_batch, preserve_ulucks_catalog
     with store.collection_lease(run):
         head, generation, backups = backup_current(store, work, run)
+        quarantine_hashes = {i['metadata']['sha256'] for i in inputs if i.get('errors')}
+        new_quarantine_hashes = set()
+        if quarantine_hashes:
+            import sqlite3
+            with sqlite3.connect('file:'+str(work/'master.sqlite3')+'?mode=ro', uri=True) as c:
+                exists = c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='realpro_pdf_inputs'").fetchone()
+                known = {r[0] for r in c.execute('SELECT sha256 FROM realpro_pdf_inputs')} if exists else set()
+            new_quarantine_hashes = quarantine_hashes - known
         report = update_batch(work/'master.sqlite3', inputs, work, run, work/'baseline.sqlite3',
                               public_preservation_proof=True)
         report.update(original_manifest_ref=manifest_ref, backup_refs=backups,
-                      newly_acquired_pdf_count=newly_acquired, collection_mode='automated_realpro_pdf_batch')
+                      newly_acquired_pdf_count=newly_acquired, collection_mode='automated_realpro_pdf_batch',
+                      quarantined_pdf_count=len(quarantine_hashes),
+                      newly_recorded_quarantined_pdf_count=len(new_quarantine_hashes))
         preserve_ulucks_catalog(store, head, run, report)
+        if new_quarantine_hashes and not report.get('proof'):
+            from tatemono_map.cloud.batch import public_proof
+            report['proof'] = public_proof(work/'public.sqlite3', set())
         save_json(store, work, f'private-runs/{run}/realpro-report.json', report)
         counts = {k: report[k] for k in ('parsed_rows', 'row_counts', 'counts_before', 'counts_after', 'public_counts', 'pdf_count', 'pdf_pages')}
-        if not report['attached_rows']:
+        if not report['attached_rows'] and not new_quarantine_hashes:
             return {'status': 'no_new_content', 'head': head, **counts}
         committed = commit_release(store, work, run, generation, report, source_commit)
         return {'status': 'committed', 'head': committed, **counts}
@@ -212,11 +225,13 @@ def pdf_company_title_matches(company_id, actual, expected):
     actual, expected = company_title(actual), company_title(expected)
     if actual == expected:
         return True
-    # 37100: the verified company-area response uses full-width APAMAN,
-    # while its current-cycle PDF header uses ASCII. Limit this equivalence
-    # to the observed ID and complete names; do not normalize other companies.
-    return (company_id == '37100' and actual == 'APAMAN株式会社'
-            and expected == 'ＡＰＡＭＡＮ株式会社')
+    # Limit PDF header width differences to the observed company IDs and
+    # complete names. Never normalize another company or branch into a match.
+    observed = {
+        '37100': ('APAMAN株式会社', 'ＡＰＡＭＡＮ株式会社'),
+        '45020': ('レオパレスセンター福岡第1', 'レオパレスセンター福岡第１'),
+    }
+    return observed.get(company_id) == (actual, expected)
 
 
 def run_bounded(command, timeout):
@@ -323,8 +338,14 @@ def company_worker(config):
                     f'private-runs/{run}/companies/{cid}/parsed.json')
                 if not pdf_company_title_matches(cid, item['metadata']['company'], receipt['company_title']):
                     raise CollectionError('realpro_pdf_company_title_mismatch')
-                if len(item['rows']) != receipt['evidence']['expected_rows'] or item['errors']:
+                if len(item['rows']) != receipt['evidence']['expected_rows']:
                     raise CollectionError('realpro_pdf_source_accounting_failed')
+                # A verified PDF can carry parser-quality anomalies. Preserve
+                # the errors unchanged: the existing batch importer quarantines
+                # every row from such an input and retains the previous snapshot.
+                # This is a completed acquisition, not a transport failure.
+                result['analysis_status'] = 'quarantined_pdf' if item['errors'] else 'verified'
+                result['parser_errors'] = list(item['errors'])
                 item['metadata']['gcs_ref'] = receipt['pdf']
                 item['metadata']['analysis_ref'] = analysis_ref
                 (work/'verified-item.json').write_text(json.dumps(item, ensure_ascii=False))
@@ -434,7 +455,8 @@ def execute(store, work, *, companies=None, cycle, source_commit, commit=False, 
                 'companies': results, 'newly_acquired_pdf_count': newly_acquired,
                 'failed_companies': sum(r['status']=='failed' for r in results),
                 'deferred_companies': sum(r['status']=='deferred_time_budget' for r in results),
-                'zero_companies': sum(r['status']=='verified_empty' for r in results)}
+                'zero_companies': sum(r['status']=='verified_empty' for r in results),
+                'quarantined_companies': sum(r.get('analysis_status')=='quarantined_pdf' for r in results)}
     manifest_ref = save_json(store, work, f'private-runs/{run}/realpro-acquisition-manifest.json', manifest)
     if not inputs:
         if manifest['deferred_companies']:
@@ -452,6 +474,7 @@ def execute(store, work, *, companies=None, cycle, source_commit, commit=False, 
     result.update(acquisition_run_id=run, cycle=cycle, catalog_count=len(catalog),
                   named_companies=manifest['named_companies'], failed_companies=manifest['failed_companies'],
                   deferred_companies=manifest['deferred_companies'], zero_companies=manifest['zero_companies'],
+                  quarantined_companies=manifest['quarantined_companies'],
                   newly_acquired_pdf_count=newly_acquired, manifest_ref=manifest_ref)
     # Partial runs remain retryable: saved successful acquisitions are reused.
     if not result['failed_companies'] and not result['deferred_companies']:
