@@ -11,7 +11,7 @@ def main():
     result = subprocess.run(args + ['describe'] + target + ['--format=json(state,schedule,timeZone,httpTarget.uri)'], capture_output=True, text=True, check=True)
     job = json.loads(result.stdout)
     uri = f"https://run.googleapis.com/v2/projects/{env['GCP_PROJECT_ID']}/locations/{env['GCP_REGION']}/jobs/{env['GCP_JOB']}:run"
-    if job.get('schedule') != '0 4 * * 1' or job.get('timeZone') != 'Asia/Tokyo' or job.get('httpTarget', {}).get('uri') != uri:
+    if job.get('schedule') != '0 14 * * 4' or job.get('timeZone') != 'Asia/Tokyo' or job.get('httpTarget', {}).get('uri') != uri:
         raise RuntimeError('weekly_scheduler_contract_changed')
     if job.get('state') == 'PAUSED':
         subprocess.run(args + ['resume'] + target + ['--quiet'], check=True, capture_output=True)

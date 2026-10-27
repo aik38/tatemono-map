@@ -151,7 +151,7 @@ def main():
     scheduler = gc("scheduler", "jobs", "describe", config["scheduler_job"], "--location", region, "--format=json", missing=True, json_output=True)
     scheduler_inventory = gc("scheduler", "jobs", "list", "--location", region, "--format=json(name,state,httpTarget.uri)", missing=True, json_output=True) or []
     other_triggers = [item["name"] for item in scheduler_inventory if item.get("state") == "ENABLED" and item.get("httpTarget", {}).get("uri") == scheduler_uri and item["name"].rsplit("/", 1)[-1] != config["scheduler_job"]]
-    if scheduler and (scheduler.get("httpTarget", {}).get("uri") != scheduler_uri or scheduler.get("httpTarget", {}).get("oauthToken", {}).get("serviceAccountEmail") != email["scheduler"] or scheduler.get("schedule") != "0 4 * * 1" or scheduler.get("timeZone") != "Asia/Tokyo"):
+    if scheduler and (scheduler.get("httpTarget", {}).get("uri") != scheduler_uri or scheduler.get("httpTarget", {}).get("oauthToken", {}).get("serviceAccountEmail") != email["scheduler"] or scheduler.get("schedule") != "0 14 * * 4" or scheduler.get("timeZone") != "Asia/Tokyo"):
         raise SetupError("existing_scheduler_configuration_conflicts")
     provider = gc("iam", "workload-identity-pools", "providers", "describe", PROVIDER, "--workload-identity-pool", POOL, "--location=global", "--format=json", missing=True, json_output=True)
     if provider and (provider.get("attributeMapping") != contract["attributeMapping"] or provider.get("attributeCondition") != contract["attributeCondition"] or provider.get("oidc", {}).get("issuerUri") != contract["issuerUri"] or provider.get("disabled") or provider.get("state") != "ACTIVE"):
@@ -337,7 +337,7 @@ def main():
         future = datetime.now(timezone.utc) + timedelta(days=2)
         gc("scheduler", "jobs", "create", "http", config["scheduler_job"], "--location", region, f"--schedule=0 0 {future.day} {future.month} *", "--time-zone=Asia/Tokyo", "--uri", scheduler_uri, "--http-method=POST", "--oauth-service-account-email", email["scheduler"], "--oauth-token-scope=https://www.googleapis.com/auth/cloud-platform", "--message-body={}", "--max-retry-attempts=0")
         gc("scheduler", "jobs", "pause", config["scheduler_job"], "--location", region)
-        gc("scheduler", "jobs", "update", "http", config["scheduler_job"], "--location", region, "--schedule=0 4 * * 1")
+        gc("scheduler", "jobs", "update", "http", config["scheduler_job"], "--location", region, "--schedule=0 14 * * 4")
     if needs_bootstrap:
         from tatemono_map.cloud.bootstrap import register
         register(store, prepared_bootstrap, bootstrap_work)

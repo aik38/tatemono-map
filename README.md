@@ -12,11 +12,13 @@
 
 | 情報源 | 本番Cloud Run Job | 週次起動（JST） | 収集対象 |
 | --- | --- | --- | --- |
-| Ulucks | `tatemono-collection-poc` | 月曜04:00 | 対象管理会社の自動判定、北九州全域のPDF |
-| RealPro | `tatemono-realpro-weekly` | 月曜04:05 | 福岡県内で取得可能な対象管理会社のPDF |
-| Mansion Review | `tatemono-mansion-weekly` | 月曜04:10 | 設定済み35市区町村の賃貸・分譲情報 |
+| Ulucks | `tatemono-collection-poc` | 木曜14:00 | 対象管理会社の自動判定、北九州全域のPDF |
+| RealPro | `tatemono-realpro-weekly` | 木曜14:05 | 福岡県内で取得可能な対象管理会社のPDF |
+| Mansion Review | `tatemono-mansion-weekly` | 木曜14:10 | 設定済み35市区町村の賃貸・分譲情報 |
 
-- **3情報源の週次クラウド起動・収集・統合・公開経路は実装・設定済みです。** 初回の同一月曜日・全対象の無人定刻実行結果は、2026年10月26日に別途実測確認します。Scheduler有効化を全対象の実収集成功とは読み替えません。
+週次基準は直近の木曜14:00 JST。RealProは当該基準以降のUlucks、Mansion ReviewはUlucks・RealProの終了を待ちます。
+
+- **3情報源の週次クラウド起動・収集・統合・公開経路は実装・設定済みです。** 2026年10月29日から木曜14:00／14:05／14:10（Asia/Tokyo）に起動します。初回の旧月曜スケジュール（2026年10月26日）の全対象実行結果は別途実測確認対象です。Scheduler有効化を全対象の実収集成功とは読み替えません。
 - RealProは当該週のUlucks実行終了待ち、Mansion Reviewは両上流Jobの実行終了待ちを行います。**終了と成功は異なります**。障害・部分成功・未処理は個別に確認します。
 - Windows PC、Chrome、ChatGPT Work、ローカルSQLite/PDF/CSVは通常運用の必須条件ではありません。ローカル補助資料の削除前には未同期原本・独自修正・認証復旧資料を確認してください。
 

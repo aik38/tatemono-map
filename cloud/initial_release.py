@@ -246,7 +246,7 @@ def verify_production(state, commit, config, directory, path):
         if scheduler.get('state') != 'PAUSED' or attempt == 19:
             break
         time.sleep(15)
-    if scheduler['state'] != 'ENABLED' or scheduler['schedule'] != '0 4 * * 1' or scheduler['timeZone'] != 'Asia/Tokyo':
+    if scheduler['state'] != 'ENABLED' or scheduler['schedule'] != '0 14 * * 4' or scheduler['timeZone'] != 'Asia/Tokyo':
         raise RuntimeError('weekly_scheduler_not_verified')
     state['production_verified'] = True
     state['run_id'] = head['run_id']
@@ -256,7 +256,7 @@ def verify_production(state, commit, config, directory, path):
         'scheduled_execution_observed': False,
     })
     checkpoint(path, state)
-    print('Verified: real collection/QC, private master commit, production data proof and Monday 04:00 JST scheduler.', flush=True)
+    print('Verified: real collection/QC, private master commit, production data proof and Thursday 14:00 JST scheduler.', flush=True)
 
 
 if __name__ == '__main__':

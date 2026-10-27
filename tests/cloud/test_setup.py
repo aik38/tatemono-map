@@ -85,7 +85,7 @@ class FakeCloud:
         if "scheduler jobs describe" in words:
             return self.scheduler
         if "scheduler jobs create" in words:
-            self.scheduler = {"httpTarget": {"uri": "https://run.googleapis.com/v2/projects/tatemono-map/locations/asia-northeast1/jobs/tatemono-collection-poc:run", "oauthToken": {"serviceAccountEmail": "tm-weekly-trigger@tatemono-map.iam.gserviceaccount.com"}}, "schedule": "0 4 * * 1", "timeZone": "Asia/Tokyo"}
+            self.scheduler = {"httpTarget": {"uri": "https://run.googleapis.com/v2/projects/tatemono-map/locations/asia-northeast1/jobs/tatemono-collection-poc:run", "oauthToken": {"serviceAccountEmail": "tm-weekly-trigger@tatemono-map.iam.gserviceaccount.com"}}, "schedule": "0 14 * * 4", "timeZone": "Asia/Tokyo"}
         if "iam roles describe" in words:
             return self.role
         if "iam roles create" in words:

@@ -76,7 +76,7 @@ def prepare_recovery(state, commit, config, directory, store, gc):
     if any(datetime.fromisoformat(r['metadata']['creationTimestamp'].replace('Z','+00:00')) >= failed_at for r in executions):
         raise RuntimeError('execution_since_failed_deployment_requires_review')
     scheduler = json.loads(gc('scheduler','jobs','describe',config['scheduler_job'],'--location',config['region'],'--format=json(state,schedule,timeZone)'))
-    if scheduler != {'state':'PAUSED','schedule':'0 4 * * 1','timeZone':'Asia/Tokyo'}:
+    if scheduler != {'state':'PAUSED','schedule':'0 14 * * 4','timeZone':'Asia/Tokyo'}:
         raise RuntimeError('scheduler_not_paused_with_reviewed_schedule')
     # The old CLI can have created its object before failing. Never overwrite it.
     name = f"deployment-backups/{state['commit']}-{run['id']}-{run.get('run_attempt', 1)}.yaml"

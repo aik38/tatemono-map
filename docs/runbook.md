@@ -1,6 +1,6 @@
 # 本番運用・監視・障害復旧Runbook
 
-更新: **2026年10月25日 JST**。3情報源の週次実行と実Web照合を一本化した**唯一の主要運用手順書**です。実装仕様は[spec](spec.md)、保存先は[データフロー](data_flow_and_sources_of_truth.md)を参照。
+更新: **2026年10月27日 JST**。3情報源の週次実行と実Web照合を一本化した**唯一の主要運用手順書**です。実装仕様は[spec](spec.md)、保存先は[データフロー](data_flow_and_sources_of_truth.md)を参照。
 
 > 本書は監視・障害対応用。**毎週人間が起動・承認しなければ更新できない設計ではありません。** Windows・Work・ローカルPDF/ZIP・手動CSVは通常の必須工程に含めません。
 
@@ -8,15 +8,15 @@
 
 | 順 | Scheduler | Cloud Run Job | 定時 |
 | --- | --- | --- | --- |
-| 1 | `tatemono-ulucks-weekly` | `tatemono-collection-poc` | 月曜04:00 |
-| 2 | `tatemono-realpro-weekly` | `tatemono-realpro-weekly` | 月曜04:05 |
-| 3 | `tatemono-mansion-weekly` | `tatemono-mansion-weekly` | 月曜04:10 |
+| 1 | `tatemono-ulucks-weekly` | `tatemono-collection-poc` | 木曜14:00 |
+| 2 | `tatemono-realpro-weekly` | `tatemono-realpro-weekly` | 木曜14:05 |
+| 3 | `tatemono-mansion-weekly` | `tatemono-mansion-weekly` | 木曜14:10 |
 
-RealProは当該週Ulucks実行の終了を待ち、Mansion ReviewはUlucks・RealPro両方の終了を待つ。**Job終了≠処理成功**。SchedulerのENABLED、テスト成功、Cloud Run配置成功、代表2社成功を全対象の週次成功と扱わない。
+週次基準は直近の木曜14:00（Asia/Tokyo）。木曜14:00より前は前週木曜が基準。次回起動は2026年10月29日（木）14:00／14:05／14:10。RealProは当該木曜14:00以降のUlucks実行の終了を待ち、Mansion Reviewは同じ木曜基準でUlucks・RealPro両方の終了を待つ。RealProの既定Cycleは `weekly-YYYY-MM-DD`、Mansion Reviewは `week-YYYYMMDD`（基準木曜の日付）。明示 `--cycle` と過去の保存済みCycleは維持する。**Job終了≠処理成功**。SchedulerのENABLED、テスト成功、Cloud Run配置成功、代表2社成功を全対象の週次成功と扱わない。
 
 ## 週次確認カード
 
-1. **Scheduler:** 当該月曜の起動履歴と設定、Job起動が実際にあったか。
+1. **Scheduler:** 当該木曜の起動履歴と設定、Job起動が実際にあったか。
 2. **Cloud Run:** 3Jobのexecution・開始/終了時刻・成功/失敗/再試行/稼働中。失敗・待機中を成功とみなさない。
 3. **対象と原本:** Ulucksの判定対象全社・北九州全域、RealProの取得可能全社、Mansion Reviewの35市区町村。PDF/HTMLの保存証跡、対象外/失敗/未処理の数を区別。
 4. **解析・採否:** 解析・正式採用・保留・異常・重複、source別currentと上位募集の保護を確認。partial_success≠全対象成功。

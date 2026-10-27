@@ -9,7 +9,7 @@ import time
 from pathlib import Path
 from tatemono_map.cloud.mansion_crawl import Fetcher,collect
 from tatemono_map.cloud.mansion_geography import AREAS,MUNICIPALITIES
-from tatemono_map.cloud.realpro_weekly import read_json,save_json,wait_for_shared_lease,monday_start,upstream_status,verify_web
+from tatemono_map.cloud.realpro_weekly import read_json,save_json,wait_for_shared_lease,weekly_start,upstream_status,verify_web
 from tatemono_map.cloud.storage import GCSStore
 from tatemono_map.cloud.run import new_run_id
 
@@ -31,7 +31,7 @@ def wait_for_upstream(project,region,*,weekly,timeout=64800):
                 if response.status_code!=200:raise ValueError('mansion_upstream_status_unavailable:'+job)
                 payload=response.json();executions.extend(payload.get('executions',[]));token=payload.get('nextPageToken')
                 if not token:break
-            states[job]=upstream_status(executions,monday_start()) if weekly else ('running' if any(not e.get('completionTime') for e in executions) else 'finished')
+            states[job]=upstream_status(executions,weekly_start()) if weekly else ('running' if any(not e.get('completionTime') for e in executions) else 'finished')
         if all(s=='finished' for s in states.values()):return states
         print(json.dumps({'stage':'mansion_waiting_for_upstream','states':states}),flush=True);time.sleep(60)
     raise ValueError('mansion_upstream_wait_timeout')
@@ -87,7 +87,7 @@ def main():
     p=argparse.ArgumentParser();p.add_argument('--weekly',action='store_true');p.add_argument('--cycle')
     p.add_argument('--acquire-only',action='store_true');p.add_argument('--commit',action='store_true');p.add_argument('--verify-web',action='store_true')
     args=p.parse_args()
-    cycle=args.cycle or monday_start().strftime('week-%Y%m%d')
+    cycle=args.cycle or weekly_start().strftime('week-%Y%m%d')
     if not all(c.isalnum() or c in '-_' for c in cycle):raise ValueError('invalid_mansion_cycle')
     store=GCSStore(os.environ['TATEMONO_BUCKET'])
     wait_for_upstream(os.environ['GOOGLE_CLOUD_PROJECT'],os.environ.get('TATEMONO_REGION','asia-northeast1'),weekly=args.weekly)

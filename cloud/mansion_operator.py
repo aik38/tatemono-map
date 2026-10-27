@@ -89,7 +89,7 @@ def apply(work,sha):
     scheduler='tatemono-mansion-weekly'
     describe=subprocess.run(['gcloud','scheduler','jobs','describe',scheduler,'--location='+REGION,'--format=json'],capture_output=True,text=True)
     action='update' if describe.returncode==0 else 'create'
-    command('gcloud','scheduler','jobs',action,'http',scheduler,'--location='+REGION,'--schedule=10 4 * * 1','--time-zone=Asia/Tokyo',
+    command('gcloud','scheduler','jobs',action,'http',scheduler,'--location='+REGION,'--schedule=10 14 * * 4','--time-zone=Asia/Tokyo',
         '--uri=https://run.googleapis.com/v2/projects/'+PROJECT+'/locations/'+REGION+'/jobs/tatemono-mansion-weekly:run',
         '--http-method=POST','--oauth-service-account-email='+TRIGGER,'--oauth-token-scope=https://www.googleapis.com/auth/cloud-platform',
         '--message-body={}','--attempt-deadline=180s','--quiet')
