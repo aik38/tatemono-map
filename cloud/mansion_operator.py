@@ -82,7 +82,7 @@ def apply(work,sha):
         after=job(name)
         if stable_spec(after['spec'])!=stable_spec(expected):raise ValueError('existing_job_settings_not_preserved')
     command('gcloud','run','jobs','update','tatemono-mansion-weekly','--region='+REGION,'--image='+pinned['mansion'],
-        '--command=python','--args=-m,tatemono_map.cloud.mansion_weekly,--weekly,--commit,--verify-web',
+        '--command=python','--args=-m,tatemono_map.cloud.mansion_weekly,--weekly,--commit',
         '--task-timeout=86400s','--max-retries=1','--tasks=1','--parallelism=1',
         '--set-env-vars='+','.join(['TATEMONO_BUCKET='+BUCKET,'TATEMONO_SOURCE_COMMIT='+sha,'GOOGLE_CLOUD_PROJECT='+PROJECT,'TATEMONO_REGION='+REGION]),'--quiet')
     command('gcloud','run','jobs','add-iam-policy-binding','tatemono-mansion-weekly','--region='+REGION,'--member=serviceAccount:'+TRIGGER,'--role=roles/run.invoker','--quiet')
