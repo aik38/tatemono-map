@@ -113,28 +113,79 @@ def test_simultaneous_starts_collect_and_commit_once(harness,tmp_path,monkeypatc
     assert h.calls==1 and h.store.generation==before+1
 
 
-def test_failed_scope_is_retryable_without_partial_head_commit(harness,tmp_path):
-    h=harness;original=copy.deepcopy(h.rows);h.rows[0]['status']='failed'
-    head,generation=h.store.read_head()
-    with pytest.raises(CollectionError,match='mansion_cycle_incomplete'):run(h,tmp_path/'failed')
-    assert h.store.read_head()==(head,generation)
-    assert not h.read(h.store,f'private-inputs/mansion-review/cycles/{CYCLE}/integration.json')
-    h.rows=original
-    assert run(h,tmp_path/'retry')['status']=='committed'
-    assert h.calls==2 and h.store.generation==generation+1
+def test_partial_commit_preserves_failed_scope_and_held_rows_without_duplicate(harness,tmp_path):
+    from tatemono_map.cloud.public_db import readonly
+    h=harness;previous='week-20261022'
+    with weekly.cycle_lease(h.store,previous):
+        weekly.execute(h.store,tmp_path/'previous',cycle=previous,source_commit='a'*40,commit=True)
+    old=tmp_path/'old.sqlite3';h.store.download(h.store.head['master'],old)
+    failed='mansion_review:chintai:1619'
+    with readonly(old) as c:
+        snapshot=c.execute('SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?',(failed,)).fetchone()[0]
+        rentals=list(c.execute('SELECT * FROM listings WHERE ingest_run_id=?',(snapshot,)))
+        ids=list(c.execute('SELECT building_id FROM buildings ORDER BY building_id'))
+    bad=next(r for r in h.rows if r['kind']=='chintai' and r['municipality']=='北九州市小倉北区')
+    bad.update(status='failed',rows=[])
+    held=next(r for r in h.rows if r['kind']=='chintai' and r['municipality']=='北九州市門司区')
+    row=copy.deepcopy(next(r for r in h.rows if r['kind']=='mansion' and r['rows'])['rows'][0])
+    row.update(kind='chintai',building_name='保留テスト',address='福岡県北九州市門司区大里',
+               reason='coarse_address_requires_review',evidence_id='held',price_yen=55000)
+    held.update(city_id='1616',status='success',rows=[row])
+    before=h.store.generation
+    first=run(h,tmp_path/'partial')
+    assert first['status']=='committed' and first['failed_scopes']==1
+    assert first['head']['report']['integration_contract']=='mansion-review-partial-v1'
+    assert first['row_counts']['accepted_existing']==1 and first['row_counts']['held']==1
+    current=tmp_path/'current.sqlite3';h.store.download(h.store.head['master'],current)
+    with readonly(current) as c:
+        assert c.execute('SELECT ingest_run_id FROM current_ingest_snapshots WHERE source=?',(failed,)).fetchone()[0]==snapshot
+        assert list(c.execute('SELECT * FROM listings WHERE ingest_run_id=?',(snapshot,)))==rentals
+        assert list(c.execute('SELECT building_id FROM buildings ORDER BY building_id'))==ids
+    head=copy.deepcopy(h.store.head);objects=set(h.store.objects);calls=h.calls
+    assert run(h,tmp_path/'duplicate')==first
+    assert h.calls==calls and h.store.generation==before+1 and h.store.head==head
+    assert set(h.store.objects)==objects
 
 
-@pytest.mark.parametrize('stage',['quality','cas'])
+def test_partial_commit_receipt_loss_recovers_without_recollection(harness,tmp_path,monkeypatch):
+    h=harness;h.rows[0].update(status='failed',rows=[])
+    save=weekly.save_json;before=h.store.generation
+    def lost(s,work,name,data):
+        if name.endswith('/integration.json'):raise RuntimeError('synthetic_lost_partial_receipt')
+        return save(s,work,name,data)
+    monkeypatch.setattr(weekly,'save_json',lost)
+    with pytest.raises(RuntimeError,match='synthetic_lost_partial_receipt'):run(h,tmp_path/'first')
+    monkeypatch.setattr(weekly,'save_json',save)
+    result=run(h,tmp_path/'resume')
+    assert result['status']=='committed' and result['failed_scopes']==1
+    assert h.calls==1 and h.store.generation==before+1
+
+
+def test_scope_accounting_has_no_full_acquisition_or_adoption_requirement(harness,tmp_path):
+    h=harness
+    # The integration contract may describe fewer scopes and zero accepted rows.
+    h.rows=[dict(kind='chintai',municipality='北九州市門司区',city_id='1616',
+                 status='failed',rows=[],reason='synthetic_http_failure')]
+    result=run(h,tmp_path/'partial-subset')
+    assert result['status']=='committed' and result['failed_scopes']==1
+    assert not result['row_counts'].get('accepted_existing',0)
+    assert not result['row_counts'].get('accepted_new',0)
+
+
+@pytest.mark.parametrize('stage',['quality','integrity','cas'])
 def test_integration_failure_propagates_and_retry_reuses_acquisition(harness,tmp_path,monkeypatch,stage):
     h=harness;head,generation=h.store.read_head()
-    update=mansion_integrate.update
+    update=mansion_integrate.update;validate=mansion_integrate.validate_master
     if stage=='quality':
         monkeypatch.setattr(mansion_integrate,'update',lambda *a,**k:(_ for _ in ()).throw(ValueError('synthetic_quality_failure')))
+    elif stage=='integrity':
+        monkeypatch.setattr(mansion_integrate,'validate_master',lambda *a,**k:(_ for _ in ()).throw(ValueError('synthetic_sqlite_integrity_failure')))
     else:h.store.fail_commit=True
     with pytest.raises((ValueError,RuntimeError)):run(h,tmp_path/'failed')
     assert h.store.read_head()==(head,generation)
     assert not h.read(h.store,f'private-inputs/mansion-review/cycles/{CYCLE}/integration.json')
     monkeypatch.setattr(mansion_integrate,'update',update);h.store.fail_commit=False
+    monkeypatch.setattr(mansion_integrate,'validate_master',validate)
     assert run(h,tmp_path/'retry')['status']=='committed'
     assert h.calls==1 and h.store.generation==generation+1
 

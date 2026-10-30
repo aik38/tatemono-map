@@ -59,23 +59,28 @@ def cycle_lease(store,cycle,*,timeout=7200,poll=10):
 
 
 def complete_scopes(results):
+    """Validate terminal scope accounting, including failures; no success quota."""
     expected={(kind,name) for kind in ('chintai','mansion') for name in MUNICIPALITIES}
-    if (len(results)!=len(expected)
-            or {(r.get('kind'),r.get('municipality')) for r in results}!=expected
-            or any(r.get('status') not in ('success','confirmed_zero','no_source_page') for r in results)):
-        raise CollectionError('mansion_cycle_incomplete')
+    seen={(r.get('kind'),r.get('municipality')) for r in results}
+    if (not results or len(results)!=len(seen) or not seen<=expected
+            or any(r.get('status') not in ('success','confirmed_zero','no_source_page','failed') for r in results)):
+        raise CollectionError('mansion_invalid_scope_accounting')
 
 
 def committed_result(result,cycle):
-    """A receipt alone is not completion: require the validated, complete release."""
+    """Only a QC-passed committed release completes a cycle, including partial-v1."""
     if result.get('status')!='committed':raise CollectionError('mansion_invalid_completion')
     head=result['head'];validate_head(head);report=head['report']
-    complete_scopes(report.get('scope_results',[]))
+    scopes=report.get('scope_results',[])
+    complete_scopes(scopes)
+    counts={'successful_scopes':sum(r['status'] in ('success','confirmed_zero') for r in scopes),
+            'absent_scopes':sum(r['status']=='no_source_page' for r in scopes),
+            'failed_scopes':sum(r['status']=='failed' for r in scopes)}
     if (head['run_id']!=result.get('run_id') or report.get('mansion_cycle')!=cycle
-            or report.get('failed_scopes')!=0 or result.get('failed_scopes')!=0
+            or report.get('integration_contract')!='mansion-review-partial-v1'
             or any(result.get(k)!=report.get(k) for k in
-                   ('counts_before','counts_after','row_counts','public_counts','successful_scopes','absent_scopes'))
-            or report['successful_scopes']+report['absent_scopes']!=2*len(MUNICIPALITIES)):
+                   ('counts_before','counts_after','row_counts','public_counts',*counts))
+            or any(report.get(k)!=v for k,v in counts.items())):
         raise CollectionError('mansion_invalid_completion')
     return result
 
@@ -118,7 +123,7 @@ def execute(store,work,*,cycle,source_commit,acquire_only=False,commit=False,ver
         receipt={'cycle':cycle,'run_id':run,'result_ref':result_ref}
         # Failed scopes are retryable using the successful HTTP/scope receipts.
         if not any(r['status']=='failed' for r in results):save_json(store,work,prefix+'/acquisition.json',receipt)
-    # Keep successful HTTP/scope receipts; never commit a partial cycle twice.
+    # Failed scopes are valid partial-v1 outcomes; integration preserves their data.
     complete_scopes(acquisition['results'])
     if acquire_only:return {'status':'acquired','run_id':run,**receipt}
     from tatemono_map.cloud.mansion_integrate import integrate
