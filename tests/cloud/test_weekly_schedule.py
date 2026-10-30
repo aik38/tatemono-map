@@ -97,13 +97,13 @@ def test_default_and_explicit_saved_cycles(monkeypatch, kind, explicit, expected
     class Store:
         def collection_lease(self, owner): return nullcontext()
     monkeypatch.setattr(module, 'GCSStore', lambda *a: Store())
-    monkeypatch.setattr(module, 'wait_for_shared_lease', lambda *a: None)
     captured = []
     def execute(*args, **kwargs):
         captured.append(kwargs['cycle'])
         return {'status': 'no_new_content'}
     monkeypatch.setattr(module, 'execute', execute)
     if kind == 'realpro':
+        monkeypatch.setattr(module, 'wait_for_shared_lease', lambda *a: None)
         monkeypatch.setattr(module, 'wait_for_ulucks', lambda *a: None)
         monkeypatch.setattr(module, 'acquisition_lease', lambda *a: nullcontext())
     else:

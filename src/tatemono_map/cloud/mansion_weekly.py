@@ -7,10 +7,12 @@ import signal
 import tempfile
 import time
 from pathlib import Path
+from contextlib import contextmanager,ExitStack
+from tatemono_map.cloud.collector import CollectionError
 from tatemono_map.cloud.mansion_crawl import Fetcher,collect
 from tatemono_map.cloud.mansion_geography import AREAS,MUNICIPALITIES
-from tatemono_map.cloud.realpro_weekly import read_json,save_json,wait_for_shared_lease,weekly_start,upstream_status,verify_web
-from tatemono_map.cloud.storage import GCSStore
+from tatemono_map.cloud.realpro_weekly import read_json,save_json,weekly_start,upstream_status,verify_web
+from tatemono_map.cloud.storage import GCSStore,validate_head
 from tatemono_map.cloud.run import new_run_id
 
 
@@ -37,11 +39,58 @@ def wait_for_upstream(project,region,*,weekly,timeout=64800):
     raise ValueError('mansion_upstream_wait_timeout')
 
 
+@contextmanager
+def cycle_lease(store,cycle,*,timeout=7200,poll=10):
+    """Acquire the existing shared lease atomically; receipts are read inside it."""
+    deadline=time.monotonic()+timeout
+    with ExitStack() as stack:
+        while time.monotonic()<deadline:
+            try:
+                stack.enter_context(store.collection_lease('mansion-review:'+cycle))
+            except CollectionError as exc:
+                if str(exc)!='collection_lock_held':raise
+                print(json.dumps({'stage':'mansion_waiting_for_canonical_lease'}),flush=True)
+                time.sleep(min(poll,max(0,deadline-time.monotonic())))
+            else:
+                # Exceptions from processing must propagate, never become lock retries.
+                yield
+                return
+    raise CollectionError('mansion_canonical_store_busy')
+
+
+def complete_scopes(results):
+    """Validate terminal scope accounting, including failures; no success quota."""
+    expected={(kind,name) for kind in ('chintai','mansion') for name in MUNICIPALITIES}
+    seen={(r.get('kind'),r.get('municipality')) for r in results}
+    if (not results or len(results)!=len(seen) or not seen<=expected
+            or any(r.get('status') not in ('success','confirmed_zero','no_source_page','failed') for r in results)):
+        raise CollectionError('mansion_invalid_scope_accounting')
+
+
+def committed_result(result,cycle):
+    """Only a QC-passed committed release completes a cycle, including partial-v1."""
+    if result.get('status')!='committed':raise CollectionError('mansion_invalid_completion')
+    head=result['head'];validate_head(head);report=head['report']
+    scopes=report.get('scope_results',[])
+    complete_scopes(scopes)
+    counts={'successful_scopes':sum(r['status'] in ('success','confirmed_zero') for r in scopes),
+            'absent_scopes':sum(r['status']=='no_source_page' for r in scopes),
+            'failed_scopes':sum(r['status']=='failed' for r in scopes)}
+    if (head['run_id']!=result.get('run_id') or report.get('mansion_cycle')!=cycle
+            or report.get('integration_contract')!='mansion-review-partial-v1'
+            or any(result.get(k)!=report.get(k) for k in
+                   ('counts_before','counts_after','row_counts','public_counts',*counts))
+            or any(report.get(k)!=v for k,v in counts.items())):
+        raise CollectionError('mansion_invalid_completion')
+    return result
+
+
 def execute(store,work,*,cycle,source_commit,acquire_only=False,commit=False,verify=False):
     work.mkdir(parents=True,exist_ok=True)
     prefix=f'private-inputs/mansion-review/cycles/{cycle}'
     integrated=read_json(store,prefix+'/integration.json')
     if integrated:
+        committed_result(integrated,cycle)
         if verify:integrated['web']=verify_web(integrated['head'])
         return integrated
     latest,_=store.read_head()
@@ -49,6 +98,7 @@ def execute(store,work,*,cycle,source_commit,acquire_only=False,commit=False,ver
         # Recover a committed CAS whose integration-receipt response was lost.
         result={'status':'committed','run_id':latest['run_id'],'head':latest,
             **{k:latest['report'][k] for k in ('counts_before','counts_after','row_counts','public_counts','successful_scopes','absent_scopes','failed_scopes')}}
+        committed_result(result,cycle)
         save_json(store,work,prefix+'/integration.json',result)
         if verify:result['web']=verify_web(latest)
         return result
@@ -73,10 +123,13 @@ def execute(store,work,*,cycle,source_commit,acquire_only=False,commit=False,ver
         receipt={'cycle':cycle,'run_id':run,'result_ref':result_ref}
         # Failed scopes are retryable using the successful HTTP/scope receipts.
         if not any(r['status']=='failed' for r in results):save_json(store,work,prefix+'/acquisition.json',receipt)
+    # Failed scopes are valid partial-v1 outcomes; integration preserves their data.
+    complete_scopes(acquisition['results'])
     if acquire_only:return {'status':'acquired','run_id':run,**receipt}
     from tatemono_map.cloud.mansion_integrate import integrate
     result=integrate(store,work,run,acquisition,source_commit,commit=commit)
     if commit:
+        committed_result(result,cycle)
         save_json(store,work,prefix+'/integration.json',result)
     if verify and commit:result['web']=verify_web(result['head'])
     save_json(store,work,f'private-runs/{run}/mansion-final-result.json',result)
@@ -91,15 +144,15 @@ def main():
     if not all(c.isalnum() or c in '-_' for c in cycle):raise ValueError('invalid_mansion_cycle')
     store=GCSStore(os.environ['TATEMONO_BUCKET'])
     wait_for_upstream(os.environ['GOOGLE_CLOUD_PROJECT'],os.environ.get('TATEMONO_REGION','asia-northeast1'),weekly=args.weekly)
-    wait_for_shared_lease(store)
     # Waiting happens outside the lease. A six-hour processing deadline stays
     # below its seven-hour TTL even when upstream jobs needed a long wait.
     def processing_timeout(signum,frame):raise TimeoutError('mansion_processing_deadline')
-    signal.signal(signal.SIGALRM,processing_timeout);signal.alarm(21600)
-    with store.collection_lease('mansion-review:'+cycle),tempfile.TemporaryDirectory(prefix='mansion-') as directory:
-        result=execute(store,Path(directory),cycle=cycle,source_commit=os.environ['TATEMONO_SOURCE_COMMIT'],
-            acquire_only=args.acquire_only,commit=args.commit,verify=args.verify_web)
-    signal.alarm(0)
+    with cycle_lease(store,cycle),tempfile.TemporaryDirectory(prefix='mansion-') as directory:
+        signal.signal(signal.SIGALRM,processing_timeout);signal.alarm(21600)
+        try:
+            result=execute(store,Path(directory),cycle=cycle,source_commit=os.environ['TATEMONO_SOURCE_COMMIT'],
+                acquire_only=args.acquire_only,commit=args.commit,verify=args.verify_web)
+        finally:signal.alarm(0)
     summary={k:v for k,v in result.items() if k not in ('head','scopes')}
     print('MANSION_RESULT_JSON='+json.dumps(summary,ensure_ascii=False),flush=True)
 
