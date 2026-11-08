@@ -1,0 +1,246 @@
+name: Weekly Cloud Run execution audit
+
+on:
+  # 03:00 JST every Friday; leaves time after the Thursday collection cycle.
+  schedule:
+    - cron: '0 18 * * 4'
+  workflow_dispatch:
+    inputs:
+      target_date:
+        description: "Thursday JST cycle date (YYYY-MM-DD); blank selects the latest Thursday"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      TARGET_DATE: ${{ inputs.target_date }}
+    steps:
+      - name: Authenticate to Google Cloud with existing Workload Identity Federation
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Read-only audit of the current weekly Cloud Run executions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import datetime as dt
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          from zoneinfo import ZoneInfo
+
+          JST = ZoneInfo("Asia/Tokyo")
+          project = os.environ["GCP_PROJECT_ID"]
+          region = os.environ["GCP_REGION"]
+          requested = os.environ.get("TARGET_DATE", "").strip()
+
+          now = dt.datetime.now(JST)
+          if requested:
+              if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", requested):
+                  raise SystemExit("target_date_must_be_YYYY_MM_DD")
+              target = dt.date.fromisoformat(requested)
+              if target.weekday() != 3:
+                  raise SystemExit("target_date_must_be_Thursday_JST")
+          else:
+              target = now.date() - dt.timedelta(days=(now.weekday() - 3) % 7)
+
+          start = dt.datetime.combine(target, dt.time.min, JST)
+          end = start + dt.timedelta(days=1)
+
+          jobs = {
+              "Ulucks": ("tatemono-collection-poc", "tatemono-ulucks-weekly"),
+              "RealPro": ("tatemono-realpro-weekly", "tatemono-realpro-weekly"),
+              "Mansion Review": ("tatemono-mansion-weekly", "tatemono-mansion-weekly"),
+          }
+
+          def gcloud_json(args):
+              result = subprocess.run(
+                  ["gcloud", *args, "--project", project, "--quiet", "--format=json"],
+                  capture_output=True, text=True, timeout=120,
+              )
+              if result.returncode:
+                  stderr = result.stderr or ""
+                  classes = [
+                      name for name, pattern in (
+                          ("PERMISSION_DENIED", r"PERMISSION_DENIED|permission denied|403"),
+                          ("NOT_FOUND", r"NOT_FOUND|not found|404"),
+                          ("UNAUTHENTICATED", r"UNAUTHENTICATED|401"),
+                          ("UNAVAILABLE", r"UNAVAILABLE|503"),
+                          ("DEADLINE_EXCEEDED", r"DEADLINE_EXCEEDED|timed out|timeout"),
+                      ) if re.search(pattern, stderr, re.I)
+                  ]
+                  raise RuntimeError(",".join(classes) or "gcloud_read_failed")
+              return json.loads(result.stdout or "[]")
+
+          def iso_jst(value):
+              if not value:
+                  return None
+              parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+              return parsed.astimezone(JST).isoformat(timespec="seconds")
+
+          report = {
+              "schema": 1,
+              "mode": "read_only",
+              "project": project,
+              "region": region,
+              "target_thursday_jst": target.isoformat(),
+              "generated_at_jst": now.isoformat(timespec="seconds"),
+              "jobs": {},
+              "schedulers": {},
+          }
+          failures = []
+
+          for label, (job_name, scheduler_name) in jobs.items():
+              entry = {
+                  "job": job_name,
+                  "scheduler": scheduler_name,
+                  "query_status": "ok",
+                  "executions": [],
+              }
+              try:
+                  rows = gcloud_json([
+                      "run", "jobs", "executions", "list",
+                      "--job", job_name, "--region", region, "--limit=100",
+                  ])
+                  for row in rows:
+                      metadata = row.get("metadata") or {}
+                      status = row.get("status") or {}
+                      start_raw = status.get("startTime") or metadata.get("creationTimestamp")
+                      if not start_raw:
+                          continue
+                      started = dt.datetime.fromisoformat(start_raw.replace("Z", "+00:00")).astimezone(JST)
+                      if not (start <= started < end):
+                          continue
+
+                      completed_raw = status.get("completionTime")
+                      succeeded = int(status.get("succeededCount") or 0)
+                      failed = int(status.get("failedCount") or 0)
+                      cancelled = int(status.get("cancelledCount") or 0)
+                      conditions = status.get("conditions") or []
+                      completed_condition = next(
+                          (c.get("status") for c in conditions if c.get("type") == "Completed"),
+                          None,
+                      )
+                      if not completed_raw:
+                          outcome = "running"
+                      elif failed > 0 or cancelled > 0 or completed_condition == "False" or succeeded == 0:
+                          outcome = "failed"
+                      elif succeeded > 0:
+                          outcome = "success"
+                      else:
+                          outcome = "unknown"
+
+                      execution_name = metadata.get("name", "").rsplit("/", 1)[-1]
+                      entry["executions"].append({
+                          "execution_id": execution_name,
+                          "start_jst": iso_jst(start_raw),
+                          "completion_jst": iso_jst(completed_raw),
+                          "duration_seconds": (
+                              int((dt.datetime.fromisoformat(completed_raw.replace("Z", "+00:00")) -
+                                   dt.datetime.fromisoformat(start_raw.replace("Z", "+00:00"))).total_seconds())
+                              if completed_raw else None
+                          ),
+                          "succeeded_count": succeeded,
+                          "failed_count": failed,
+                          "cancelled_count": cancelled,
+                          "retried_count": status.get("retriedCount"),
+                          "task_count": row.get("taskCount"),
+                          "completed_condition": completed_condition,
+                          "outcome": outcome,
+                      })
+
+                  entry["executions"].sort(key=lambda x: x["start_jst"] or "")
+                  outcomes = [x["outcome"] for x in entry["executions"]]
+                  if len(outcomes) == 1 and outcomes[0] == "success":
+                      entry["result"] = "success"
+                  elif not outcomes:
+                      entry["result"] = "missing"
+                  elif "running" in outcomes:
+                      entry["result"] = "running"
+                  elif "failed" in outcomes:
+                      entry["result"] = "failed"
+                  elif len(outcomes) > 1:
+                      entry["result"] = "multiple_executions"
+                  else:
+                      entry["result"] = "unknown"
+                  if entry["result"] != "success":
+                      failures.append(label + ":" + entry["result"])
+              except Exception as exc:
+                  entry["query_status"] = "error"
+                  entry["error_class"] = str(exc)[:100]
+                  entry["result"] = "unconfirmed"
+                  failures.append(label + ":unconfirmed")
+              report["jobs"][label] = entry
+
+              scheduler_entry = {"query_status": "ok"}
+              try:
+                  scheduler = gcloud_json([
+                      "scheduler", "jobs", "describe", scheduler_name,
+                      "--location", region,
+                  ])
+                  scheduler_entry.update({
+                      "state": scheduler.get("state"),
+                      "schedule": scheduler.get("schedule"),
+                      "time_zone": scheduler.get("timeZone"),
+                      "last_attempt_jst": iso_jst(scheduler.get("lastAttemptTime")),
+                      "last_attempt_status_code": (scheduler.get("status") or {}).get("code"),
+                  })
+                  if scheduler_entry["state"] != "ENABLED":
+                      failures.append(scheduler_name + ":not_enabled")
+              except Exception as exc:
+                  scheduler_entry.update({
+                      "query_status": "error",
+                      "error_class": str(exc)[:100],
+                  })
+                  failures.append(scheduler_name + ":unconfirmed")
+              report["schedulers"][scheduler_name] = scheduler_entry
+
+          report["overall"] = "success" if not failures else "attention_required"
+          report["issues"] = failures
+
+          encoded = json.dumps(report, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+          print("TATEMONO_CLOUD_RUN_AUDIT_JSON=" + encoded)
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as f:
+                  f.write(f"# Cloud Run weekly audit — {target.isoformat()} JST\\n\\n")
+                  f.write(f"Overall: **{report['overall']}**\\n\\n")
+                  f.write("| Source | Execution | Start JST | End JST | Succeeded | Failed | Result |\\n")
+                  f.write("|---|---|---|---|---:|---:|---|\\n")
+                  for label, entry in report["jobs"].items():
+                      for execution in entry["executions"] or [{}]:
+                          f.write(
+                              f"| {label} | {execution.get('execution_id', 'MISSING')} "
+                              f"| {execution.get('start_jst', '—')} "
+                              f"| {execution.get('completion_jst', '—')} "
+                              f"| {execution.get('succeeded_count', '—')} "
+                              f"| {execution.get('failed_count', '—')} "
+                              f"| {execution.get('outcome', entry['result'])} |\\n"
+                          )
+                  f.write("\\nScheduler state and latest attempt are included in the JSON log.\\n")
+
+          if failures:
+              sys.exit(1)
+          PY
