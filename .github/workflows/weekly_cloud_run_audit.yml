@@ -24,8 +24,6 @@ jobs:
     env:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       GCP_REGION: ${{ vars.GCP_REGION }}
-      GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
-      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
       TARGET_DATE: ${{ inputs.target_date }}
     steps:
       - name: Authenticate to Google Cloud with existing Workload Identity Federation
@@ -57,7 +55,7 @@ jobs:
 
           now = dt.datetime.now(JST)
           if requested:
-              if not re.fullmatch(r"\\d{4}-\\d{2}-\\d{2}", requested):
+              if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", requested):
                   raise SystemExit("target_date_must_be_YYYY_MM_DD")
               target = dt.date.fromisoformat(requested)
               if target.weekday() != 3:
@@ -225,10 +223,10 @@ jobs:
           summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
           if summary_path:
               with open(summary_path, "a", encoding="utf-8") as f:
-                  f.write(f"# Cloud Run weekly audit — {target.isoformat()} JST\\n\\n")
-                  f.write(f"Overall: **{report['overall']}**\\n\\n")
-                  f.write("| Source | Execution | Start JST | End JST | Succeeded | Failed | Result |\\n")
-                  f.write("|---|---|---|---|---:|---:|---|\\n")
+                  f.write(f"# Cloud Run weekly audit — {target.isoformat()} JST\n\n")
+                  f.write(f"Overall: **{report['overall']}**\n\n")
+                  f.write("| Source | Execution | Start JST | End JST | Succeeded | Failed | Result |\n")
+                  f.write("|---|---|---|---|---:|---:|---|\n")
                   for label, entry in report["jobs"].items():
                       for execution in entry["executions"] or [{}]:
                           f.write(
@@ -237,9 +235,9 @@ jobs:
                               f"| {execution.get('completion_jst', '—')} "
                               f"| {execution.get('succeeded_count', '—')} "
                               f"| {execution.get('failed_count', '—')} "
-                              f"| {execution.get('outcome', entry['result'])} |\\n"
+                              f"| {execution.get('outcome', entry['result'])} |\n"
                           )
-                  f.write("\\nScheduler state and latest attempt are included in the JSON log.\\n")
+                  f.write("\nScheduler state and latest attempt are included in the JSON log.\n")
 
           if failures:
               sys.exit(1)
