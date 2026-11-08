@@ -243,9 +243,9 @@ jobs:
           os.makedirs("work", exist_ok=True)
           with open("work/cloud-run-audit-latest.json", "w", encoding="utf-8") as f:
               json.dump(report, f, ensure_ascii=False, indent=2)
-              f.write("\\n")
+              f.write("\n")
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
-              f.write("result=" + report["overall"] + "\\n")
+              f.write("result=" + report["overall"] + "\n")
           PY
 
       - name: Publish audit JSON to the private ops-status branch
@@ -255,7 +255,7 @@ jobs:
             const fs = require("fs");
             const path = ".ops/cloud-run-audit-latest.json";
             const report = JSON.parse(fs.readFileSync("work/cloud-run-audit-latest.json", "utf8"));
-            const content = Buffer.from(JSON.stringify(report, null, 2) + "\\n").toString("base64");
+            const content = Buffer.from(JSON.stringify(report, null, 2) + "\n").toString("base64");
             let sha;
             try {
               const current = await github.rest.repos.getContent({
