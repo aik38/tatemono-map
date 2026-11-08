@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "mode": "read_only",
+  "overall": "awaiting_first_scheduled_run",
+  "target_thursday_jst": null,
+  "generated_at_jst": null,
+  "note": "No scheduled Cloud Run audit has completed yet."
+}
