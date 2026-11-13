@@ -1,8 +1,78 @@
 {
   "schema": 1,
   "mode": "read_only",
-  "overall": "awaiting_first_scheduled_run",
-  "target_thursday_jst": null,
-  "generated_at_jst": null,
-  "note": "No scheduled Cloud Run audit has completed yet."
+  "project": "tatemono-map",
+  "region": "asia-northeast1",
+  "target_thursday_jst": "2026-11-12",
+  "generated_at_jst": "2026-11-14T04:33:38+09:00",
+  "jobs": {
+    "Ulucks": {
+      "job": "tatemono-collection-poc",
+      "scheduler": "tatemono-ulucks-weekly",
+      "query_status": "ok",
+      "executions": [
+        {
+          "execution_id": "tatemono-collection-poc-cnght",
+          "start_jst": "2026-11-12T14:00:37+09:00",
+          "completion_jst": "2026-11-12T15:38:11+09:00",
+          "duration_seconds": 5854,
+          "succeeded_count": 1,
+          "failed_count": 0,
+          "cancelled_count": 0,
+          "retried_count": null,
+          "task_count": null,
+          "completed_condition": "True",
+          "outcome": "success"
+        }
+      ],
+      "result": "success"
+    },
+    "RealPro": {
+      "job": "tatemono-realpro-weekly",
+      "scheduler": "tatemono-realpro-weekly",
+      "query_status": "error",
+      "executions": [],
+      "error_class": "gcloud_read_failed",
+      "result": "unconfirmed"
+    },
+    "Mansion Review": {
+      "job": "tatemono-mansion-weekly",
+      "scheduler": "tatemono-mansion-weekly",
+      "query_status": "error",
+      "executions": [],
+      "error_class": "gcloud_read_failed",
+      "result": "unconfirmed"
+    }
+  },
+  "schedulers": {
+    "tatemono-ulucks-weekly": {
+      "query_status": "ok",
+      "state": "ENABLED",
+      "schedule": "0 14 * * 4",
+      "time_zone": "Asia/Tokyo",
+      "last_attempt_jst": "2026-11-12T14:00:03+09:00",
+      "last_attempt_status_code": null
+    },
+    "tatemono-realpro-weekly": {
+      "query_status": "ok",
+      "state": "ENABLED",
+      "schedule": "5 14 * * 4",
+      "time_zone": "Asia/Tokyo",
+      "last_attempt_jst": "2026-11-12T14:05:04+09:00",
+      "last_attempt_status_code": null
+    },
+    "tatemono-mansion-weekly": {
+      "query_status": "ok",
+      "state": "ENABLED",
+      "schedule": "10 14 * * 4",
+      "time_zone": "Asia/Tokyo",
+      "last_attempt_jst": "2026-11-12T14:10:02+09:00",
+      "last_attempt_status_code": null
+    }
+  },
+  "overall": "attention_required",
+  "issues": [
+    "RealPro:unconfirmed",
+    "Mansion Review:unconfirmed"
+  ]
 }
