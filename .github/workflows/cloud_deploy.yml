@@ -12,6 +12,7 @@ on:
       - 'pyproject.toml'
       - '.dockerignore'
       - '.github/workflows/cloud_deploy.yml'
+  # The one-shot TATEMONO_AUDIT_NOW merge marker triggers immediate read-only verification.
   schedule:
     - cron: '0 18 * * 4'
   workflow_dispatch:
