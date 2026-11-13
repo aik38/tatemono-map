@@ -1,13 +1,10 @@
 name: Weekly Cloud Run execution audit
 
 on:
-  # 03:00 JST every Friday; leaves time after the Thursday collection cycle.
-  schedule:
-    - cron: '0 18 * * 4'
-  workflow_dispatch:
+  workflow_call:
     inputs:
       target_date:
-        description: "Thursday JST cycle date (YYYY-MM-DD); blank selects the latest Thursday"
+        description: Thursday JST cycle date (YYYY-MM-DD); blank selects the latest Thursday
         required: false
         type: string
 
