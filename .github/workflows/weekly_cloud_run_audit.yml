@@ -79,9 +79,11 @@ jobs:
                   stderr = result.stderr or ""
                   classes = [
                       name for name, pattern in (
-                          ("PERMISSION_DENIED", r"PERMISSION_DENIED|permission denied|403"),
+                          ("PERMISSION_DENIED", r"PERMISSION_DENIED|permission.{0,120}denied|denied.{0,120}permission|not authorized|unauthorized|403|forbidden"),
                           ("NOT_FOUND", r"NOT_FOUND|not found|404"),
+                          ("INVALID_ARGUMENT", r"INVALID_ARGUMENT|invalid argument|400"),
                           ("UNAUTHENTICATED", r"UNAUTHENTICATED|401"),
+                          ("RESOURCE_EXHAUSTED", r"RESOURCE_EXHAUSTED|quota|429"),
                           ("UNAVAILABLE", r"UNAVAILABLE|503"),
                           ("DEADLINE_EXCEEDED", r"DEADLINE_EXCEEDED|timed out|timeout"),
                       ) if re.search(pattern, stderr, re.I)
@@ -115,69 +117,176 @@ jobs:
                   "executions": [],
               }
               try:
-                  rows = gcloud_json([
-                      "run", "jobs", "executions", "list",
-                      "--job", job_name, "--region", region, "--limit=100",
-                  ])
-                  for row in rows:
-                      metadata = row.get("metadata") or {}
-                      status = row.get("status") or {}
-                      start_raw = status.get("startTime") or metadata.get("creationTimestamp")
-                      if not start_raw:
-                          continue
-                      started = dt.datetime.fromisoformat(start_raw.replace("Z", "+00:00")).astimezone(JST)
-                      if not (start <= started < end):
-                          continue
+                  if label == "Ulucks":
+                      rows = gcloud_json([
+                          "run", "jobs", "executions", "list",
+                          "--job", job_name, "--region", region, "--limit=100",
+                      ])
+                      for row in rows:
+                          metadata = row.get("metadata") or {}
+                          status = row.get("status") or {}
+                          start_raw = status.get("startTime") or metadata.get("creationTimestamp")
+                          if not start_raw:
+                              continue
+                          started = dt.datetime.fromisoformat(start_raw.replace("Z", "+00:00")).astimezone(JST)
+                          if not (start <= started < end):
+                              continue
 
-                      completed_raw = status.get("completionTime")
-                      succeeded = int(status.get("succeededCount") or 0)
-                      failed = int(status.get("failedCount") or 0)
-                      cancelled = int(status.get("cancelledCount") or 0)
-                      conditions = status.get("conditions") or []
-                      completed_condition = next(
-                          (c.get("status") for c in conditions if c.get("type") == "Completed"),
-                          None,
+                          completed_raw = status.get("completionTime")
+                          succeeded = int(status.get("succeededCount") or 0)
+                          failed = int(status.get("failedCount") or 0)
+                          cancelled = int(status.get("cancelledCount") or 0)
+                          conditions = status.get("conditions") or []
+                          completed_condition = next(
+                              (c.get("status") for c in conditions if c.get("type") == "Completed"),
+                              None,
+                          )
+                          if not completed_raw:
+                              outcome = "running"
+                          elif failed > 0 or cancelled > 0 or completed_condition == "False" or succeeded == 0:
+                              outcome = "failed"
+                          elif succeeded > 0:
+                              outcome = "success"
+                          else:
+                              outcome = "unknown"
+
+                          execution_name = metadata.get("name", "").rsplit("/", 1)[-1]
+                          entry["executions"].append({
+                              "execution_id": execution_name,
+                              "start_jst": iso_jst(start_raw),
+                              "completion_jst": iso_jst(completed_raw),
+                              "duration_seconds": (
+                                  int((dt.datetime.fromisoformat(completed_raw.replace("Z", "+00:00")) -
+                                       dt.datetime.fromisoformat(start_raw.replace("Z", "+00:00"))).total_seconds())
+                                  if completed_raw else None
+                              ),
+                              "succeeded_count": succeeded,
+                              "failed_count": failed,
+                              "cancelled_count": cancelled,
+                              "retried_count": status.get("retriedCount"),
+                              "task_count": row.get("taskCount"),
+                              "completed_condition": completed_condition,
+                              "outcome": outcome,
+                          })
+                  else:
+                      # RealPro and Mansion Review are read through the existing
+                      # project-level roles/logging.viewer binding. Do not widen
+                      # Cloud Run IAM just to inspect their execution history.
+                      start_utc = start.astimezone(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+                      end_utc = end.astimezone(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+                      log_filter = (
+                          'resource.type="cloud_run_job" '
+                          f'AND resource.labels.job_name="{job_name}" '
+                          f'AND timestamp>="{start_utc}" '
+                          f'AND timestamp<"{end_utc}"'
                       )
-                      if not completed_raw:
-                          outcome = "running"
-                      elif failed > 0 or cancelled > 0 or completed_condition == "False" or succeeded == 0:
-                          outcome = "failed"
-                      elif succeeded > 0:
-                          outcome = "success"
-                      else:
-                          outcome = "unknown"
+                      rows = gcloud_json([
+                          "logging", "read", log_filter, "--limit=1000", "--order=asc",
+                      ])
+                      grouped = {}
+                      unattributed = 0
+                      for row in rows:
+                          log_labels = row.get("labels") or {}
+                          resource_labels = (row.get("resource") or {}).get("labels") or {}
+                          execution_name = (
+                              log_labels.get("run.googleapis.com/execution_name")
+                              or log_labels.get("execution_name")
+                              or resource_labels.get("execution_name")
+                          )
+                          if not execution_name:
+                              unattributed += 1
+                              continue
+                          grouped.setdefault(execution_name, []).append(row)
 
-                      execution_name = metadata.get("name", "").rsplit("/", 1)[-1]
-                      entry["executions"].append({
-                          "execution_id": execution_name,
-                          "start_jst": iso_jst(start_raw),
-                          "completion_jst": iso_jst(completed_raw),
-                          "duration_seconds": (
-                              int((dt.datetime.fromisoformat(completed_raw.replace("Z", "+00:00")) -
-                                   dt.datetime.fromisoformat(start_raw.replace("Z", "+00:00"))).total_seconds())
-                              if completed_raw else None
-                          ),
-                          "succeeded_count": succeeded,
-                          "failed_count": failed,
-                          "cancelled_count": cancelled,
-                          "retried_count": status.get("retriedCount"),
-                          "task_count": row.get("taskCount"),
-                          "completed_condition": completed_condition,
-                          "outcome": outcome,
-                      })
+                      entry["log_entry_count"] = len(rows)
+                      entry["unattributed_log_entries"] = unattributed
+                      for execution_name, log_rows in grouped.items():
+                          log_rows.sort(key=lambda x: x.get("timestamp") or "")
+                          first_raw = next((x.get("timestamp") for x in log_rows if x.get("timestamp")), None)
+                          status_values = set()
+                          code_values = set()
+                          severity_values = set()
+                          exit_markers = []
+                          terminal_status_times = []
+                          for log_row in log_rows:
+                              payload = log_row.get("jsonPayload") or {}
+                              status_value = payload.get("status")
+                              if isinstance(status_value, str):
+                                  normalized_status = status_value.strip().lower()
+                                  status_values.add(normalized_status)
+                                  if normalized_status in ("success", "succeeded", "completed", "failed", "failure", "error"):
+                                      terminal_status_times.append(log_row.get("timestamp"))
+                              code_value = payload.get("code")
+                              if isinstance(code_value, str) and code_value.strip():
+                                  code_values.add(code_value.strip()[:100])
+                              severity = str(log_row.get("severity") or "DEFAULT").upper()
+                              severity_values.add(severity)
+                              text_payload = str(log_row.get("textPayload") or "")
+                              exit_match = re.search(r"Container called exit\((\d+)\)", text_payload)
+                              if exit_match:
+                                  exit_markers.append((int(exit_match.group(1)), log_row.get("timestamp")))
+
+                          exit_codes = {code for code, _ in exit_markers}
+                          failed = (
+                              bool(status_values & {"failed", "failure", "error"})
+                              or 1 in exit_codes
+                              or bool(severity_values & {"ERROR", "CRITICAL", "ALERT", "EMERGENCY"})
+                          )
+                          succeeded = bool(status_values & {"success", "succeeded", "completed"}) or 0 in exit_codes
+                          if failed:
+                              outcome = "failed"
+                          elif succeeded:
+                              outcome = "success"
+                          else:
+                              outcome = "unknown"
+
+                          terminal_raw = None
+                          if exit_markers:
+                              terminal_raw = exit_markers[-1][1]
+                          elif terminal_status_times:
+                              terminal_raw = terminal_status_times[-1]
+                          last_raw = next((x.get("timestamp") for x in reversed(log_rows) if x.get("timestamp")), None)
+                          completion_raw = terminal_raw
+                          duration = None
+                          if first_raw and completion_raw:
+                              duration = int((
+                                  dt.datetime.fromisoformat(completion_raw.replace("Z", "+00:00")) -
+                                  dt.datetime.fromisoformat(first_raw.replace("Z", "+00:00"))
+                              ).total_seconds())
+
+                          entry["executions"].append({
+                              "execution_id": execution_name,
+                              "start_jst": iso_jst(first_raw),
+                              "completion_jst": iso_jst(completion_raw),
+                              "last_log_jst": iso_jst(last_raw),
+                              "duration_seconds": duration,
+                              "succeeded_count": 1 if outcome == "success" else 0,
+                              "failed_count": 1 if outcome == "failed" else 0,
+                              "cancelled_count": 0,
+                              "retried_count": None,
+                              "task_count": None,
+                              "completed_condition": "True" if outcome == "success" else ("False" if outcome == "failed" else None),
+                              "log_entry_count": len(log_rows),
+                              "status_values": sorted(status_values),
+                              "code_values": sorted(code_values),
+                              "exit_codes": sorted(exit_codes),
+                              "outcome": outcome,
+                          })
 
                   entry["executions"].sort(key=lambda x: x["start_jst"] or "")
                   outcomes = [x["outcome"] for x in entry["executions"]]
                   if len(outcomes) == 1 and outcomes[0] == "success":
                       entry["result"] = "success"
                   elif not outcomes:
-                      entry["result"] = "missing"
+                      entry["result"] = "unconfirmed" if entry.get("unattributed_log_entries") else "missing"
                   elif "running" in outcomes:
                       entry["result"] = "running"
                   elif "failed" in outcomes:
                       entry["result"] = "failed"
                   elif len(outcomes) > 1:
                       entry["result"] = "multiple_executions"
+                  elif "unknown" in outcomes:
+                      entry["result"] = "unconfirmed"
                   else:
                       entry["result"] = "unknown"
                   if entry["result"] != "success":
