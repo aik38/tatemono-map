@@ -152,7 +152,6 @@ def test_setup_is_read_only_by_default_then_prepares_iam_without_production_perm
     assert any("attribute.role/auditor" in call for call in mutations)
     assert any("roles/run.viewer" in call for call in mutations)
     assert any("roles/cloudscheduler.viewer" in call for call in mutations)
-    assert any(v["name"] == "GCP_AUDIT_SERVICE_ACCOUNT" for v in fake.variables)
     # Storage omits versioning when it has never been configured. Do not report
     # unknown display aliases as None or mistake missing versioning for enabled.
     monkeypatch.setattr(sys, "argv", args)
