@@ -375,6 +375,25 @@ jobs:
 
           started = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
           bucket = os.environ.get("GCP_BUCKET") or "tatemono-map-poc-523194690131"
+          report_path = pathlib.Path("work/cloud-run-audit-latest.json")
+          cloud_report = json.loads(report_path.read_text(encoding="utf-8"))
+          target_date = cloud_report.get("target_thursday_jst")
+          jobs = cloud_report.get("jobs") or {}
+          def latest_execution_id(label):
+              executions = (jobs.get(label) or {}).get("executions") or []
+              return executions[0].get("execution_id") if executions else None
+          env_updates = [
+              "TATEMONO_BUCKET=" + bucket,
+              "TATEMONO_AUDIT_TARGET_THURSDAY=" + str(target_date or ""),
+          ]
+          for label, variable in (
+              ("Ulucks", "TATEMONO_AUDIT_ULUCKS_EXECUTION_ID"),
+              ("RealPro", "TATEMONO_AUDIT_REALPRO_EXECUTION_ID"),
+              ("Mansion Review", "TATEMONO_AUDIT_MANSION_EXECUTION_ID"),
+          ):
+              value = latest_execution_id(label)
+              if value:
+                  env_updates.append(variable + "=" + value)
           source = pathlib.Path("cloud/audit_sources_readonly.py").read_bytes()
           payload = base64.b64encode(zlib.compress(source, 9)).decode("ascii")
           wrapper = "exec(__import__('zlib').decompress(__import__('base64').b64decode('" + payload + "')))"
@@ -388,7 +407,7 @@ jobs:
                   "--project=" + os.environ["GCP_PROJECT_ID"],
                   "--region=" + os.environ["GCP_REGION"],
                   "--args=-c," + wrapper,
-                  "--update-env-vars=TATEMONO_BUCKET=" + bucket,
+                  "--update-env-vars=" + ",".join(env_updates),
                   "--tasks=1", "--task-timeout=900s", "--wait", "--format=json", "--quiet",
               ], capture_output=True, text=True, timeout=1000)
               command_exit = result.returncode
