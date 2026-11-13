@@ -4,7 +4,7 @@
   "project": "tatemono-map",
   "region": "asia-northeast1",
   "target_thursday_jst": "2026-11-12",
-  "generated_at_jst": "2026-11-14T06:12:15+09:00",
+  "generated_at_jst": "2026-11-14T06:22:55+09:00",
   "jobs": {
     "Ulucks": {
       "job": "tatemono-collection-poc",
@@ -127,15 +127,146 @@
   "overall": "attention_required",
   "issues": [
     "RealPro:failed",
-    "source_publication:unconfirmed"
+    "source_publication:attention_required"
   ],
   "source_publication": {
-    "schema": 1,
+    "bucket": "tatemono-map-poc-523194690131",
+    "collection_run_id": "20261112T130246Z-e6aaad73f5c5",
+    "head_generation": 1794490286925312,
+    "head_integration_contract": "mansion-review-partial-v1",
+    "head_run_id": "20261112T130246Z-e6aaad73f5c5",
+    "mansion_review_sale": {
+      "current_sale_buildings_from_ownership_ledger": 1354,
+      "current_sale_rows": 0,
+      "expected_sale_rows_after_publication_selection": 765,
+      "intentionally_not_rendered_or_hidden_sale_buildings": 2,
+      "public_db_and_web_sale_match": false,
+      "public_db_missing_sale_summaries": 0,
+      "public_db_sale_summary_mismatches": 870,
+      "visible_sale_buildings_checked": 1352,
+      "web_json_missing_sale_buildings": 0,
+      "web_json_sale_summary_mismatches": 0
+    },
+    "master_integrity": "ok",
+    "master_sha256": "f779713ae52e7a5819df5d7472cf56c4ba164f17024fdf6656d0e193b3c37e5b",
     "mode": "read_only",
-    "overall": "unconfirmed",
-    "error_class": "Forbidden",
-    "error_code": "403 GET https://storage.googleapis.com/storage/v1/b/tatemono-map-poc-523194690131/o?projection=noAcl&prefix=private-runs",
-    "audit_execution_name": "tatemono-collection-poc-lw2fm",
-    "execution_command_exit_code": 1
+    "overall": "attention_required",
+    "production_web": {
+      "detail_pages_verified": 3,
+      "public_sha256": "0ff1fd4b2ff8ee2e5d332f70ec1a560a8901dd78441b974d3b592f829b5eff9c",
+      "release_run_id": "20261112T130246Z-e6aaad73f5c5",
+      "status": "verified",
+      "web_building_count": 8913
+    },
+    "project": "tatemono-map",
+    "public_counts": {
+      "building_summaries": 8913,
+      "buildings": 8913,
+      "vacancies": 12644
+    },
+    "public_integrity": "ok",
+    "public_sha256": "0ff1fd4b2ff8ee2e5d332f70ec1a560a8901dd78441b974d3b592f829b5eff9c",
+    "scheduled_audit_thursday_jst": "2026-11-12",
+    "schema": 1,
+    "sources": {
+      "Mansion Review": {
+        "current_scope_count": 0,
+        "current_scope_cycles": [
+          {
+            "current_scopes": 33,
+            "cycle": "week-20261112",
+            "kind": "chintai"
+          },
+          {
+            "current_scopes": 19,
+            "cycle": "week-20261112",
+            "kind": "mansion"
+          }
+        ],
+        "current_snapshot_buildings": 0,
+        "current_snapshot_rows": 0,
+        "current_snapshot_rows_not_selected_for_publication": 0,
+        "current_snapshot_scopes_with_rows": 0,
+        "effective_buildings_selected_for_publication": 1785,
+        "effective_current_snapshot_rows_selected": 0,
+        "effective_retained_rows_selected": 3699,
+        "effective_rows_selected_for_publication": 3699,
+        "intentionally_not_rendered_or_hidden_buildings": 56,
+        "latest_cloud_run_execution_id": "tatemono-mansion-weekly-gl5kz",
+        "latest_cycle": "week-20261112",
+        "latest_integrated_cycle": "week-20261112",
+        "latest_integration": {
+          "absent_scopes": 18,
+          "attached_rows": 6153,
+          "failed_scopes": 0,
+          "parsed_rows": 14770,
+          "row_counts": {
+            "accepted_existing": 6114,
+            "accepted_new": 39,
+            "anomaly": 171,
+            "duplicate": 9,
+            "held": 8437
+          },
+          "successful_scopes": 52
+        },
+        "public_db_and_web_match": true,
+        "public_db_missing_buildings": 0,
+        "public_db_summary_mismatches": 0,
+        "rental_source_priority_rank": 3,
+        "visible_buildings_checked": 1729,
+        "web_json_missing_buildings": 0,
+        "web_json_summary_mismatches": 0
+      },
+      "RealPro": {
+        "current_scope_count": 0,
+        "current_snapshot_buildings": 0,
+        "current_snapshot_rows": 0,
+        "current_snapshot_rows_not_selected_for_publication": 0,
+        "current_snapshot_scopes_with_rows": 0,
+        "effective_buildings_selected_for_publication": 4119,
+        "effective_current_snapshot_rows_selected": 0,
+        "effective_retained_rows_selected": 7532,
+        "effective_rows_selected_for_publication": 7532,
+        "intentionally_not_rendered_or_hidden_buildings": 2172,
+        "latest_cloud_run_execution_id": "tatemono-realpro-weekly-xbvw9",
+        "latest_pdf_input_acquired_at": "2026-11-12T16:11:59+09:00",
+        "latest_scheduled_acquisition_cycle": "weekly-2026-11-12",
+        "latest_semantic_batch_acquired_at": "2026-11-12T16:11:07+09:00",
+        "public_db_and_web_match": true,
+        "public_db_missing_buildings": 0,
+        "public_db_summary_mismatches": 0,
+        "rental_source_priority_rank": 2,
+        "stored_company_batch_scopes": 100,
+        "stored_pdf_companies": 106,
+        "stored_pdf_inputs": 506,
+        "visible_buildings_checked": 1947,
+        "web_json_missing_buildings": 0,
+        "web_json_summary_mismatches": 0
+      },
+      "Ulucks": {
+        "current_acquisition_run_ids": [],
+        "current_scope_count": 0,
+        "current_snapshot_buildings": 0,
+        "current_snapshot_rows": 0,
+        "current_snapshot_rows_not_selected_for_publication": 0,
+        "current_snapshot_scopes_with_rows": 0,
+        "effective_buildings_selected_for_publication": 2185,
+        "effective_current_snapshot_rows_selected": 0,
+        "effective_retained_rows_selected": 5165,
+        "effective_rows_selected_for_publication": 5165,
+        "intentionally_not_rendered_or_hidden_buildings": 3,
+        "latest_cloud_run_execution_id": "tatemono-collection-poc-cnght",
+        "latest_scheduled_acquisition_cycle": "weekly-2026-11-12",
+        "public_db_and_web_match": true,
+        "public_db_missing_buildings": 0,
+        "public_db_summary_mismatches": 0,
+        "rental_source_priority_rank": 1,
+        "visible_buildings_checked": 2182,
+        "web_json_missing_buildings": 0,
+        "web_json_summary_mismatches": 0
+      }
+    },
+    "audit_execution_name": "tatemono-collection-poc-qv6q4",
+    "execution_command_exit_code": 0
   }
 }
