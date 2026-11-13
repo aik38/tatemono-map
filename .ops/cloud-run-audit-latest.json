@@ -4,7 +4,7 @@
   "project": "tatemono-map",
   "region": "asia-northeast1",
   "target_thursday_jst": "2026-11-12",
-  "generated_at_jst": "2026-11-14T04:42:59+09:00",
+  "generated_at_jst": "2026-11-14T06:12:15+09:00",
   "jobs": {
     "Ulucks": {
       "job": "tatemono-collection-poc",
@@ -126,6 +126,16 @@
   },
   "overall": "attention_required",
   "issues": [
-    "RealPro:failed"
-  ]
+    "RealPro:failed",
+    "source_publication:unconfirmed"
+  ],
+  "source_publication": {
+    "schema": 1,
+    "mode": "read_only",
+    "overall": "unconfirmed",
+    "error_class": "Forbidden",
+    "error_code": "403 GET https://storage.googleapis.com/storage/v1/b/tatemono-map-poc-523194690131/o?projection=noAcl&prefix=private-runs",
+    "audit_execution_name": "tatemono-collection-poc-lw2fm",
+    "execution_command_exit_code": 1
+  }
 }
