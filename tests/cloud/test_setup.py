@@ -149,6 +149,9 @@ def test_setup_is_read_only_by_default_then_prepares_iam_without_production_perm
     assert not any("run jobs update" in call or "run jobs execute" in call for call in calls)
     assert any("attribute.role/deployer" in call for call in mutations)
     assert any("attribute.role/publisher" in call for call in mutations)
+    assert any("attribute.role/auditor" in call for call in mutations)
+    assert any("roles/run.viewer" in call for call in mutations)
+    assert any("roles/cloudscheduler.viewer" in call for call in mutations)
     # Storage omits versioning when it has never been configured. Do not report
     # unknown display aliases as None or mistake missing versioning for enabled.
     monkeypatch.setattr(sys, "argv", args)
@@ -434,3 +437,17 @@ def test_registered_bootstrap_resumes_variable_setup_without_regeneration_or_gcs
     assert bool(enabled) == (failure is None)
     assert {'name': 'UNRELATED', 'value': 'preserve-me'} in fake.variables
     assert not any(c[1:3] == ['workflow','run'] for c in fake.calls)
+
+
+
+def test_provider_contract_includes_three_approved_main_workflows():
+    mod = module("setup_gcp")
+    contract = mod.provider_contract("123", "456", "789")
+    condition = contract["attributeCondition"]
+    mapping = contract["attributeMapping"]["attribute.role"]
+    assert "cloud_deploy.yml@refs/heads/main" in condition
+    assert "deploy_pages.yml@refs/heads/main" in condition
+    assert "weekly_cloud_run_audit.yml@refs/heads/main" in condition
+    assert "'deployer'" in mapping
+    assert "'publisher'" in mapping
+    assert "'auditor'" in mapping
