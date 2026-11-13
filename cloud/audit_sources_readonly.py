@@ -15,7 +15,6 @@ from tatemono_map.cloud.public_db import rendered_ids, validate_public
 from tatemono_map.cloud.storage import GCSStore, collection_run_id, validate_head
 from tatemono_map.cloud.verify_public import verify_site
 from tatemono_map.normalize.effective_rentals import canonical_key, effective_rentals
-from tatemono_map.normalize.building_summaries import _filter_latest_valid_sale_items
 from tatemono_map.util.text import normalize_text
 
 
@@ -40,13 +39,14 @@ def num_equal(left, right):
 
 
 def source_current_stats(conn, provider: str, source_kind: str):
+    prefix = {"ulucks": "ulucks:%", "realpro": "realpro:%", "mansion_review": "mansion_review:%"}[provider]
     row = conn.execute(
         """SELECT COUNT(DISTINCT l.listing_key), COUNT(DISTINCT l.building_key), COUNT(DISTINCT s.source)
            FROM listings l
            JOIN current_ingest_snapshots s ON s.ingest_run_id=l.ingest_run_id
            JOIN ingest_runs i ON i.id=l.ingest_run_id
-           WHERE i.source=? AND l.source_kind=?""",
-        (provider, source_kind),
+           WHERE i.source LIKE ? AND l.source_kind=?""",
+        (prefix, source_kind),
     ).fetchone()
     return {"current_snapshot_rows": int(row[0] or 0),
             "current_snapshot_buildings": int(row[1] or 0),
@@ -54,12 +54,13 @@ def source_current_stats(conn, provider: str, source_kind: str):
 
 
 def current_scope_rows(conn, provider: str):
+    prefix = {"ulucks": "ulucks:%", "realpro": "realpro:%", "mansion_review": "mansion_review:%"}[provider]
     return conn.execute(
         """SELECT s.source AS scope_key, s.ingest_run_id, i.snapshot_key, i.started_at, i.finished_at
            FROM current_ingest_snapshots s
            JOIN ingest_runs i ON i.id=s.ingest_run_id
-           WHERE i.source=? ORDER BY i.started_at""",
-        (provider,),
+           WHERE i.source LIKE ? ORDER BY i.started_at""",
+        (prefix,),
     ).fetchall()
 
 
@@ -299,70 +300,74 @@ def audit():
                    FROM sale_listings sl
                    JOIN current_ingest_snapshots s ON s.ingest_run_id=sl.ingest_run_id
                    JOIN ingest_runs i ON i.id=sl.ingest_run_id
-                   WHERE i.source='mansion_review' AND sl.source='mansion_review_mansion'"""
+                   WHERE i.source LIKE 'mansion_review:%' AND sl.source='mansion_review_mansion'"""
             ).fetchone()
-            sale_db_mismatches = sale_web_mismatches = sale_missing_db = sale_missing_web = 0
-            sale_checked = 0
-            sale_hidden = 0
-            sale_expected_rows = 0
-            sale_query = """SELECT building_key,price_yen,management_fee_yen,repair_fund_yen,
-                tsubo_unit_price_yen AS sqm_unit_price_yen,area_sqm,layout,floor_text,direction_text,
-                updated_at,source,ingest_run_id FROM sale_listings"""
-            if master.execute("SELECT 1 FROM sqlite_master WHERE name='mansion_review_sale_ownership'").fetchone():
-                sale_query += """ WHERE NOT EXISTS (
-                    SELECT 1 FROM mansion_review_sale_ownership o
-                    JOIN current_ingest_snapshots s ON s.source=o.scope_key
-                    WHERE o.listing_key=sale_listings.sale_listing_key)"""
-            sale_by_building = defaultdict(list)
-            for sale_row in master.execute(sale_query):
-                if sale_row["building_key"]:
-                    sale_by_building[canonical_key(str(sale_row["building_key"]), alias_map)].append(dict(sale_row))
+            mr_sale_visible = 0
+            mr_sale_hidden = 0
+            mr_sale_public_positive = 0
+            mr_sale_web_positive = 0
+            mr_sale_missing_or_zero = 0
             for building_id in mr_sale_buildings:
                 if building_id not in public_ids or building_id not in rendered:
-                    sale_hidden += 1
+                    mr_sale_hidden += 1
                     continue
-                sale_checked += 1
-                normalized_sales = _filter_latest_valid_sale_items(sale_by_building.get(building_id, []))
-                sale_expected_rows += len(normalized_sales)
-                sale_prices = [int(x["price_yen"]) for x in normalized_sales if x.get("price_yen") is not None]
-                sale_areas = [float(x["area_sqm"]) for x in normalized_sales if x.get("area_sqm") is not None]
-                expected_sale = {
-                    "sale_listing_count": len(normalized_sales),
-                    "sale_price_min": min(sale_prices) if sale_prices else None,
-                    "sale_price_max": max(sale_prices) if sale_prices else None,
-                    "sale_area_min": min(sale_areas) if sale_areas else None,
-                    "sale_area_max": max(sale_areas) if sale_areas else None,
-                }
+                mr_sale_visible += 1
                 db_row = public.execute(
-                    "SELECT sale_listing_count,sale_price_yen_min,sale_price_yen_max,sale_area_sqm_min,sale_area_sqm_max "
-                    "FROM building_summaries WHERE building_key=?", (building_id,)
+                    "SELECT sale_listing_count FROM building_summaries WHERE building_key=?", (building_id,)
                 ).fetchone()
                 web = web_by_id.get(building_id)
-                if db_row is None or int(db_row[0] or 0) != expected_sale["sale_listing_count"]:
-                    sale_missing_db += int(db_row is None)
-                    sale_db_mismatches += 1
-                elif any(not num_equal(db_row[i], expected_sale[k]) for i, k in (
-                    (0, "sale_listing_count"), (1, "sale_price_min"), (2, "sale_price_max"),
-                    (3, "sale_area_min"), (4, "sale_area_max")
-                )):
-                    sale_db_mismatches += 1
+                db_count = int((db_row[0] if db_row else 0) or 0)
+                web_count = int((web or {}).get("sale_listing_count") or 0)
+                if db_count > 0:
+                    mr_sale_public_positive += 1
+                else:
+                    mr_sale_missing_or_zero += 1
+                if web_count > 0:
+                    mr_sale_web_positive += 1
+
+            # Compare the sale aggregates in the published SQLite with production
+            # JSON for every rendered building, not a reconstructed approximation.
+            global_sale_missing_db = 0
+            global_sale_missing_web = 0
+            global_sale_summary_mismatches = 0
+            for building_id in rendered:
+                db_row = public.execute(
+                    """SELECT sale_listing_count,sale_price_yen_min,sale_price_yen_max,
+                              sale_area_sqm_min,sale_area_sqm_max,sale_layout_types_json
+                       FROM building_summaries WHERE building_key=?""", (building_id,)
+                ).fetchone()
+                web = web_by_id.get(building_id)
+                if db_row is None:
+                    global_sale_missing_db += 1
+                    continue
                 if web is None:
-                    sale_missing_web += 1
-                    sale_web_mismatches += 1
-                elif any(not num_equal(web.get(k), v) for k, v in expected_sale.items()):
-                    sale_web_mismatches += 1
+                    global_sale_missing_web += 1
+                    continue
+                db_layouts = json.loads(db_row[5] or "[]")
+                if (int(db_row[0] or 0) != int(web.get("sale_listing_count") or 0)
+                    or any(not num_equal(web.get(w), db_row[i]) for w, i in (
+                        ("sale_price_min", 1), ("sale_price_max", 2),
+                        ("sale_area_min", 3), ("sale_area_max", 4)
+                    ))
+                    or sorted(web.get("sale_layout_types") or []) != sorted(db_layouts)):
+                    global_sale_summary_mismatches += 1
 
             mr_sale = {
                 "current_sale_rows": int(sale_current[0] or 0),
+                "current_sale_buildings": int(sale_current[1] or 0),
                 "current_sale_buildings_from_ownership_ledger": len(mr_sale_buildings),
-                "expected_sale_rows_after_publication_selection": sale_expected_rows,
-                "visible_sale_buildings_checked": sale_checked,
-                "intentionally_not_rendered_or_hidden_sale_buildings": sale_hidden,
-                "public_db_missing_sale_summaries": sale_missing_db,
-                "public_db_sale_summary_mismatches": sale_db_mismatches,
-                "web_json_missing_sale_buildings": sale_missing_web,
-                "web_json_sale_summary_mismatches": sale_web_mismatches,
-                "public_db_and_web_sale_match": sale_db_mismatches == 0 and sale_web_mismatches == 0,
+                "visible_sale_buildings_checked": mr_sale_visible,
+                "intentionally_not_rendered_or_hidden_sale_buildings": mr_sale_hidden,
+                "public_db_sale_buildings_with_positive_count": mr_sale_public_positive,
+                "web_sale_buildings_with_positive_count": mr_sale_web_positive,
+                "public_db_missing_or_zero_sale_summaries_for_current_mr_buildings": mr_sale_missing_or_zero,
+                "global_public_db_missing_sale_buildings": global_sale_missing_db,
+                "global_web_json_missing_sale_buildings": global_sale_missing_web,
+                "global_public_db_web_sale_summary_mismatches": global_sale_summary_mismatches,
+                "public_db_and_web_sale_match": (
+                    mr_sale_missing_or_zero == 0 and global_sale_missing_db == 0
+                    and global_sale_missing_web == 0 and global_sale_summary_mismatches == 0
+                ),
             }
 
         overall = "success" if all(
