@@ -14,15 +14,19 @@ permissions:
 jobs:
   audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     permissions:
       contents: write
       id-token: write
     env:
       GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       GCP_REGION: ${{ vars.GCP_REGION }}
+      GCP_BUCKET: ${{ vars.GCP_BUCKET }}
       TARGET_DATE: ${{ inputs.target_date }}
     steps:
+      - name: Checkout audit code
+        uses: actions/checkout@v4
+
       - name: Authenticate to Google Cloud with existing Workload Identity Federation
         uses: google-github-actions/auth@v2
         with:
@@ -354,6 +358,150 @@ jobs:
               f.write("result=" + report["overall"] + "\n")
           PY
 
+      - name: Verify each source from canonical master through public DB to production Web
+        id: source_publication
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64
+          import datetime as dt
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import zlib
+
+          started = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+          bucket = os.environ.get("GCP_BUCKET") or "tatemono-map-poc-523194690131"
+          source = pathlib.Path("cloud/audit_sources_readonly.py").read_bytes()
+          payload = base64.b64encode(zlib.compress(source, 9)).decode("ascii")
+          wrapper = "exec(__import__('zlib').decompress(__import__('base64').b64decode('" + payload + "')))"
+
+          command_exit = None
+          execution_name = None
+          execution_error = None
+          try:
+              result = subprocess.run([
+                  "gcloud", "run", "jobs", "execute", "tatemono-collection-poc",
+                  "--project=" + os.environ["GCP_PROJECT_ID"],
+                  "--region=" + os.environ["GCP_REGION"],
+                  "--args=-c," + wrapper,
+                  "--update-env-vars=TATEMONO_BUCKET=" + bucket,
+                  "--tasks=1", "--task-timeout=900s", "--wait", "--format=json", "--quiet",
+              ], capture_output=True, text=True, timeout=1000)
+              command_exit = result.returncode
+              try:
+                  payload_json = json.loads(result.stdout or "{}")
+              except Exception:
+                  payload_json = {}
+              name = (payload_json.get("metadata") or {}).get("name") or payload_json.get("name")
+              if name:
+                  execution_name = str(name).rsplit("/", 1)[-1]
+              if not execution_name:
+                  match = re.search(r"tatemono-collection-poc-[a-z0-9]+", (result.stdout or "") + "\n" + (result.stderr or ""))
+                  execution_name = match.group(0) if match else None
+              if result.returncode and not execution_name:
+                  stderr = result.stderr or ""
+                  execution_error = "PERMISSION_DENIED" if re.search(r"PERMISSION_DENIED|permission denied|403|forbidden", stderr, re.I) else "CLOUD_RUN_EXECUTION_FAILED"
+          except subprocess.TimeoutExpired as exc:
+              command_exit = "timeout"
+              execution_error = "CLOUD_RUN_WAIT_TIMEOUT"
+              out = exc.stdout.decode("utf-8", "replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+              match = re.search(r"tatemono-collection-poc-[a-z0-9]+", out)
+              execution_name = match.group(0) if match else None
+          except Exception as exc:
+              command_exit = "error"
+              execution_error = type(exc).__name__
+
+          def read_audit_log(execution):
+              log_filter = (
+                  'resource.type="cloud_run_job" '
+                  'AND resource.labels.job_name="tatemono-collection-poc" '
+                  f'AND timestamp>="{started}" '
+                  'AND textPayload:"TATEMONO_SOURCE_PUBLICATION_AUDIT_JSON"'
+              )
+              if execution:
+                  log_filter += f' AND labels."run.googleapis.com/execution_name"="{execution}"'
+              result = subprocess.run([
+                  "gcloud", "logging", "read", log_filter,
+                  "--project=" + os.environ["GCP_PROJECT_ID"],
+                  "--limit=30", "--order=desc", "--format=json", "--quiet",
+              ], capture_output=True, text=True, timeout=120)
+              if result.returncode:
+                  return None, "CLOUD_LOGGING_READ_FAILED"
+              try:
+                  rows = json.loads(result.stdout or "[]")
+              except Exception:
+                  return None, "CLOUD_LOGGING_RESPONSE_INVALID"
+              for row in rows:
+                  text = str(row.get("textPayload") or "")
+                  marker = "TATEMONO_SOURCE_PUBLICATION_AUDIT_JSON="
+                  if marker in text:
+                      try:
+                          return json.loads(text.split(marker, 1)[1].strip()), None
+                      except Exception:
+                          continue
+              return None, "AUDIT_LOG_MARKER_NOT_FOUND"
+
+          source_report, log_error = read_audit_log(execution_name)
+          if source_report is None and execution_name:
+              source_report, log_error = read_audit_log(None)
+          if source_report is None:
+              source_report = {
+                  "schema": 1,
+                  "mode": "read_only",
+                  "overall": "unconfirmed",
+                  "error_class": execution_error or log_error or "AUDIT_RESULT_UNAVAILABLE",
+              }
+
+          source_report["audit_execution_name"] = execution_name
+          source_report["execution_command_exit_code"] = command_exit
+          if execution_error:
+              source_report["execution_error_class"] = execution_error
+
+          report_path = pathlib.Path("work/cloud-run-audit-latest.json")
+          cloud_report = json.loads(report_path.read_text(encoding="utf-8"))
+          cloud_report["source_publication"] = source_report
+          if source_report.get("overall") != "success":
+              cloud_report["overall"] = "attention_required"
+              issues = cloud_report.setdefault("issues", [])
+              issue = "source_publication:" + str(source_report.get("overall") or "unconfirmed")
+              if issue not in issues:
+                  issues.append(issue)
+          report_path.write_text(json.dumps(cloud_report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path:
+              with open(summary_path, "a", encoding="utf-8") as summary:
+                  summary.write("\n# Source → canonical DB → public DB → production Web\n\n")
+                  summary.write(f"Source publication audit: **{source_report.get('overall', 'unconfirmed')}**\n\n")
+                  summary.write(f"HEAD: {source_report.get('head_run_id', 'unconfirmed')}\n\n")
+                  summary.write("| Source | Current snapshot rows | Effective rows published | DB mismatches | Web mismatches |\n")
+                  summary.write("|---|---:|---:|---:|---:|\n")
+                  for label, values in (source_report.get("sources") or {}).items():
+                      summary.write(
+                          f"| {label} | {values.get('current_snapshot_rows', '—')} "
+                          f"| {values.get('effective_rows_selected_for_publication', '—')} "
+                          f"| {values.get('public_db_summary_mismatches', '—')} "
+                          f"| {values.get('web_json_summary_mismatches', '—')} |\n"
+                      )
+                  sale = source_report.get("mansion_review_sale") or {}
+                  if sale:
+                      summary.write(
+                          f"\nMansion Review sales: current rows **{sale.get('current_sale_rows', '—')}**, "
+                          f"DB mismatches **{sale.get('public_db_sale_summary_mismatches', '—')}**, "
+                          f"Web mismatches **{sale.get('web_json_sale_summary_mismatches', '—')}**.\n"
+                      )
+                  if source_report.get("error_class"):
+                      summary.write(f"\nAudit limitation/error: {source_report['error_class']}.\n")
+
+          result = "success" if source_report.get("overall") == "success" else "attention_required"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write("result=" + result + "\n")
+          PY
+
       - name: Publish audit JSON to the private ops-status branch
         uses: actions/github-script@v7
         with:
@@ -385,5 +533,5 @@ jobs:
             });
 
       - name: Mark the workflow failed if any monitored source is not clean
-        if: steps.audit.outputs.result != 'success'
+        if: steps.audit.outputs.result != 'success' || steps.source_publication.outputs.result != 'success'
         run: exit 1
