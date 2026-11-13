@@ -4,7 +4,7 @@
   "project": "tatemono-map",
   "region": "asia-northeast1",
   "target_thursday_jst": "2026-11-12",
-  "generated_at_jst": "2026-11-14T04:33:38+09:00",
+  "generated_at_jst": "2026-11-14T04:42:59+09:00",
   "jobs": {
     "Ulucks": {
       "job": "tatemono-collection-poc",
@@ -30,18 +30,72 @@
     "RealPro": {
       "job": "tatemono-realpro-weekly",
       "scheduler": "tatemono-realpro-weekly",
-      "query_status": "error",
-      "executions": [],
-      "error_class": "gcloud_read_failed",
-      "result": "unconfirmed"
+      "query_status": "ok",
+      "executions": [
+        {
+          "execution_id": "tatemono-realpro-weekly-xbvw9",
+          "start_jst": "2026-11-12T14:05:26+09:00",
+          "completion_jst": "2026-11-12T22:01:58+09:00",
+          "last_log_jst": "2026-11-12T22:02:02+09:00",
+          "duration_seconds": 28592,
+          "succeeded_count": 0,
+          "failed_count": 1,
+          "cancelled_count": 0,
+          "retried_count": null,
+          "task_count": null,
+          "completed_condition": "False",
+          "log_entry_count": 633,
+          "status_values": [
+            "failed",
+            "outside_fukuoka_or_no_available_regions",
+            "pdf_verified"
+          ],
+          "code_values": [
+            "realpro_public_web_sync_pending"
+          ],
+          "exit_codes": [
+            0,
+            1
+          ],
+          "outcome": "failed"
+        }
+      ],
+      "log_entry_count": 633,
+      "unattributed_log_entries": 0,
+      "result": "failed"
     },
     "Mansion Review": {
       "job": "tatemono-mansion-weekly",
       "scheduler": "tatemono-mansion-weekly",
-      "query_status": "error",
-      "executions": [],
-      "error_class": "gcloud_read_failed",
-      "result": "unconfirmed"
+      "query_status": "ok",
+      "executions": [
+        {
+          "execution_id": "tatemono-mansion-weekly-gl5kz",
+          "start_jst": "2026-11-12T14:10:25+09:00",
+          "completion_jst": "2026-11-12T22:31:27+09:00",
+          "last_log_jst": "2026-11-12T22:31:32+09:00",
+          "duration_seconds": 30062,
+          "succeeded_count": 1,
+          "failed_count": 0,
+          "cancelled_count": 0,
+          "retried_count": null,
+          "task_count": null,
+          "completed_condition": "True",
+          "log_entry_count": 919,
+          "status_values": [
+            "no_source_page",
+            "success"
+          ],
+          "code_values": [],
+          "exit_codes": [
+            0
+          ],
+          "outcome": "success"
+        }
+      ],
+      "log_entry_count": 919,
+      "unattributed_log_entries": 0,
+      "result": "success"
     }
   },
   "schedulers": {
@@ -72,7 +126,6 @@
   },
   "overall": "attention_required",
   "issues": [
-    "RealPro:unconfirmed",
-    "Mansion Review:unconfirmed"
+    "RealPro:failed"
   ]
 }
