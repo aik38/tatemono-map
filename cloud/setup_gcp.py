@@ -23,7 +23,7 @@ from tatemono_map.cloud.gcp_inventory import job_inventory
 REPOSITORY = "aik38/tatemono-map"
 POOL = "tatemono-github"
 PROVIDER = "github-main"
-ACCOUNTS = {"runtime": "tm-ulucks-runtime", "deployer": "tm-github-deploy", "publisher": "tm-pages-reader", "scheduler": "tm-weekly-trigger"}
+ACCOUNTS = {"runtime": "tm-ulucks-runtime", "deployer": "tm-github-deploy", "publisher": "tm-pages-reader", "auditor": "tm-weekly-auditor", "scheduler": "tm-weekly-trigger"}
 APIS = ("run.googleapis.com", "artifactregistry.googleapis.com", "iam.googleapis.com", "iamcredentials.googleapis.com", "sts.googleapis.com", "secretmanager.googleapis.com", "cloudscheduler.googleapis.com", "storage.googleapis.com")
 
 
@@ -46,11 +46,11 @@ def canonical(value):
 
 
 def provider_contract(project_number, repo_id, owner_id):
-    workflows = [f"{REPOSITORY}/.github/workflows/{name}@refs/heads/main" for name in ("cloud_deploy.yml", "deploy_pages.yml")]
+    workflows = [f"{REPOSITORY}/.github/workflows/{name}@refs/heads/main" for name in ("cloud_deploy.yml", "deploy_pages.yml", "weekly_cloud_run_audit.yml")]
     return {
         "attributeMapping": {
             "google.subject": "assertion.sub", "attribute.repository_id": "assertion.repository_id",
-            "attribute.role": f"assertion.workflow_ref == '{workflows[0]}' ? 'deployer' : 'publisher'",
+            "attribute.role": f"assertion.workflow_ref == '{workflows[0]}' ? 'deployer' : assertion.workflow_ref == '{workflows[1]}' ? 'publisher' : 'auditor'",
         },
         "attributeCondition": f"assertion.repository_id == '{repo_id}' && assertion.repository_owner_id == '{owner_id}' && assertion.repository == '{REPOSITORY}' && assertion.ref == 'refs/heads/main' && assertion.workflow_ref in {json.dumps(workflows)}",
         "issuerUri": "https://token.actions.githubusercontent.com",
@@ -189,7 +189,7 @@ def main():
         "mode": "activate" if args.activate else "prepare_iam" if args.apply else "read_only",
         "existing_job_image": image,
         "rollback_service_account_act_as": previous_account if args.activate else None,
-        "changes": ["enable identity/Secret/Storage APIs", "create missing runtime/deployer/publisher service accounts and WIF pool/provider", "bind existing enabled Ulucks login Secret to runtime only", "grant publisher read-only public/state access"],
+        "changes": ["enable identity/Secret/Storage APIs", "create missing runtime/deployer/publisher/auditor service accounts and WIF pool/provider", "bind existing enabled Ulucks login Secret to runtime only", "grant publisher read-only public/state access", "grant auditor read-only Cloud Run execution and Cloud Scheduler visibility"],
         "activation_only": ["grant runtime storage writes and deployer Job/registry/actAs permissions", "enable bucket protection", "create collection Secret and paused Scheduler", "bootstrap reviewed master only if head missing", "set GitHub variables, enable cloud mode and dispatch reviewed main"],
         "job_impact": "No image/config update or execution in setup. GitHub cloud_deploy later adopts only the inspected image, retains existing environment and records the old Job spec privately before updating.",
         "permissions_required": ["read existing GCP assets and GitHub Actions variables", "Service Usage Admin", "Workload Identity Pool Admin", "Service Account Admin", "set IAM policy on selected bucket and Ulucks login Secret"] + (["Project IAM Admin (limited Scheduler role)", "Cloud Scheduler Admin", "Cloud Run Admin on existing Job", "Artifact Registry IAM", "GitHub Actions variable write and workflow dispatch"] if args.activate else []),
@@ -286,9 +286,11 @@ def main():
             # gcloud dictionary delimiter avoids commas inside CEL expressions.
             mapping = "^~^" + "~".join(f"{k}={v}" for k, v in contract["attributeMapping"].items())
             gc("iam", "workload-identity-pools", "providers", "create-oidc", PROVIDER, "--workload-identity-pool", POOL, "--location=global", "--issuer-uri", contract["issuerUri"], "--attribute-mapping", mapping, "--attribute-condition", contract["attributeCondition"])
-        for role in ("deployer", "publisher"):
+        for role in ("deployer", "publisher", "auditor"):
             principal = f"principalSet://iam.googleapis.com/projects/{number}/locations/global/workloadIdentityPools/{POOL}/attribute.role/{role}"
             gc("iam", "service-accounts", "add-iam-policy-binding", email[role], "--member", principal, "--role=roles/iam.workloadIdentityUser")
+        gc("projects", "add-iam-policy-binding", project, "--member=serviceAccount:" + email["auditor"], "--role=roles/run.viewer")
+        gc("projects", "add-iam-policy-binding", project, "--member=serviceAccount:" + email["auditor"], "--role=roles/cloudscheduler.viewer")
         prefix = f"projects/_/buckets/{bucket}/objects/"
         runtime_condition = "expression=" + " || ".join(f"resource.name.startsWith('{prefix}{path}')" for path in ("masters/", "backups/", "private-runs/", "public/", "state/")) + ",title=tatemono-cloud-runtime"
         public_condition = f"expression=resource.name == '{prefix}state/current.json' || resource.name.startsWith('{prefix}public/'),title=tatemono-public-reader"
@@ -345,7 +347,7 @@ def main():
         "GCP_PROJECT_ID": project, "GCP_REGION": region, "GCP_BUCKET": bucket, "GCP_JOB": job,
         "GCP_ARTIFACT_REPOSITORY": registry, "GCP_SCHEDULER_JOB": config["scheduler_job"], "GCP_ADOPT_IMAGE": image,
         "GCP_WIF_PROVIDER": f"projects/{number}/locations/global/workloadIdentityPools/{POOL}/providers/{PROVIDER}",
-        "GCP_DEPLOY_SERVICE_ACCOUNT": email["deployer"], "GCP_PAGES_SERVICE_ACCOUNT": email["publisher"], "GCP_RUNTIME_SERVICE_ACCOUNT": email["runtime"],
+        "GCP_DEPLOY_SERVICE_ACCOUNT": email["deployer"], "GCP_PAGES_SERVICE_ACCOUNT": email["publisher"], "GCP_RUNTIME_SERVICE_ACCOUNT": email["runtime"], "GCP_AUDIT_SERVICE_ACCOUNT": email["auditor"],
         "ULUCKS_CONFIG_SECRET": f"projects/{project}/secrets/{config['collection_secret']}/versions/latest",
         "ULUCKS_LOGIN_SECRET": f"projects/{project}/secrets/{config['login_secret']}/versions/latest",
     }
