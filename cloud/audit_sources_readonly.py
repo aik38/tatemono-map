@@ -395,7 +395,7 @@ def audit():
                 "release_run_id": marker["run_id"],
                 "public_sha256": marker["public_sha256"],
                 "web_building_count": len(web_rows),
-                "detail_pages_verified": 3,
+                "detail_pages_verified": min(3, len(marker.get("proof") or [])),
             },
             "sources": rental_results,
             "mansion_review_sale": mr_sale,
