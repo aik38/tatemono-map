@@ -63,7 +63,7 @@ def current_scope_rows(conn, provider: str):
     ).fetchall()
 
 
-def source_run_summary(store, provider: str, scopes):
+def source_run_summary(store, provider: str, scopes, conn):
     result = {"current_scope_count": len(scopes)}
     if scopes:
         result["latest_snapshot_finished_at"] = max((r[4] or r[3] or "") for r in scopes)
@@ -74,6 +74,10 @@ def source_run_summary(store, provider: str, scopes):
             if (match := re.match(r"^(\d{8}T\d{6}Z-[0-9a-f]{12})-company-\d+$", str(row[2] or "")))
         })
         result["current_acquisition_run_ids"] = run_ids[-5:]
+        if os.environ.get("TATEMONO_AUDIT_TARGET_THURSDAY"):
+            result["latest_scheduled_acquisition_cycle"] = "weekly-" + os.environ["TATEMONO_AUDIT_TARGET_THURSDAY"]
+        if os.environ.get("TATEMONO_AUDIT_ULUCKS_EXECUTION_ID"):
+            result["latest_cloud_run_execution_id"] = os.environ["TATEMONO_AUDIT_ULUCKS_EXECUTION_ID"]
         if run_ids:
             batch = read_json_blob(store, f"private-runs/{run_ids[-1]}/batch-result.json")
             if batch:
@@ -86,35 +90,24 @@ def source_run_summary(store, provider: str, scopes):
                 result["latest_batch_failed_companies"] = len(batch.get("failed") or [])
                 result["latest_batch_unavailable_companies"] = len(batch.get("unavailable") or [])
     elif provider == "realpro":
-        manifests = []
-        for blob in store.bucket.list_blobs(prefix="private-runs/"):
-            if blob.name.endswith("/realpro-acquisition-manifest.json"):
-                try:
-                    value = json.loads(blob.download_as_bytes(if_generation_match=int(blob.generation)))
-                    if value.get("cycle") and value.get("run_id"):
-                        integration = read_json_blob(store, f"private-runs/{value['run_id']}/realpro-report.json")
-                        manifests.append((value, integration))
-                except Exception:
-                    continue
-        if manifests:
-            latest_acquisition, _ = max(manifests, key=lambda x: (str(x[0].get("cycle")), str(x[0].get("run_id"))))
-            result["latest_acquisition_cycle"] = latest_acquisition.get("cycle")
-            result["latest_acquisition_run_id"] = latest_acquisition.get("run_id")
-            result["latest_acquisition_catalog_count"] = latest_acquisition.get("catalog_count")
-            result["latest_acquisition_failed_companies"] = latest_acquisition.get("failed_companies")
-            result["latest_acquisition_deferred_companies"] = latest_acquisition.get("deferred_companies")
-            integrated = [(m, r) for m, r in manifests if r]
-            if integrated:
-                latest_manifest, report = max(integrated, key=lambda x: (str(x[0].get("cycle")), str(x[0].get("run_id"))))
-                result["latest_integrated_cycle"] = latest_manifest.get("cycle")
-                result["latest_integrated_run_id"] = latest_manifest.get("run_id")
-                result["latest_integration"] = {
-                    k: report.get(k) for k in ("parsed_rows", "attached_rows", "row_counts", "pdf_count", "newly_acquired_pdf_count", "counts_before", "counts_after") if k in report
-                }
+        target = os.environ.get("TATEMONO_AUDIT_TARGET_THURSDAY")
+        if target:
+            result["latest_scheduled_acquisition_cycle"] = "weekly-" + target
+        execution = os.environ.get("TATEMONO_AUDIT_REALPRO_EXECUTION_ID")
+        if execution:
+            result["latest_cloud_run_execution_id"] = execution
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='realpro_company_batches'").fetchone():
+            batch = conn.execute("SELECT COUNT(DISTINCT scope_key),MAX(acquired_at) FROM realpro_company_batches").fetchone()
+            result["stored_company_batch_scopes"] = int(batch[0] or 0)
+            result["latest_semantic_batch_acquired_at"] = batch[1]
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='realpro_pdf_inputs'").fetchone():
+            pdfs = conn.execute("SELECT COUNT(*),COUNT(DISTINCT company),MAX(acquired_at) FROM realpro_pdf_inputs").fetchone()
+            result["stored_pdf_inputs"] = int(pdfs[0] or 0)
+            result["stored_pdf_companies"] = int(pdfs[1] or 0)
+            result["latest_pdf_input_acquired_at"] = pdfs[2]
     elif provider == "mansion_review":
-        # The authoritative per-scope cycle is added by the caller from
-        # mansion_review_scopes, which is part of the canonical master.
-        pass
+        if os.environ.get("TATEMONO_AUDIT_MANSION_EXECUTION_ID"):
+            result["latest_cloud_run_execution_id"] = os.environ["TATEMONO_AUDIT_MANSION_EXECUTION_ID"]
     return result
 
 
@@ -231,9 +224,9 @@ def audit():
                 for provider in ("ulucks", "realpro", "mansion_review")
             }
             source_runs = {
-                "Ulucks": source_run_summary(store, "ulucks", scope_rows["ulucks"]),
-                "RealPro": source_run_summary(store, "realpro", scope_rows["realpro"]),
-                "Mansion Review": source_run_summary(store, "mansion_review", scope_rows["mansion_review"]),
+                "Ulucks": source_run_summary(store, "ulucks", scope_rows["ulucks"], master),
+                "RealPro": source_run_summary(store, "realpro", scope_rows["realpro"], master),
+                "Mansion Review": source_run_summary(store, "mansion_review", scope_rows["mansion_review"], master),
             }
             mr_cycles = master.execute(
                 """SELECT m.cycle,m.kind,COUNT(*) FROM mansion_review_scopes m
@@ -385,6 +378,7 @@ def audit():
             "head_generation": generation,
             "collection_run_id": collection_run_id(head),
             "head_integration_contract": head.get("report", {}).get("integration_contract"),
+            "scheduled_audit_thursday_jst": os.environ.get("TATEMONO_AUDIT_TARGET_THURSDAY"),
             "master_sha256": head["master"]["sha256"],
             "public_sha256": head["public"]["sha256"],
             "master_integrity": master_integrity,
