@@ -3,8 +3,8 @@
   "mode": "read_only",
   "project": "tatemono-map",
   "region": "asia-northeast1",
-  "target_thursday_jst": "2026-11-12",
-  "generated_at_jst": "2026-11-14T06:22:55+09:00",
+  "target_thursday_jst": "2026-11-19",
+  "generated_at_jst": "2026-11-20T09:07:07+09:00",
   "jobs": {
     "Ulucks": {
       "job": "tatemono-collection-poc",
@@ -12,10 +12,10 @@
       "query_status": "ok",
       "executions": [
         {
-          "execution_id": "tatemono-collection-poc-cnght",
-          "start_jst": "2026-11-12T14:00:37+09:00",
-          "completion_jst": "2026-11-12T15:38:11+09:00",
-          "duration_seconds": 5854,
+          "execution_id": "tatemono-collection-poc-r558m",
+          "start_jst": "2026-11-19T14:00:47+09:00",
+          "completion_jst": "2026-11-19T15:28:21+09:00",
+          "duration_seconds": 5253,
           "succeeded_count": 1,
           "failed_count": 0,
           "cancelled_count": 0,
@@ -33,18 +33,18 @@
       "query_status": "ok",
       "executions": [
         {
-          "execution_id": "tatemono-realpro-weekly-xbvw9",
-          "start_jst": "2026-11-12T14:05:26+09:00",
-          "completion_jst": "2026-11-12T22:01:58+09:00",
-          "last_log_jst": "2026-11-12T22:02:02+09:00",
-          "duration_seconds": 28592,
+          "execution_id": "tatemono-realpro-weekly-967wv",
+          "start_jst": "2026-11-19T14:05:20+09:00",
+          "completion_jst": "2026-11-19T17:56:59+09:00",
+          "last_log_jst": "2026-11-19T18:07:54+09:00",
+          "duration_seconds": 13899,
           "succeeded_count": 0,
           "failed_count": 1,
           "cancelled_count": 0,
           "retried_count": null,
           "task_count": null,
           "completed_condition": "False",
-          "log_entry_count": 633,
+          "log_entry_count": 1000,
           "status_values": [
             "failed",
             "outside_fukuoka_or_no_available_regions",
@@ -54,13 +54,12 @@
             "realpro_public_web_sync_pending"
           ],
           "exit_codes": [
-            0,
             1
           ],
           "outcome": "failed"
         }
       ],
-      "log_entry_count": 633,
+      "log_entry_count": 1000,
       "unattributed_log_entries": 0,
       "result": "failed"
     },
@@ -70,32 +69,29 @@
       "query_status": "ok",
       "executions": [
         {
-          "execution_id": "tatemono-mansion-weekly-gl5kz",
-          "start_jst": "2026-11-12T14:10:25+09:00",
-          "completion_jst": "2026-11-12T22:31:27+09:00",
-          "last_log_jst": "2026-11-12T22:31:32+09:00",
-          "duration_seconds": 30062,
-          "succeeded_count": 1,
-          "failed_count": 0,
+          "execution_id": "tatemono-mansion-weekly-4kbx5",
+          "start_jst": "2026-11-19T14:10:29+09:00",
+          "completion_jst": "2026-11-19T15:02:39+09:00",
+          "last_log_jst": "2026-11-19T23:59:21+09:00",
+          "duration_seconds": 3129,
+          "succeeded_count": 0,
+          "failed_count": 1,
           "cancelled_count": 0,
           "retried_count": null,
           "task_count": null,
-          "completed_condition": "True",
-          "log_entry_count": 919,
-          "status_values": [
-            "no_source_page",
-            "success"
-          ],
+          "completed_condition": "False",
+          "log_entry_count": 598,
+          "status_values": [],
           "code_values": [],
           "exit_codes": [
-            0
+            1
           ],
-          "outcome": "success"
+          "outcome": "failed"
         }
       ],
-      "log_entry_count": 919,
+      "log_entry_count": 598,
       "unattributed_log_entries": 0,
-      "result": "success"
+      "result": "failed"
     }
   },
   "schedulers": {
@@ -104,7 +100,7 @@
       "state": "ENABLED",
       "schedule": "0 14 * * 4",
       "time_zone": "Asia/Tokyo",
-      "last_attempt_jst": "2026-11-12T14:00:03+09:00",
+      "last_attempt_jst": "2026-11-19T14:00:03+09:00",
       "last_attempt_status_code": null
     },
     "tatemono-realpro-weekly": {
@@ -112,7 +108,7 @@
       "state": "ENABLED",
       "schedule": "5 14 * * 4",
       "time_zone": "Asia/Tokyo",
-      "last_attempt_jst": "2026-11-12T14:05:04+09:00",
+      "last_attempt_jst": "2026-11-19T14:05:03+09:00",
       "last_attempt_status_code": null
     },
     "tatemono-mansion-weekly": {
@@ -120,53 +116,54 @@
       "state": "ENABLED",
       "schedule": "10 14 * * 4",
       "time_zone": "Asia/Tokyo",
-      "last_attempt_jst": "2026-11-12T14:10:02+09:00",
+      "last_attempt_jst": "2026-11-19T14:10:02+09:00",
       "last_attempt_status_code": null
     }
   },
   "overall": "attention_required",
   "issues": [
     "RealPro:failed",
+    "Mansion Review:failed",
     "source_publication:attention_required"
   ],
   "source_publication": {
     "bucket": "tatemono-map-poc-523194690131",
-    "collection_run_id": "20261112T130246Z-e6aaad73f5c5",
-    "head_generation": 1794490286925312,
+    "collection_run_id": "20261119T150022Z-c7670ddbc109",
+    "head_generation": 1795102124308897,
     "head_integration_contract": "mansion-review-partial-v1",
-    "head_run_id": "20261112T130246Z-e6aaad73f5c5",
+    "head_run_id": "20261119T150022Z-c7670ddbc109",
     "mansion_review_sale": {
-      "current_sale_buildings_from_ownership_ledger": 1354,
+      "current_sale_buildings_from_ownership_ledger": 1358,
       "current_sale_rows": 0,
-      "expected_sale_rows_after_publication_selection": 765,
+      "expected_sale_rows_after_publication_selection": 764,
       "intentionally_not_rendered_or_hidden_sale_buildings": 2,
       "public_db_and_web_sale_match": false,
       "public_db_missing_sale_summaries": 0,
-      "public_db_sale_summary_mismatches": 870,
-      "visible_sale_buildings_checked": 1352,
+      "public_db_sale_summary_mismatches": 872,
+      "visible_sale_buildings_checked": 1356,
       "web_json_missing_sale_buildings": 0,
       "web_json_sale_summary_mismatches": 0
     },
     "master_integrity": "ok",
-    "master_sha256": "f779713ae52e7a5819df5d7472cf56c4ba164f17024fdf6656d0e193b3c37e5b",
+    "master_sha256": "be8679fcdad8ad14161350ee8c7b09553ed078edc87b3462dcea06f18565e166",
     "mode": "read_only",
     "overall": "attention_required",
     "production_web": {
       "detail_pages_verified": 3,
-      "public_sha256": "0ff1fd4b2ff8ee2e5d332f70ec1a560a8901dd78441b974d3b592f829b5eff9c",
-      "release_run_id": "20261112T130246Z-e6aaad73f5c5",
+      "public_sha256": "7f8afaa0ea28fd4a662afd1462a6be4608512f9658e4b4c3e153d139a17dad5a",
+      "release_run_id": "20261119T150022Z-c7670ddbc109",
       "status": "verified",
-      "web_building_count": 8913
+      "web_building_count": 9026
     },
     "project": "tatemono-map",
     "public_counts": {
-      "building_summaries": 8913,
-      "buildings": 8913,
-      "vacancies": 12644
+      "building_summaries": 9026,
+      "buildings": 9026,
+      "vacancies": 13103
     },
     "public_integrity": "ok",
-    "public_sha256": "0ff1fd4b2ff8ee2e5d332f70ec1a560a8901dd78441b974d3b592f829b5eff9c",
-    "scheduled_audit_thursday_jst": "2026-11-12",
+    "public_sha256": "7f8afaa0ea28fd4a662afd1462a6be4608512f9658e4b4c3e153d139a17dad5a",
+    "scheduled_audit_thursday_jst": "2026-11-19",
     "schema": 1,
     "sources": {
       "Mansion Review": {
@@ -174,12 +171,12 @@
         "current_scope_cycles": [
           {
             "current_scopes": 33,
-            "cycle": "week-20261112",
+            "cycle": "week-20261119",
             "kind": "chintai"
           },
           {
             "current_scopes": 19,
-            "cycle": "week-20261112",
+            "cycle": "week-20261119",
             "kind": "mansion"
           }
         ],
@@ -187,25 +184,25 @@
         "current_snapshot_rows": 0,
         "current_snapshot_rows_not_selected_for_publication": 0,
         "current_snapshot_scopes_with_rows": 0,
-        "effective_buildings_selected_for_publication": 1785,
+        "effective_buildings_selected_for_publication": 1850,
         "effective_current_snapshot_rows_selected": 0,
-        "effective_retained_rows_selected": 3699,
-        "effective_rows_selected_for_publication": 3699,
-        "intentionally_not_rendered_or_hidden_buildings": 56,
-        "latest_cloud_run_execution_id": "tatemono-mansion-weekly-gl5kz",
-        "latest_cycle": "week-20261112",
-        "latest_integrated_cycle": "week-20261112",
+        "effective_retained_rows_selected": 3857,
+        "effective_rows_selected_for_publication": 3857,
+        "intentionally_not_rendered_or_hidden_buildings": 61,
+        "latest_cloud_run_execution_id": "tatemono-mansion-weekly-4kbx5",
+        "latest_cycle": "week-20261119",
+        "latest_integrated_cycle": "week-20261119",
         "latest_integration": {
           "absent_scopes": 18,
-          "attached_rows": 6153,
+          "attached_rows": 6351,
           "failed_scopes": 0,
-          "parsed_rows": 14770,
+          "parsed_rows": 15151,
           "row_counts": {
-            "accepted_existing": 6114,
-            "accepted_new": 39,
-            "anomaly": 171,
-            "duplicate": 9,
-            "held": 8437
+            "accepted_existing": 6323,
+            "accepted_new": 28,
+            "anomaly": 147,
+            "duplicate": 11,
+            "held": 8642
           },
           "successful_scopes": 52
         },
@@ -213,7 +210,7 @@
         "public_db_missing_buildings": 0,
         "public_db_summary_mismatches": 0,
         "rental_source_priority_rank": 3,
-        "visible_buildings_checked": 1729,
+        "visible_buildings_checked": 1789,
         "web_json_missing_buildings": 0,
         "web_json_summary_mismatches": 0
       },
@@ -223,23 +220,23 @@
         "current_snapshot_rows": 0,
         "current_snapshot_rows_not_selected_for_publication": 0,
         "current_snapshot_scopes_with_rows": 0,
-        "effective_buildings_selected_for_publication": 4119,
+        "effective_buildings_selected_for_publication": 4405,
         "effective_current_snapshot_rows_selected": 0,
-        "effective_retained_rows_selected": 7532,
-        "effective_rows_selected_for_publication": 7532,
-        "intentionally_not_rendered_or_hidden_buildings": 2172,
-        "latest_cloud_run_execution_id": "tatemono-realpro-weekly-xbvw9",
-        "latest_pdf_input_acquired_at": "2026-11-12T16:11:59+09:00",
-        "latest_scheduled_acquisition_cycle": "weekly-2026-11-12",
-        "latest_semantic_batch_acquired_at": "2026-11-12T16:11:07+09:00",
+        "effective_retained_rows_selected": 8158,
+        "effective_rows_selected_for_publication": 8158,
+        "intentionally_not_rendered_or_hidden_buildings": 2376,
+        "latest_cloud_run_execution_id": "tatemono-realpro-weekly-967wv",
+        "latest_pdf_input_acquired_at": "2026-11-19T16:05:44+09:00",
+        "latest_scheduled_acquisition_cycle": "weekly-2026-11-19",
+        "latest_semantic_batch_acquired_at": "2026-11-19T16:05:44+09:00",
         "public_db_and_web_match": true,
         "public_db_missing_buildings": 0,
         "public_db_summary_mismatches": 0,
         "rental_source_priority_rank": 2,
-        "stored_company_batch_scopes": 100,
-        "stored_pdf_companies": 106,
-        "stored_pdf_inputs": 506,
-        "visible_buildings_checked": 1947,
+        "stored_company_batch_scopes": 101,
+        "stored_pdf_companies": 107,
+        "stored_pdf_inputs": 609,
+        "visible_buildings_checked": 2029,
         "web_json_missing_buildings": 0,
         "web_json_summary_mismatches": 0
       },
@@ -250,23 +247,23 @@
         "current_snapshot_rows": 0,
         "current_snapshot_rows_not_selected_for_publication": 0,
         "current_snapshot_scopes_with_rows": 0,
-        "effective_buildings_selected_for_publication": 2185,
+        "effective_buildings_selected_for_publication": 2203,
         "effective_current_snapshot_rows_selected": 0,
-        "effective_retained_rows_selected": 5165,
-        "effective_rows_selected_for_publication": 5165,
+        "effective_retained_rows_selected": 5250,
+        "effective_rows_selected_for_publication": 5250,
         "intentionally_not_rendered_or_hidden_buildings": 3,
-        "latest_cloud_run_execution_id": "tatemono-collection-poc-cnght",
-        "latest_scheduled_acquisition_cycle": "weekly-2026-11-12",
+        "latest_cloud_run_execution_id": "tatemono-collection-poc-r558m",
+        "latest_scheduled_acquisition_cycle": "weekly-2026-11-19",
         "public_db_and_web_match": true,
         "public_db_missing_buildings": 0,
         "public_db_summary_mismatches": 0,
         "rental_source_priority_rank": 1,
-        "visible_buildings_checked": 2182,
+        "visible_buildings_checked": 2200,
         "web_json_missing_buildings": 0,
         "web_json_summary_mismatches": 0
       }
     },
-    "audit_execution_name": "tatemono-collection-poc-qv6q4",
+    "audit_execution_name": "tatemono-collection-poc-ppccp",
     "execution_command_exit_code": 0
   }
 }
